@@ -1,0 +1,65 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+target/
+.anchor/
+
+# Build outputs
+*.so
+*.o
+dist/
+build/
+artifacts/
+
+# IDL files (generated - keep in target/)
+# Note: IDL JSON files are in confidex_program/target/idl/
+
+# Keypairs (NEVER commit these)
+id.json
+*-keypair.json
+deploy-keypair*.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cargo
+Cargo.lock
+**/*.rs.bk
+
+# Noir
+circuits/**/target/
+circuits/**/Prover.toml.bak
+
+# Test outputs
+test-ledger/
+
+# Next.js
+frontend/.next/
+frontend/out/
+
+# pnpm
+.pnpm-debug.log
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+.claude/
