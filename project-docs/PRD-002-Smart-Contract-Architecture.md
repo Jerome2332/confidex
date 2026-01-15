@@ -676,9 +676,153 @@ pub enum ConfidexError {
 
 ---
 
-## 7. Security Considerations
+## 7. Dual Settlement Architecture
 
-### 7.1 Access Control Matrix
+Confidex supports two settlement methods: Arcium C-SPL (native confidential tokens) and ShadowWire (Bulletproof-based private transfers). This provides production reliability while leveraging cutting-edge technology.
+
+### 7.1 Settlement Method Enum
+
+```rust
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+pub enum SettlementMethod {
+    /// Arcium C-SPL confidential tokens (primary)
+    CSPL,
+    /// ShadowWire Bulletproof transfers (fallback)
+    ShadowWire,
+}
+```
+
+### 7.2 Settlement Account Structures
+
+#### For C-SPL Settlement
+
+```rust
+/// User's confidential token account (C-SPL)
+#[account]
+pub struct UserConfidentialAccount {
+    /// Associated user wallet
+    pub owner: Pubkey,
+    /// Confidential mint
+    pub c_mint: Pubkey,
+    /// Encrypted balance (ElGamal)
+    pub encrypted_balance: [u8; 64],
+    /// Pending incoming credits
+    pub pending_balance: [u8; 64],
+    /// Account bump
+    pub bump: u8,
+}
+```
+
+#### For ShadowWire Settlement
+
+```rust
+/// User's ShadowWire deposit record
+#[account]
+pub struct ShadowWireDeposit {
+    /// Associated user wallet
+    pub owner: Pubkey,
+    /// Token type (SOL, USDC, etc.)
+    pub token: TokenType,
+    /// Commitment hash (Pedersen)
+    pub commitment: [u8; 32],
+    /// Nullifier for spend tracking
+    pub nullifier: [u8; 32],
+    /// Deposit timestamp
+    pub deposited_at: i64,
+    /// Account bump
+    pub bump: u8,
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
+pub enum TokenType {
+    SOL,
+    USDC,
+    USDT,
+}
+```
+
+### 7.3 Dual Settlement Instruction
+
+```rust
+pub fn settle_trade(
+    ctx: Context<SettleTrade>,
+    method: SettlementMethod,
+    buy_order: Pubkey,
+    sell_order: Pubkey,
+) -> Result<()> {
+    match method {
+        SettlementMethod::CSPL => settle_via_cspl(ctx, buy_order, sell_order),
+        SettlementMethod::ShadowWire => settle_via_shadowwire(ctx, buy_order, sell_order),
+    }
+}
+```
+
+### 7.4 CPI to ShadowWire
+
+```rust
+/// Execute private transfer via ShadowWire
+pub fn shadowwire_transfer(
+    shadowwire_program: AccountInfo,
+    sender: AccountInfo,
+    recipient: AccountInfo,
+    amount_commitment: [u8; 32],
+    range_proof: Vec<u8>,  // Bulletproof range proof (~700 bytes)
+    signature: [u8; 64],
+) -> Result<()>
+```
+
+### 7.5 Settlement Accounts for Trading Pair
+
+```rust
+#[account]
+pub struct TradingPairSettlement {
+    /// Trading pair reference
+    pub pair: Pubkey,
+
+    /// C-SPL vaults (when using CSPL method)
+    pub c_base_vault: Pubkey,
+    pub c_quote_vault: Pubkey,
+
+    /// ShadowWire pool addresses (when using ShadowWire method)
+    pub sw_base_pool: Pubkey,
+    pub sw_quote_pool: Pubkey,
+
+    /// Active settlement method
+    pub active_method: SettlementMethod,
+
+    /// Fee recipient for ShadowWire (1% relayer fee)
+    pub sw_fee_recipient: Pubkey,
+
+    /// Account bump
+    pub bump: u8,
+}
+```
+
+### 7.6 Settlement Method Selection
+
+The exchange admin can configure the active settlement method per trading pair:
+
+```rust
+pub fn set_settlement_method(
+    ctx: Context<SetSettlementMethod>,
+    pair: Pubkey,
+    method: SettlementMethod,
+) -> Result<()>
+```
+
+**Selection Criteria:**
+| Criteria | C-SPL | ShadowWire |
+|----------|-------|------------|
+| Privacy Model | ElGamal + MPC | Bulletproofs ZK |
+| Maturity | Testnet (new) | Production |
+| Fee | Gas only | 1% relayer |
+| Supported Tokens | Any SPL | 17 specific tokens |
+
+---
+
+## 8. Security Considerations
+
+### 8.1 Access Control Matrix
 
 | Instruction | Signer Required | Additional Checks |
 |-------------|-----------------|-------------------|
@@ -693,13 +837,13 @@ pub enum ConfidexError {
 | `cancel_order` | Maker | Owns order |
 | `match_orders` | Any (permissionless) | Orders matchable |
 
-### 7.2 Reentrancy Protection
+### 8.2 Reentrancy Protection
 
 - All state updates occur BEFORE external CPIs
 - Order status checked at instruction start
 - Atomic settlement prevents partial execution
 
-### 7.3 Arithmetic Safety
+### 8.3 Arithmetic Safety
 
 - All public arithmetic uses `checked_*` operations
 - Encrypted arithmetic handled by Arcium (secure by design)
@@ -707,9 +851,9 @@ pub enum ConfidexError {
 
 ---
 
-## 8. Testing Strategy
+## 9. Testing Strategy
 
-### 8.1 Unit Tests
+### 9.1 Unit Tests
 
 | Test | Description |
 |------|-------------|
@@ -722,7 +866,7 @@ pub enum ConfidexError {
 | `test_partial_fill` | Partial order fills |
 | `test_access_control` | Permission checks |
 
-### 8.2 Integration Tests
+### 9.2 Integration Tests
 
 | Test | Description |
 |------|-------------|
@@ -731,7 +875,7 @@ pub enum ConfidexError {
 | `test_eligibility_flow` | ZK proof integration |
 | `test_mpc_operations` | Arcium CPI |
 
-### 8.3 Devnet Tests
+### 9.3 Devnet Tests
 
 | Test | Description |
 |------|-------------|
@@ -741,18 +885,18 @@ pub enum ConfidexError {
 
 ---
 
-## 9. Deployment
+## 10. Deployment
 
-### 9.1 Program IDs
+### 10.1 Program IDs
 
 | Program | Network | Address |
 |---------|---------|---------|
-| `confidex_dex` | Devnet | TBD |
-| `eligibility_verifier` | Devnet | Generated by Sunspot |
-| `arcium_adapter` | Devnet | From Arcium testnet |
-| `c_spl_program` | Devnet | From C-SPL testnet |
+| `confidex_dex` | Devnet | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` |
+| `arcium_mxe` | Devnet | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` |
+| `eligibility_verifier` | Devnet | `6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF` |
+| `c_spl_program` | Devnet | Pending C-SPL testnet release |
 
-### 9.2 Deployment Steps
+### 10.2 Deployment Steps
 
 1. Deploy eligibility verifier (Sunspot)
 2. Deploy main DEX program
@@ -762,8 +906,9 @@ pub enum ConfidexError {
 
 ---
 
-## 10. Revision History
+## 11. Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | Jan 10, 2026 | Zac | Initial document |
+| 1.1 | Jan 15, 2026 | Claude | Added dual settlement architecture (Section 7), updated Program IDs with deployed addresses |

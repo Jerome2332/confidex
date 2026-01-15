@@ -11,10 +11,10 @@ export const MXE_PROGRAM_ID = new PublicKey(
     'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
 );
 
-// Verifier program (placeholder until deployed)
+// ZK Eligibility Verifier (deployed via Sunspot)
 export const VERIFIER_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_VERIFIER_PROGRAM_ID ||
-    '11111111111111111111111111111111'
+    '6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF'
 );
 
 // RPC endpoints

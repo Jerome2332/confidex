@@ -22,11 +22,12 @@
 - [x] Deploy `arcium_mxe` to devnet ✅ COMPLETED
   - Program ID: `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE`
   - Size: 239KB
-- [ ] Deploy ZK verifier via Sunspot ⏳ PARTIAL
+- [x] Deploy ZK verifier via Sunspot ✅ COMPLETED
   - Circuit compiled: `circuits/eligibility/target/eligibility.json` (32KB)
   - Noir tests: 2/2 passing
-  - **Blocker:** Sunspot CLI not installed (needed for Solana verifier deployment)
-  - Command: `sunspot compile && sunspot setup && sunspot deploy`
+  - Sunspot compile → setup → deploy pipeline completed
+  - **Verifier Program ID:** `6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF`
+  - Size: 197KB
 
 ### 1.2 Host Frontend
 - [x] Deploy frontend to Vercel ✅ COMPLETED
@@ -47,16 +48,21 @@
 - [x] **PRD-001**: Update timeline and prize targets ✅ COMPLETED
   - Already at $66.5K target
   - Fixed proof generation note (server-side)
-- [ ] **PRD-002**: Add dual settlement account structures
-  - Add C-SPL + ShadowWire settlement options
+- [x] **PRD-002**: Add dual settlement account structures ✅ COMPLETED
+  - Added Section 7: Dual Settlement Architecture
+  - SettlementMethod enum (CSPL, ShadowWire)
+  - UserConfidentialAccount and ShadowWireDeposit structs
+  - TradingPairSettlement with dual vault support
+  - Updated Program IDs with deployed addresses
 - [x] **PRD-005**: Add ShadowWire/Inco/PNP integration specs ✅ COMPLETED
   - Added ShadowWire SDK integration section
   - Added PNP Exchange SDK integration section
   - Fixed client-side proof generation references
-- [ ] **dev-setup.md**: Align version numbers
-  - Anchor: 0.32.1
-  - Rust: 1.89.0
-  - Noir: 1.0.0-beta.13
+- [x] **dev-setup.md**: Align version numbers ✅ COMPLETED
+  - Created comprehensive dev-setup.md with all tool versions
+  - Anchor: 0.32.1, Rust: 1.89.0, Noir: 1.0.0-beta.13
+  - Sunspot, Arcium CLI, Node.js setup instructions
+  - IDE configuration, troubleshooting, deployed Program IDs
 
 ---
 
@@ -120,13 +126,13 @@
 
 | Category | Total | Completed | Remaining |
 |----------|-------|-----------|-----------|
-| Deployment | 4 | 3 | 1 |
-| Documentation | 5 | 3 | 2 |
+| Deployment | 4 | 4 | 0 |
+| Documentation | 5 | 5 | 0 |
 | Tests | 1 | 1 | 0 |
 | Demo/Submission | 8 | 0 | 8 |
 | Frontend | 1 | 1 | 0 |
 | Stretch | 4 | 0 | 4 |
-| **Total** | **23** | **8** | **15** |
+| **Total** | **23** | **11** | **12** |
 
 ---
 

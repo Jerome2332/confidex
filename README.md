@@ -10,6 +10,15 @@
 
 ---
 
+## Live Demo
+
+| Resource | URL |
+|----------|-----|
+| **Frontend** | [https://frontend-humanoid-tech.vercel.app](https://frontend-humanoid-tech.vercel.app) |
+| **DEX Program** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) |
+| **MXE Program** | [`CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE`](https://explorer.solana.com/address/CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE?cluster=devnet) |
+| **ZK Verifier** | [`6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF`](https://explorer.solana.com/address/6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF?cluster=devnet) |
+
 ## Overview
 
 Confidex is a confidential order book DEX that enables private trading on Solana. Unlike traditional DEXs where order details are public, Confidex keeps your trade amounts and prices encrypted throughout the entire lifecycle.
@@ -195,7 +204,8 @@ confidex/
 ```env
 # Frontend (.env.local)
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=CKRX2k2Fsa3t2yYUxtr8Gy5D9poW2ut3wKCyLUc51SgX
+NEXT_PUBLIC_MXE_PROGRAM_ID=CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
+NEXT_PUBLIC_VERIFIER_PROGRAM_ID=6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF
 NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com
 NEXT_PUBLIC_HELIUS_API_KEY=your-helius-api-key
 NEXT_PUBLIC_PROOF_SERVER_URL=http://localhost:3001
