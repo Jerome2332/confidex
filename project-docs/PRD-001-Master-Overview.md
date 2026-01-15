@@ -1,10 +1,11 @@
 # PRD-001: Confidex Master Project Overview
 
-**Document ID:** PRD-001  
-**Version:** 1.0  
-**Date:** January 10, 2026  
-**Competition:** Solana Privacy Hack  
-**Target Bounties:** Arcium ($10K) + Helius ($5K) + Open Track ($18K)  
+**Document ID:** PRD-001
+**Version:** 1.1
+**Date:** January 15, 2026
+**Competition:** Solana Privacy Hack
+**Target Bounties:** Arcium ($10K) + Noir ($10K) + Open Track ($18K) + Helius ($5K) + Radr Labs ($15K) + Inco ($6K) + PNP ($2.5K)
+**Total Prize Pool Target:** ~$66,500 (Core: $43K)  
 
 ---
 
@@ -251,12 +252,18 @@ Week 3 (Jan 26-30):
 
 ### 8.2 Prize Strategy
 
-| Bounty | Prize | Our Angle | Confidence |
-|--------|-------|-----------|------------|
-| **Arcium** | $10,000 | Full C-SPL integration, encrypted matching | High |
-| **Helius** | $5,000 | RPC, Photon indexing, webhooks | High |
-| **Open Track** | $18,000 | Novel MPC + ZK combination | Medium |
-| **Total Potential** | **$33,000** | | |
+| Bounty | Prize | Our Angle | Confidence | Priority |
+|--------|-------|-----------|------------|----------|
+| **Arcium** | $10,000 | Full C-SPL integration, encrypted matching (RFP #1) | 98% | P0 |
+| **Aztec/Noir** | $10,000 | Groth16 eligibility proofs via Sunspot | 80% | P0 |
+| **Open Track** | $18,000 | Novel MPC + ZK three-layer architecture | 75% | P0 |
+| **Helius** | $5,000 | RPC, webhooks, Photon indexing | 85% | P1 |
+| **Radr Labs** | $15,000 | ShadowWire settlement integration | 65% | P1 |
+| **Inco** | $6,000 | DeFi track - document compatibility | 45% | P2 |
+| **PNP Exchange** | $2,500 | Prediction markets with C-SPL collateral | 60% | P2 |
+| **Total Potential** | **$66,500** | | |
+
+**Core Target (P0 + Helius):** $43,000
 
 ---
 

@@ -275,33 +275,74 @@ fn verify_smt_non_membership(
 - **Valid proof:** Address is NOT on blacklist
 - **Invalid/no proof:** Cannot prove non-membership (possibly blacklisted)
 
-### 3.4 Proof Generation (Client-Side)
+### 3.4 Proof Generation (Server-Side via Sunspot)
 
 ```typescript
-// Client-side proof generation
-import { Noir } from '@noir-lang/noir_js';
-import { BarretenbergBackend } from '@noir-lang/backend_barretenberg';
+// Server-side proof generation via Sunspot
+// NOTE: Barretenberg cannot be used for Solana verification.
+// Groth16 proofs via Sunspot are required (~388 bytes, ~200K compute units).
 
-async function generateEligibilityProof(
+// Frontend requests proof from backend
+async function requestEligibilityProof(
   userAddress: PublicKey,
-  blacklistRoot: Uint8Array,
-  merklePath: Uint8Array[],
-  pathIndices: boolean[]
+  signMessage: (msg: Uint8Array) => Promise<Uint8Array>
 ): Promise<Uint8Array> {
-  // Initialize Noir with compiled circuit
-  const circuit = await fetch('/circuits/eligibility.json').then(r => r.json());
-  const backend = new BarretenbergBackend(circuit);
-  const noir = new Noir(circuit, backend);
+  // 1. Sign a message to prove wallet ownership
+  const message = new TextEncoder().encode(
+    `Confidex Eligibility Proof Request\nAddress: ${userAddress.toString()}\nTimestamp: ${Date.now()}`
+  );
+  const signature = await signMessage(message);
 
-  // Generate proof
-  const proof = await noir.generateProof({
-    blacklist_root: Array.from(blacklistRoot),
-    address: Array.from(userAddress.toBytes()),
-    merkle_path: merklePath.map(p => Array.from(p)),
-    path_indices: pathIndices
+  // 2. Request proof from backend (proof server)
+  const response = await fetch('/api/prove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      address: userAddress.toString(),
+      signature: Array.from(signature),
+      message: Array.from(message),
+    }),
   });
 
-  return proof.proof; // ~388 bytes
+  const { proof } = await response.json();
+  return new Uint8Array(proof); // ~388 bytes Groth16 proof
+}
+
+// Backend proof server (Node.js/Express)
+// POST /api/prove
+async function handleProveRequest(req, res) {
+  const { address, signature, message } = req.body;
+
+  // 1. Verify signature matches address
+  const isValid = nacl.sign.detached.verify(
+    new Uint8Array(message),
+    new Uint8Array(signature),
+    new PublicKey(address).toBytes()
+  );
+  if (!isValid) return res.status(401).json({ error: 'Invalid signature' });
+
+  // 2. Fetch current blacklist root from chain
+  const exchangeState = await program.account.exchangeState.fetch(exchangePda);
+  const blacklistRoot = exchangeState.blacklistRoot;
+
+  // 3. Get merkle proof from blacklist indexer
+  const { path, indices } = await fetchMerkleProof(address);
+
+  // 4. Write Prover.toml
+  const proverToml = `
+blacklist_root = "${Buffer.from(blacklistRoot).toString('hex')}"
+address = "${address}"
+merkle_path = [${path.map(p => `"${p}"`).join(', ')}]
+path_indices = [${indices.join(', ')}]
+`;
+  fs.writeFileSync('circuits/eligibility/Prover.toml', proverToml);
+
+  // 5. Generate proof via Sunspot CLI
+  execSync('cd circuits/eligibility && sunspot prove circuit.json Prover.toml circuit.ccs key.pk');
+
+  // 6. Read and return proof bytes
+  const proof = fs.readFileSync('circuits/eligibility/proof.proof');
+  return res.json({ proof: Array.from(proof) });
 }
 ```
 

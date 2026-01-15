@@ -92,25 +92,25 @@ source "$HOME/.cargo/env"
 
 # Verify installation
 rustc --version
-# Expected: rustc 1.75.0 or higher
+# Expected: rustc 1.89.0 (required for Arcium v0.4.0+)
 
-# Install specific version for Solana compatibility (if needed)
-rustup install 1.75.0
-rustup default 1.75.0
+# Install specific version for Arcium compatibility
+rustup install 1.89.0
+rustup default 1.89.0
 ```
 
 ### 2.2 Install Solana CLI
 
 ```bash
-# Install Solana CLI (v1.18.x recommended)
-sh -c "$(curl -sSfL https://release.solana.com/v1.18.26/install)"
+# Install Solana CLI (v2.3.0 required for Arcium v0.4.0+)
+sh -c "$(curl -sSfL https://release.anza.xyz/v2.3.0/install)"
 
 # Add to PATH (add to ~/.bashrc or ~/.zshrc for persistence)
 export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
 
 # Verify installation
 solana --version
-# Expected: solana-cli 1.18.26
+# Expected: solana-cli 2.3.0
 
 # Configure for devnet
 solana config set --url devnet
@@ -153,7 +153,7 @@ avm use latest
 
 # Verify installation
 anchor --version
-# Expected: anchor-cli 0.31.0 or higher
+# Expected: anchor-cli 0.32.1
 ```
 
 ### 3.2 Verify Anchor Setup
