@@ -29,14 +29,10 @@
   - Command: `sunspot compile && sunspot setup && sunspot deploy`
 
 ### 1.2 Host Frontend
-- [ ] Deploy frontend to Vercel
-  - Connect GitHub repo
-  - Set environment variables:
-    - `NEXT_PUBLIC_PROGRAM_ID`
-    - `NEXT_PUBLIC_MXE_PROGRAM_ID`
-    - `NEXT_PUBLIC_RPC_URL`
-    - `NEXT_PUBLIC_HELIUS_API_KEY`
-    - `NEXT_PUBLIC_PROOF_SERVER_URL`
+- [x] Deploy frontend to Vercel ✅ COMPLETED
+  - URL: https://frontend-humanoid-tech.vercel.app
+  - Status: Ready
+  - Environment variables configured via vercel.json
 - [ ] Test live deployment with wallet connection
 
 ---
@@ -121,13 +117,13 @@
 
 | Category | Total | Completed | Remaining |
 |----------|-------|-----------|-----------|
-| Deployment | 4 | 2 | 2 |
+| Deployment | 4 | 3 | 1 |
 | Documentation | 5 | 0 | 5 |
 | Tests | 1 | 1 | 0 |
 | Demo/Submission | 8 | 0 | 8 |
 | Frontend | 1 | 1 | 0 |
 | Stretch | 4 | 0 | 4 |
-| **Total** | **23** | **4** | **19** |
+| **Total** | **23** | **5** | **18** |
 
 ---
 
