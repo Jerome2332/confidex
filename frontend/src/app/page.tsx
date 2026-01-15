@@ -28,7 +28,7 @@ export default function Home() {
               <a href="/predict" className="text-sm text-muted-foreground hover:text-foreground">
                 Predict
               </a>
-              <a href="#" className="text-sm text-muted-foreground hover:text-foreground">
+              <a href="/wrap" className="text-sm text-muted-foreground hover:text-foreground">
                 Wrap/Unwrap
               </a>
               <a href="https://docs.arcium.com" target="_blank" rel="noopener" className="text-sm text-muted-foreground hover:text-foreground">

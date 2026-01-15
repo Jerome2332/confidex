@@ -8,7 +8,7 @@ export const CONFIDEX_PROGRAM_ID = new PublicKey(
 
 export const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-    'CKRX2k2Fsa3t2yYUxtr8Gy5D9poW2ut3wKCyLUc51SgX'
+    'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
 );
 
 // Verifier program (placeholder until deployed)
