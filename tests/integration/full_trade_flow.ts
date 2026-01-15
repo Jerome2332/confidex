@@ -31,12 +31,16 @@ async function airdrop(
   pubkey: PublicKey,
   amount: number = 2
 ): Promise<void> {
-  const signature = await connection.requestAirdrop(
-    pubkey,
-    amount * LAMPORTS_PER_SOL
-  );
-  await connection.confirmTransaction(signature, 'confirmed');
-  console.log(`Airdropped ${amount} SOL to ${pubkey.toBase58()}`);
+  try {
+    const signature = await connection.requestAirdrop(
+      pubkey,
+      amount * LAMPORTS_PER_SOL
+    );
+    await connection.confirmTransaction(signature, 'confirmed');
+    console.log(`  Airdropped ${amount} SOL to ${pubkey.toBase58().slice(0, 8)}...`);
+  } catch (error) {
+    console.log(`  Airdrop skipped (rate limited): ${pubkey.toBase58().slice(0, 8)}...`);
+  }
 }
 
 // Simulated encryption (would use Arcium in production)
@@ -244,7 +248,7 @@ async function runTests(): Promise<void> {
       }),
     });
 
-    const data = await response.json();
+    const data = await response.json() as { result?: unknown[] };
     console.log(`  Recent priority fees: ${data.result?.length || 0} entries`);
   });
 

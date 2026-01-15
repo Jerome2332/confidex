@@ -194,7 +194,7 @@ async function runTests(): Promise<void> {
     const blacklisted = [
       BigInt('0x1234567890abcdef'),
       BigInt('0xdeadbeefcafe1234'),
-      BigInt('0xbadaddress111111'),
+      BigInt('0xbadacc0de111111'),
     ];
 
     for (const addr of blacklisted) {
@@ -230,8 +230,8 @@ async function runTests(): Promise<void> {
     const tree = new SparseMerkleTree(20);
 
     // Add some blacklisted addresses
-    tree.insert(BigInt('0xbadaddress111111'));
-    tree.insert(BigInt('0xbadaddress222222'));
+    tree.insert(BigInt('0xbadacc0de111111'));
+    tree.insert(BigInt('0xbadacc0de222222'));
 
     // Generate proof for eligible address
     const eligibleAddress = PublicKey.unique();
@@ -249,7 +249,7 @@ async function runTests(): Promise<void> {
   // Test 6: Blacklisted Address Rejection
   await test('Reject proof for blacklisted address', async () => {
     const tree = new SparseMerkleTree(20);
-    const blacklistedKey = BigInt('0xbadaddress333333');
+    const blacklistedKey = BigInt('0xbadacc0de333333');
     tree.insert(blacklistedKey);
 
     // Create a PublicKey that matches the blacklisted value
@@ -310,7 +310,7 @@ async function runTests(): Promise<void> {
     const root1 = tree.getRoot();
 
     // Add new blacklisted address
-    tree.insert(BigInt('0xnewbadaddress111'));
+    tree.insert(BigInt('0x0e0badacc0de111'));
     const root2 = tree.getRoot();
 
     if (root1 === root2) {
