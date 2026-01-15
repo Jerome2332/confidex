@@ -40,16 +40,19 @@
 ## 2. Documentation Updates 🟡
 
 ### 2.1 PRD Synchronization
-- [ ] **PRD-003**: Update Barretenberg → Sunspot/Groth16
-  - Location: `docs/PRD-003-*.md`
-  - Change: Client-side proving references to server-side
-- [ ] **PRD-001**: Update timeline and prize targets
-  - Current: $33K target
-  - Update to: $66.5K target
+- [x] **PRD-003**: Update Barretenberg → Sunspot/Groth16 ✅ COMPLETED
+  - Updated proof system to server-side Sunspot
+  - Updated circuit code to use pedersen_hash (stdlib)
+  - Fixed all client-side references
+- [x] **PRD-001**: Update timeline and prize targets ✅ COMPLETED
+  - Already at $66.5K target
+  - Fixed proof generation note (server-side)
 - [ ] **PRD-002**: Add dual settlement account structures
   - Add C-SPL + ShadowWire settlement options
-- [ ] **PRD-005**: Add ShadowWire/Inco/PNP integration specs
-  - Document actual SDK patterns used
+- [x] **PRD-005**: Add ShadowWire/Inco/PNP integration specs ✅ COMPLETED
+  - Added ShadowWire SDK integration section
+  - Added PNP Exchange SDK integration section
+  - Fixed client-side proof generation references
 - [ ] **dev-setup.md**: Align version numbers
   - Anchor: 0.32.1
   - Rust: 1.89.0
@@ -118,12 +121,12 @@
 | Category | Total | Completed | Remaining |
 |----------|-------|-----------|-----------|
 | Deployment | 4 | 3 | 1 |
-| Documentation | 5 | 0 | 5 |
+| Documentation | 5 | 3 | 2 |
 | Tests | 1 | 1 | 0 |
 | Demo/Submission | 8 | 0 | 8 |
 | Frontend | 1 | 1 | 0 |
 | Stretch | 4 | 0 | 4 |
-| **Total** | **23** | **5** | **18** |
+| **Total** | **23** | **8** | **15** |
 
 ---
 

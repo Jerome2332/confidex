@@ -169,7 +169,9 @@ Output: enc(amount * fee_bps / 10000)
 |-----------|--------------|
 | Language | Noir 1.0.0-beta.13 |
 | Proof System | Groth16 (pairing-based zkSNARK) |
+| Hash Function | Pedersen (ZK-friendly, in stdlib) |
 | Compiler | Sunspot (Noir → Solana verifier) |
+| Proof Generation | Server-side (Sunspot CLI) |
 | Proof Size | ~388 bytes |
 | Verification Cost | ~200,000 compute units |
 
@@ -209,53 +211,58 @@ Prove that a user's address is NOT on the exchange's blacklist, without revealin
 ```noir
 // circuits/eligibility/src/main.nr
 
-use std::hash::poseidon;
+use std::hash::pedersen_hash;
 
 global TREE_DEPTH: u32 = 20;
+
+// ZK-friendly hash for two field elements (using Pedersen)
+fn hash_2(left: Field, right: Field) -> Field {
+    pedersen_hash([left, right])
+}
 
 fn main(
     // Public inputs
     blacklist_root: pub Field,
-    
+
     // Private inputs
     address: Field,
     merkle_path: [Field; TREE_DEPTH],
-    path_indices: [bool; TREE_DEPTH]
+    path_indices: [Field; TREE_DEPTH]
 ) {
-    // Hash the address with Poseidon (ZK-friendly hash)
-    let address_hash = poseidon::hash_1([address]);
-    
+    // Hash the address with Pedersen (ZK-friendly hash in Noir stdlib)
+    let _address_hash = pedersen_hash([address]);
+
     // Verify non-membership in Sparse Merkle Tree
     let is_not_member = verify_smt_non_membership(
         blacklist_root,
-        address_hash,
         merkle_path,
         path_indices
     );
-    
+
     // Assert the address is NOT in the blacklist
-    assert(is_not_member);
+    assert(is_not_member, "Address is blacklisted or proof is invalid");
 }
 
 fn verify_smt_non_membership(
     root: Field,
-    leaf_hash: Field,
     path: [Field; TREE_DEPTH],
-    indices: [bool; TREE_DEPTH]
+    indices: [Field; TREE_DEPTH]
 ) -> bool {
     // Compute expected root if leaf is NOT present
     // (leaf position should contain default/empty value)
-    let mut current = 0; // Empty leaf value
-    
+    let mut current: Field = 0; // Empty leaf value
+
     for i in 0..TREE_DEPTH {
         let sibling = path[i];
-        if indices[i] {
-            current = poseidon::hash_2([sibling, current]);
+        let is_right = indices[i];
+        let (left, right) = if is_right == 1 {
+            (sibling, current)
         } else {
-            current = poseidon::hash_2([current, sibling]);
-        }
+            (current, sibling)
+        };
+        current = hash_2(left, right);
     }
-    
+
     // Root should match if address is not in tree
     current == root
 }
@@ -640,33 +647,35 @@ sunspot deploy eligibility.vk --output verifier.so
 solana program deploy verifier.so
 ```
 
-### 6.3 Proof Generation in Frontend
+### 6.3 Proof Generation (Server-Side)
+
+**Note:** Client-side proof generation with Barretenberg is NOT compatible with Solana verification. Proofs must be generated server-side using Sunspot CLI for Groth16 proofs that can be verified on-chain.
 
 ```typescript
-// Initialize once
-const circuit = await import('./circuits/eligibility.json');
-const backend = new BarretenbergBackend(circuit);
-const noir = new Noir(circuit, backend);
-await noir.init();
+// Frontend: Request proof from backend server
+async function requestEligibilityProof(
+  wallet: PublicKey,
+  signMessage: (msg: Uint8Array) => Promise<Uint8Array>
+): Promise<Uint8Array> {
+  // 1. Sign message to prove wallet ownership
+  const message = new TextEncoder().encode(
+    `Confidex Eligibility Proof\nAddress: ${wallet.toString()}\nTimestamp: ${Date.now()}`
+  );
+  const signature = await signMessage(message);
 
-// Generate proof for each order
-async function proveEligibility(wallet: PublicKey): Promise<Uint8Array> {
-  // Fetch current blacklist root from exchange
-  const exchangeState = await program.account.exchangeState.fetch(exchangePda);
-  const blacklistRoot = exchangeState.blacklistRoot;
-  
-  // Fetch merkle proof from indexer
-  const { path, indices } = await fetchMerkleProof(wallet);
-  
-  // Generate proof (2-3 seconds)
-  const { proof } = await noir.generateProof({
-    blacklist_root: blacklistRoot,
-    address: wallet.toBytes(),
-    merkle_path: path,
-    path_indices: indices,
+  // 2. Request proof from backend
+  const response = await fetch('/api/prove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      address: wallet.toString(),
+      signature: Array.from(signature),
+      message: Array.from(message),
+    }),
   });
-  
-  return proof;
+
+  const { proof } = await response.json();
+  return new Uint8Array(proof); // ~388 bytes Groth16 proof
 }
 ```
 
@@ -706,7 +715,7 @@ async function comparePrices(
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| ZK proof generation (client) | 2-3 seconds | Browser WASM |
+| ZK proof generation (server) | 2-3 seconds | Sunspot CLI |
 | ZK proof verification (on-chain) | ~200K CU | ~0.001 SOL |
 | MPC encryption | ~100ms | Per value |
 | MPC comparison | ~500ms | Network latency dominant |

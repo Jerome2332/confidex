@@ -165,7 +165,7 @@ User                    Confidex                 Arcium              Solana
 | Metric | Target | Notes |
 |--------|--------|-------|
 | Order submission latency | < 2 seconds | Includes proof generation |
-| Proof generation time | < 3 seconds | Client-side WASM |
+| Proof generation time | < 3 seconds | Server-side Sunspot |
 | Settlement finality | < 1 slot (~400ms) | After matching |
 | Concurrent orders | > 100 active | Per trading pair |
 

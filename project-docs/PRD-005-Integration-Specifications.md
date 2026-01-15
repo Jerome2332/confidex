@@ -349,64 +349,210 @@ async function deployVerifier() {
 }
 ```
 
-### 5.3 Client-Side Proof Generation
+### 5.3 Server-Side Proof Generation
+
+**Note:** Client-side proof generation with Barretenberg is NOT compatible with Solana verification. Proofs must be generated server-side using Sunspot CLI.
 
 ```typescript
-// proof-generator.ts
-import { Noir } from '@noir-lang/noir_js';
-import { BarretenbergBackend } from '@noir-lang/backend_barretenberg';
-import circuit from '../circuits/eligibility.json';
+// proof-client.ts - Frontend requests proof from backend
 
-let noir: Noir | null = null;
+export async function requestEligibilityProof(
+  wallet: PublicKey,
+  signMessage: (msg: Uint8Array) => Promise<Uint8Array>
+): Promise<Uint8Array> {
+  // 1. Sign message to prove wallet ownership
+  const message = new TextEncoder().encode(
+    `Confidex Eligibility Proof\nAddress: ${wallet.toString()}\nTimestamp: ${Date.now()}`
+  );
+  const signature = await signMessage(message);
 
-async function initProver() {
-  if (noir) return noir;
-  
-  const backend = new BarretenbergBackend(circuit);
-  noir = new Noir(circuit, backend);
-  
-  return noir;
+  // 2. Request proof from backend
+  const response = await fetch('/api/prove', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      address: wallet.toString(),
+      signature: Array.from(signature),
+      message: Array.from(message),
+    }),
+  });
+
+  const { proof } = await response.json();
+  return new Uint8Array(proof); // ~388 bytes Groth16 proof
 }
 
-export async function generateEligibilityProof(
-  address: PublicKey,
-  blacklistRoot: Uint8Array,
-  merkleWitness: MerkleWitness
-): Promise<{ proof: Uint8Array; publicInputs: Uint8Array[] }> {
-  const prover = await initProver();
-  
-  const inputs = {
-    blacklist_root: Array.from(blacklistRoot),
-    address: addressToField(address),
-    sibling_path: merkleWitness.siblings.map(s => Array.from(s)),
-    path_indices: merkleWitness.indices,
-    leaf_low: Array.from(merkleWitness.leafLow),
-    leaf_high: Array.from(merkleWitness.leafHigh),
-    leaf_low_path: merkleWitness.leafLowPath.map(s => Array.from(s)),
-    leaf_high_path: merkleWitness.leafHighPath.map(s => Array.from(s)),
-  };
-  
-  const proof = await prover.generateProof(inputs);
-  
-  return {
-    proof: proof.proof,
-    publicInputs: proof.publicInputs,
-  };
+// Backend proof server generates proofs via Sunspot CLI
+// See PRD-003 section 3.4 for server implementation details
+```
+
+---
+
+## 6. ShadowWire Integration
+
+### 6.1 Overview
+
+ShadowWire provides Bulletproof-based privacy for Solana transfers. It serves as an alternative/fallback settlement layer for Confidex.
+
+| Feature | Description |
+|---------|-------------|
+| **Internal transfers** | Amount hidden via ZK proof (both parties must use ShadowWire) |
+| **External transfers** | Amount visible, sender anonymous |
+| **Supported tokens** | SOL, USDC, RADR, BONK, ORE + 12 others |
+| **Fee** | 1% relayer fee |
+
+### 6.2 SDK Integration
+
+```typescript
+// shadowwire-client.ts
+import { ShadowWireClient } from '@radr/shadowwire';
+
+const client = new ShadowWireClient({ debug: true });
+
+// Deposit to ShadowWire pool
+export async function depositToShadowWire(
+  wallet: string,
+  amount: number // in lamports
+): Promise<void> {
+  await client.deposit({ wallet, amount });
+}
+
+// Private transfer (amount hidden)
+export async function privateTransfer(
+  sender: string,
+  recipient: string,
+  amount: number,
+  token: string,
+  signMessage: (msg: Uint8Array) => Promise<Uint8Array>
+): Promise<string> {
+  const result = await client.transfer({
+    sender,
+    recipient,
+    amount,
+    token,
+    type: 'internal',
+    wallet: { signMessage }
+  });
+  return result.txHash;
+}
+
+// Withdraw from ShadowWire pool
+export async function withdrawFromShadowWire(
+  wallet: string,
+  amount: number
+): Promise<void> {
+  await client.withdraw({ wallet, amount });
+}
+
+// Get balance
+export async function getShadowWireBalance(
+  wallet: string,
+  token: string
+): Promise<number> {
+  return client.getBalance(wallet, token);
+}
+```
+
+### 6.3 Client-Side Proof Generation (Optional)
+
+```typescript
+import { initWASM, generateRangeProof, isWASMSupported } from '@radr/shadowwire';
+
+// Initialize WASM for faster proofs
+if (isWASMSupported()) {
+  await initWASM('/wasm/settler_wasm_bg.wasm');
+}
+
+// Generate range proof client-side (2-3 seconds)
+const proof = await generateRangeProof(amountLamports, 64);
+
+// Use custom proof in transfer
+await client.transferWithClientProofs({
+  sender,
+  recipient,
+  amount,
+  token,
+  type: 'internal',
+  customProof: proof,
+  wallet: { signMessage }
+});
+```
+
+---
+
+## 7. PNP Exchange Integration
+
+### 7.1 Overview
+
+PNP SDK enables prediction market functionality with confidential tokens as collateral.
+
+### 7.2 SDK Integration
+
+```typescript
+// pnp-client.ts
+import { PNPClient } from 'pnp-sdk';
+import bs58 from 'bs58';
+
+// Initialize client
+const client = new PNPClient(
+  process.env.RPC_URL!,
+  process.env.WALLET_SECRET_BASE58
+    ? bs58.decode(process.env.WALLET_SECRET_BASE58)
+    : undefined
+);
+
+// Create prediction market
+export async function createMarket(question: string) {
+  return client.createMarket({ question });
+}
+
+// Buy outcome tokens
+export async function buyTokens(
+  marketId: string,
+  outcome: 'yes' | 'no',
+  amount: number
+) {
+  return client.trading!.buyTokensUsdc(marketId, outcome, amount);
+}
+
+// Fetch market data
+export async function getMarket(marketId: string) {
+  return client.fetchMarket(marketId);
+}
+```
+
+### 7.3 API Server
+
+```typescript
+// pages/api/pnp/create-market.ts
+import { PNPClient } from 'pnp-sdk';
+
+export async function POST(req: Request) {
+  const { question } = await req.json();
+  const client = new PNPClient(process.env.RPC_URL!, privateKey);
+
+  const market = await client.createMarket({ question });
+
+  return Response.json({
+    market: market.market.toString(),
+    yesTokenMint: market.yesTokenMint.toString(),
+    noTokenMint: market.noTokenMint.toString(),
+    marketDetails: market.marketDetails,
+  });
 }
 ```
 
 ---
 
-## 6. External Data Services
+## 8. External Data Services
 
-### 6.1 Price Oracles (Future)
+### 8.1 Price Oracles (Future)
 
 | Provider | Purpose | Integration |
 |----------|---------|-------------|
 | **Pyth** | Real-time price feeds | Direct on-chain read |
 | **Switchboard** | Custom oracle data | On-chain CPI |
 
-### 6.2 Blacklist Data Source
+### 8.2 Blacklist Data Source
 
 ```typescript
 // blacklist-service.ts
@@ -434,7 +580,7 @@ class ConfidexBlacklistProvider implements BlacklistProvider {
 
 ---
 
-## 7. API Endpoints
+## 9. API Endpoints
 
 ### 7.1 Confidex API (Future)
 
@@ -461,7 +607,7 @@ type WSMessage =
 
 ---
 
-## 8. Environment Configuration
+## 10. Environment Configuration
 
 ### 8.1 Environment Variables
 
@@ -524,7 +670,7 @@ export const networks = {
 
 ---
 
-## 9. Testing Integration Points
+## 11. Testing Integration Points
 
 ### 9.1 Mock Services for Development
 
@@ -584,7 +730,7 @@ describe('External Integrations', () => {
 
 ---
 
-## 10. Monitoring & Observability
+## 12. Monitoring & Observability
 
 ### 10.1 Key Metrics to Track
 
@@ -629,7 +775,7 @@ export function logIntegrationCall(
 
 ---
 
-## 11. Revision History
+## 13. Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
