@@ -503,33 +503,38 @@ export async function fetchActiveMarkets(
     try {
       const markets = await fetchAllMarkets(limit);
 
-      return markets.map((m) => ({
-        id: m.market,
-        question: m.marketDetails.question,
-        creator: new PublicKey(m.marketDetails.creator),
-        yesToken: {
-          mint: m.yesTokenMint,
-          symbol: 'YES' as const,
-          supply: BigInt(m.marketDetails.yesTokenSupply),
-          price: calculatePrice(
-            BigInt(m.marketDetails.yesTokenSupply),
-            BigInt(m.marketDetails.marketReserves)
-          ),
-        },
-        noToken: {
-          mint: m.noTokenMint,
-          symbol: 'NO' as const,
-          supply: BigInt(m.marketDetails.noTokenSupply),
-          price: calculatePrice(
-            BigInt(m.marketDetails.noTokenSupply),
-            BigInt(m.marketDetails.marketReserves)
-          ),
-        },
-        collateralMint: m.collateralMint,
-        totalLiquidity: BigInt(m.marketDetails.initialLiquidity),
-        endTime: new Date(m.marketDetails.endTime * 1000),
-        resolved: m.marketDetails.resolved,
-      }));
+      // If SDK returned results, map and return them
+      if (markets.length > 0) {
+        return markets.map((m) => ({
+          id: m.market,
+          question: m.marketDetails.question,
+          creator: new PublicKey(m.marketDetails.creator),
+          yesToken: {
+            mint: m.yesTokenMint,
+            symbol: 'YES' as const,
+            supply: BigInt(m.marketDetails.yesTokenSupply),
+            price: calculatePrice(
+              BigInt(m.marketDetails.yesTokenSupply),
+              BigInt(m.marketDetails.marketReserves)
+            ),
+          },
+          noToken: {
+            mint: m.noTokenMint,
+            symbol: 'NO' as const,
+            supply: BigInt(m.marketDetails.noTokenSupply),
+            price: calculatePrice(
+              BigInt(m.marketDetails.noTokenSupply),
+              BigInt(m.marketDetails.marketReserves)
+            ),
+          },
+          collateralMint: m.collateralMint,
+          totalLiquidity: BigInt(m.marketDetails.initialLiquidity),
+          endTime: new Date(m.marketDetails.endTime * 1000),
+          resolved: m.marketDetails.resolved,
+        }));
+      }
+      // Empty results - fall through to REST API / mock
+      console.log('[PNP] SDK returned no markets, trying fallback');
     } catch (error) {
       console.warn('[PNP] SDK fetch markets failed, trying REST API:', error);
       // Fall through to REST API
