@@ -859,6 +859,89 @@ export async function buildUnwrapTransaction(
   return transaction;
 }
 
+// ============================================
+// PERPETUALS
+// ============================================
+
+// Perp PDA seeds
+const PERP_MARKET_SEED = Buffer.from('perp_market');
+const POSITION_SEED = Buffer.from('position');
+const FUNDING_SEED = Buffer.from('funding');
+
+// Position side enum
+export enum PositionSide {
+  Long = 0,
+  Short = 1,
+}
+
+/**
+ * Derive PerpetualMarket PDA
+ */
+export function derivePerpMarketPda(underlyingMint: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [PERP_MARKET_SEED, underlyingMint.toBuffer()],
+    CONFIDEX_PROGRAM_ID
+  );
+}
+
+/**
+ * Derive FundingRateState PDA
+ */
+export function deriveFundingPda(perpMarket: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [FUNDING_SEED, perpMarket.toBuffer()],
+    CONFIDEX_PROGRAM_ID
+  );
+}
+
+/**
+ * Derive ConfidentialPosition PDA
+ */
+export function derivePositionPda(
+  trader: PublicKey,
+  perpMarket: PublicKey,
+  positionCount: bigint
+): [PublicKey, number] {
+  const countBuf = Buffer.alloc(8);
+  countBuf.writeBigUInt64LE(positionCount);
+  return PublicKey.findProgramAddressSync(
+    [POSITION_SEED, trader.toBuffer(), perpMarket.toBuffer(), countBuf],
+    CONFIDEX_PROGRAM_ID
+  );
+}
+
+/**
+ * Check if PerpetualMarket exists
+ */
+export async function isPerpMarketInitialized(
+  connection: Connection,
+  underlyingMint: PublicKey
+): Promise<boolean> {
+  const [marketPda] = derivePerpMarketPda(underlyingMint);
+  const accountInfo = await connection.getAccountInfo(marketPda);
+  return accountInfo !== null;
+}
+
+/**
+ * Calculate liquidation price based on position parameters
+ * For longs: liq_price = entry_price * (1 - 1/leverage + maintenance_margin)
+ * For shorts: liq_price = entry_price * (1 + 1/leverage - maintenance_margin)
+ */
+export function calculateLiquidationPrice(
+  side: PositionSide,
+  entryPrice: number,
+  leverage: number,
+  maintenanceMarginBps: number = 500 // 5% default
+): number {
+  const maintenanceMargin = maintenanceMarginBps / 10000;
+
+  if (side === PositionSide.Long) {
+    return entryPrice * (1 - 1 / leverage + maintenanceMargin);
+  } else {
+    return entryPrice * (1 + 1 / leverage - maintenanceMargin);
+  }
+}
+
 export interface AutoWrapAndPlaceOrderParams {
   connection: Connection;
   maker: PublicKey;

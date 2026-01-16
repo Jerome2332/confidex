@@ -253,6 +253,17 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       return;
     }
 
+    // For perps, only require amount
+    if (tradingMode === 'perps') {
+      if (!amount || parseFloat(amount) <= 0) {
+        toast.error('Please enter a position size');
+        return;
+      }
+      handleOpenPosition();
+      return;
+    }
+
+    // Spot order validation
     if (!amount || (orderType === 'limit' && !price)) {
       toast.error('Please fill in all fields');
       return;
@@ -267,6 +278,104 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       setShowConfirmDialog(true);
     } else {
       handleSubmit();
+    }
+  };
+
+  // Handle opening a perpetual position
+  const handleOpenPosition = async () => {
+    if (!connected || !publicKey || !solPrice) {
+      toast.error('Please connect your wallet and wait for price feed');
+      return;
+    }
+
+    setIsOpeningPosition(true);
+
+    try {
+      // Generate eligibility proof
+      toast.info('Generating eligibility proof...', { id: 'proof-gen' });
+      const proofResult = await generateProof();
+      toast.success('Proof generated', { id: 'proof-gen' });
+
+      // Initialize encryption if needed
+      if (!isInitialized) {
+        await initializeEncryption();
+      }
+
+      // Encrypt position values
+      toast.info('Encrypting position data...', { id: 'encrypt' });
+      const sizeLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
+      const entryPriceMicros = BigInt(Math.floor(solPrice * 1e6));
+      const collateralMicros = BigInt(Math.floor(parseFloat(amount) * solPrice * 1e6 / leverage));
+
+      const encryptedSize = await encryptValue(sizeLamports);
+      const encryptedEntryPrice = await encryptValue(entryPriceMicros);
+      const encryptedCollateral = await encryptValue(collateralMicros);
+      toast.success('Position data encrypted', { id: 'encrypt' });
+
+      // Calculate liquidation threshold (public)
+      const maintenanceMarginBps = 500; // 5%
+      const liqPrice = estimateLiquidationPrice(positionSide, solPrice, leverage, maintenanceMarginBps);
+      const liqPriceThreshold = BigInt(Math.floor(liqPrice * 1e6));
+
+      // Simulate position creation (demo mode since perp market not deployed)
+      toast.info('Opening position...', { id: 'position-open' });
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Create position in store
+      const positionId = `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const newPosition = {
+        id: positionId,
+        positionId: Date.now(),
+        market: publicKey, // Placeholder
+        marketSymbol: 'SOL-PERP',
+        trader: publicKey,
+        side: positionSide as 'long' | 'short',
+        leverage,
+        encryptedSize,
+        encryptedEntryPrice,
+        encryptedCollateral,
+        encryptedRealizedPnl: new Uint8Array(64),
+        liquidatableBelowPrice: positionSide === 'long' ? liqPrice : 0,
+        liquidatableAbovePrice: positionSide === 'short' ? liqPrice : Number.MAX_SAFE_INTEGER,
+        thresholdVerified: true, // Mock
+        entryCumulativeFunding: BigInt(0),
+        pendingFunding: BigInt(0),
+        status: 'open' as const,
+        createdAt: new Date(),
+        lastUpdated: new Date(),
+        partialCloseCount: 0,
+        autoDeleveragePriority: 0,
+      };
+
+      // Add to store
+      const { addPosition } = usePerpetualStore.getState();
+      addPosition(newPosition);
+
+      if (notifications) {
+        toast.success(
+          `${leverage}x ${positionSide.toUpperCase()} position opened`,
+          {
+            id: 'position-open',
+            description: `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${liqPrice.toFixed(2)}`,
+          }
+        );
+      } else {
+        toast.dismiss('position-open');
+      }
+
+      // Reset form
+      setAmount('');
+      setCollateral('');
+      setSizePercent(0);
+
+    } catch (error) {
+      console.error('[TradingPanel] Position open error:', error);
+      toast.error(
+        error instanceof Error ? error.message : 'Failed to open position',
+        { id: 'position-open' }
+      );
+    } finally {
+      setIsOpeningPosition(false);
     }
   };
 
