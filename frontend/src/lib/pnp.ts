@@ -499,7 +499,10 @@ export async function fetchActiveMarkets(
   connection: Connection,
   limit: number = 10
 ): Promise<PredictionMarket[]> {
-  if (USE_SDK) {
+  // Check if we should skip API calls entirely (known unavailable)
+  const apiLikelyUnavailable = PNP_API_URL.includes('api.pnp.exchange');
+
+  if (USE_SDK && !apiLikelyUnavailable) {
     try {
       const markets = await fetchAllMarkets(limit);
 
@@ -539,6 +542,15 @@ export async function fetchActiveMarkets(
       console.warn('[PNP] SDK fetch markets failed, trying REST API:', error);
       // Fall through to REST API
     }
+  }
+
+  // Skip REST API if known unavailable - go directly to mock
+  if (apiLikelyUnavailable) {
+    console.log('[PNP] API unavailable, using mock data');
+    if (USE_MOCK_FALLBACK) {
+      return getMockMarkets().slice(0, limit);
+    }
+    return [];
   }
 
   // REST API fallback
