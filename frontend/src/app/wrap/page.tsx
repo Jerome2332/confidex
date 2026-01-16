@@ -199,17 +199,17 @@ export default function WrapPage() {
   const isValidAmount = inputAmount > 0 && inputAmount <= maxAmount;
 
   return (
-    <main className="min-h-screen">
+    <main className="min-h-screen bg-black">
       <Header />
 
       <div className="container mx-auto px-4 py-8 max-w-lg">
         {/* Info Card */}
-        <div className="mb-8 p-4 bg-primary/5 border border-primary/20 rounded-lg">
-          <h2 className="font-semibold mb-2 flex items-center gap-2">
+        <div className="mb-8 p-4 bg-white/5 border border-white/10 rounded-xl">
+          <h2 className="font-normal text-white mb-2 flex items-center gap-2">
             <Lock className="h-4 w-4" />
             About Confidential Tokens
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-white/60">
             Wrap your tokens to make them confidential. Confidential tokens (c-tokens)
             have their balances encrypted, allowing you to trade privately on Confidex.
             Only you can reveal your true balance.
@@ -217,15 +217,15 @@ export default function WrapPage() {
         </div>
 
         {/* Main Card */}
-        <div className="border border-border rounded-lg overflow-hidden">
+        <div className="border border-white/10 rounded-xl overflow-hidden bg-white/5">
           {/* Tabs */}
-          <div className="flex border-b border-border">
+          <div className="flex border-b border-white/10">
             <button
               onClick={() => setActiveTab('wrap')}
               className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
                 activeTab === 'wrap'
-                  ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-white/10 text-white border-b-2 border-white'
+                  : 'text-white/50 hover:text-white'
               }`}
             >
               <div className="flex items-center justify-center gap-2">
@@ -237,8 +237,8 @@ export default function WrapPage() {
               onClick={() => setActiveTab('unwrap')}
               className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
                 activeTab === 'unwrap'
-                  ? 'bg-primary/10 text-primary border-b-2 border-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                  ? 'bg-white/10 text-white border-b-2 border-white'
+                  : 'text-white/50 hover:text-white'
               }`}
             >
               <div className="flex items-center justify-center gap-2">
@@ -252,7 +252,7 @@ export default function WrapPage() {
           <div className="p-6">
             {!connected ? (
               <div className="text-center py-8">
-                <p className="text-muted-foreground mb-4">
+                <p className="text-white/50 mb-4">
                   Connect your wallet to wrap/unwrap tokens
                 </p>
                 <WalletButton />
@@ -261,14 +261,14 @@ export default function WrapPage() {
               <div className="space-y-6">
                 {/* Token Selection */}
                 <div>
-                  <label className="block text-sm font-medium mb-2">Token</label>
+                  <label className="block text-sm font-medium text-white mb-2">Token</label>
                   <select
                     value={selectedToken}
                     onChange={(e) => {
                       setSelectedToken(e.target.value);
                       setAmount('');
                     }}
-                    className="w-full p-3 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                    className="w-full p-3 rounded-lg border border-white/10 bg-black text-white focus:outline-none focus:ring-2 focus:ring-white/30"
                   >
                     <option value="SOL">
                       {activeTab === 'wrap' ? 'SOL' : 'cSOL'}
@@ -281,21 +281,21 @@ export default function WrapPage() {
 
                 {/* Balances */}
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-3 bg-secondary/50 rounded-lg">
-                    <div className="text-xs text-muted-foreground mb-1">
+                  <div className="p-3 bg-white/5 rounded-lg">
+                    <div className="text-xs text-white/40 mb-1">
                       Regular Balance
                     </div>
-                    <div className="font-mono font-medium">
+                    <div className="font-mono font-medium text-white">
                       {selectedToken === 'SOL'
                         ? `${tokenBalances.solUiAmount} SOL`
                         : `${tokenBalances.usdcUiAmount} USDC`}
                     </div>
                   </div>
-                  <div className="p-3 bg-secondary/50 rounded-lg">
-                    <div className="text-xs text-muted-foreground mb-1">
+                  <div className="p-3 bg-white/5 rounded-lg">
+                    <div className="text-xs text-white/40 mb-1">
                       Confidential Balance
                     </div>
-                    <div className="font-mono font-medium">
+                    <div className="font-mono font-medium text-white">
                       {selectedToken === 'SOL'
                         ? `${wrappedBalances.solUiAmount} cSOL`
                         : `${wrappedBalances.usdcUiAmount} cUSDC`}
@@ -306,10 +306,10 @@ export default function WrapPage() {
                 {/* Amount Input */}
                 <div>
                   <div className="flex justify-between items-center mb-2">
-                    <label className="text-sm font-medium">Amount</label>
+                    <label className="text-sm font-medium text-white">Amount</label>
                     <button
                       onClick={setMaxAmount}
-                      className="text-xs text-primary hover:underline"
+                      className="text-xs text-white/60 hover:text-white hover:underline"
                     >
                       MAX
                     </button>
@@ -322,14 +322,14 @@ export default function WrapPage() {
                       placeholder="0.00"
                       step="any"
                       min="0"
-                      className="w-full p-3 pr-20 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+                      className="w-full p-3 pr-20 rounded-lg border border-white/10 bg-black text-white focus:outline-none focus:ring-2 focus:ring-white/30"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40">
                       {activeTab === 'wrap' ? selectedToken : `c${selectedToken}`}
                     </span>
                   </div>
                   {amount && !isValidAmount && (
-                    <p className="text-xs text-destructive mt-1">
+                    <p className="text-xs text-rose-400/80 mt-1">
                       {inputAmount > maxAmount
                         ? 'Insufficient balance'
                         : 'Enter a valid amount'}
@@ -341,15 +341,15 @@ export default function WrapPage() {
                 {amount && isValidAmount && (
                   <div className="flex items-center justify-center gap-3 py-4">
                     <div className="text-center">
-                      <div className="text-lg font-mono">{amount}</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-lg font-mono text-white">{amount}</div>
+                      <div className="text-xs text-white/40">
                         {activeTab === 'wrap' ? selectedToken : `c${selectedToken}`}
                       </div>
                     </div>
-                    <ArrowDownUp className="h-5 w-5 text-muted-foreground" />
+                    <ArrowDownUp className="h-5 w-5 text-white/40" />
                     <div className="text-center">
-                      <div className="text-lg font-mono">{amount}</div>
-                      <div className="text-xs text-muted-foreground">
+                      <div className="text-lg font-mono text-white">{amount}</div>
+                      <div className="text-xs text-white/40">
                         {activeTab === 'wrap' ? `c${selectedToken}` : selectedToken}
                       </div>
                     </div>
@@ -358,7 +358,7 @@ export default function WrapPage() {
 
                 {/* Status Messages */}
                 {txStatus === 'success' && (
-                  <div className="p-3 bg-green-500/10 border border-green-500/50 rounded-lg text-sm text-green-500">
+                  <div className="p-3 bg-emerald-500/20 border border-emerald-500/30 rounded-lg text-sm text-emerald-400/80">
                     <div className="flex items-center gap-2">
                       <CheckCircle className="h-4 w-4 flex-shrink-0" />
                       {txMessage}
@@ -378,7 +378,7 @@ export default function WrapPage() {
                 )}
 
                 {txStatus === 'error' && (
-                  <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-sm text-red-500">
+                  <div className="flex items-center gap-2 p-3 bg-rose-500/20 border border-rose-500/30 rounded-lg text-sm text-rose-400/80">
                     <AlertCircle className="h-4 w-4 flex-shrink-0" />
                     {txMessage}
                   </div>
@@ -388,7 +388,7 @@ export default function WrapPage() {
                 <button
                   onClick={handleSubmit}
                   disabled={!isValidAmount || isProcessing}
-                  className="w-full p-4 rounded-lg bg-primary text-primary-foreground font-medium transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full p-4 rounded-lg bg-white text-black font-medium transition-colors hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isProcessing ? (
                     <span className="flex items-center justify-center gap-2">
@@ -413,7 +413,7 @@ export default function WrapPage() {
                 </button>
 
                 {/* Fee Notice */}
-                <p className="text-xs text-center text-muted-foreground">
+                <p className="text-xs text-center text-white/40">
                   Network fee: ~0.000005 SOL
                 </p>
               </div>
@@ -424,22 +424,22 @@ export default function WrapPage() {
         {/* Quick Stats */}
         {connected && (
           <div className="mt-8 grid grid-cols-2 gap-4">
-            <div className="p-4 bg-card border border-border rounded-lg">
-              <div className="text-xs text-muted-foreground mb-1">Total Wrapped</div>
-              <div className="text-lg font-mono font-semibold">
-                {wrappedBalances.solUiAmount} <span className="text-muted-foreground text-sm">cSOL</span>
+            <div className="p-4 bg-white/5 border border-white/10 rounded-xl">
+              <div className="text-xs text-white/40 mb-1">Total Wrapped</div>
+              <div className="text-lg font-mono font-normal text-white">
+                {wrappedBalances.solUiAmount} <span className="text-white/40 text-sm">cSOL</span>
               </div>
-              <div className="text-lg font-mono font-semibold">
-                {wrappedBalances.usdcUiAmount} <span className="text-muted-foreground text-sm">cUSDC</span>
+              <div className="text-lg font-mono font-normal text-white">
+                {wrappedBalances.usdcUiAmount} <span className="text-white/40 text-sm">cUSDC</span>
               </div>
             </div>
-            <div className="p-4 bg-card border border-border rounded-lg">
-              <div className="text-xs text-muted-foreground mb-1">Available to Wrap</div>
-              <div className="text-lg font-mono font-semibold">
-                {tokenBalances.solUiAmount} <span className="text-muted-foreground text-sm">SOL</span>
+            <div className="p-4 bg-white/5 border border-white/10 rounded-xl">
+              <div className="text-xs text-white/40 mb-1">Available to Wrap</div>
+              <div className="text-lg font-mono font-normal text-white">
+                {tokenBalances.solUiAmount} <span className="text-white/40 text-sm">SOL</span>
               </div>
-              <div className="text-lg font-mono font-semibold">
-                {tokenBalances.usdcUiAmount} <span className="text-muted-foreground text-sm">USDC</span>
+              <div className="text-lg font-mono font-normal text-white">
+                {tokenBalances.usdcUiAmount} <span className="text-white/40 text-sm">USDC</span>
               </div>
             </div>
           </div>
@@ -447,32 +447,32 @@ export default function WrapPage() {
 
         {/* Additional Info */}
         <div className="mt-8 space-y-4">
-          <h3 className="font-semibold">How it works</h3>
-          <div className="space-y-3 text-sm text-muted-foreground">
+          <h3 className="font-normal text-white">How it works</h3>
+          <div className="space-y-3 text-sm text-white/60">
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-white/10 text-white flex items-center justify-center text-xs font-medium">
                 1
               </div>
               <div>
-                <strong className="text-foreground">Wrap:</strong> Deposit your tokens into the
+                <strong className="text-white">Wrap:</strong> Deposit your tokens into the
                 confidential vault. You receive c-tokens with an encrypted balance.
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-white/10 text-white flex items-center justify-center text-xs font-medium">
                 2
               </div>
               <div>
-                <strong className="text-foreground">Trade:</strong> Use c-tokens to place
+                <strong className="text-white">Trade:</strong> Use c-tokens to place
                 private orders on Confidex. Order amounts and prices remain encrypted.
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-white/10 text-white flex items-center justify-center text-xs font-medium">
                 3
               </div>
               <div>
-                <strong className="text-foreground">Unwrap:</strong> Convert c-tokens back to
+                <strong className="text-white">Unwrap:</strong> Convert c-tokens back to
                 regular tokens when you want to withdraw or use them elsewhere.
               </div>
             </div>
@@ -480,26 +480,26 @@ export default function WrapPage() {
         </div>
 
         {/* Privacy Benefits */}
-        <div className="mt-8 p-4 bg-secondary/30 border border-border rounded-lg">
-          <h3 className="font-semibold mb-3 flex items-center gap-2">
-            <Lock className="h-4 w-4 text-primary" />
+        <div className="mt-8 p-4 bg-white/5 border border-white/10 rounded-xl">
+          <h3 className="font-normal text-white mb-3 flex items-center gap-2">
+            <Lock className="h-4 w-4 text-white/60" />
             Privacy Benefits
           </h3>
-          <ul className="space-y-2 text-sm text-muted-foreground">
+          <ul className="space-y-2 text-sm text-white/60">
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <CheckCircle className="h-4 w-4 text-emerald-400/80 flex-shrink-0 mt-0.5" />
               <span>Balance amounts are encrypted on-chain</span>
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <CheckCircle className="h-4 w-4 text-emerald-400/80 flex-shrink-0 mt-0.5" />
               <span>Only you can reveal your true balance</span>
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <CheckCircle className="h-4 w-4 text-emerald-400/80 flex-shrink-0 mt-0.5" />
               <span>Trading activity stays private from observers</span>
             </li>
             <li className="flex items-start gap-2">
-              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <CheckCircle className="h-4 w-4 text-emerald-400/80 flex-shrink-0 mt-0.5" />
               <span>Compliant with ZK eligibility proofs</span>
             </li>
           </ul>
@@ -507,17 +507,17 @@ export default function WrapPage() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-border py-6 mt-8">
+      <footer className="border-t border-white/10 py-6 mt-8">
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <div className="flex items-center gap-6 text-sm text-white/40">
               <span>Built for Solana Privacy Hack 2026</span>
               <div className="flex items-center gap-4">
                 <a
                   href="https://github.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-foreground transition-colors"
+                  className="hover:text-white transition-colors"
                 >
                   <Github className="h-4 w-4" />
                 </a>
@@ -525,17 +525,17 @@ export default function WrapPage() {
                   href="https://docs.arcium.com"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="hover:text-foreground transition-colors"
+                  className="hover:text-white transition-colors"
                 >
                   <BookOpen className="h-4 w-4" />
                 </a>
               </div>
             </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs text-white/40">
               <span>Powered by</span>
-              <span className="bg-secondary px-2 py-0.5 rounded">Arcium MPC</span>
-              <span className="bg-secondary px-2 py-0.5 rounded">Noir ZK</span>
-              <span className="bg-secondary px-2 py-0.5 rounded">ShadowWire</span>
+              <span className="bg-white/10 px-2 py-0.5 rounded">Arcium MPC</span>
+              <span className="bg-white/10 px-2 py-0.5 rounded">Noir ZK</span>
+              <span className="bg-white/10 px-2 py-0.5 rounded">ShadowWire</span>
             </div>
           </div>
         </div>

@@ -74,7 +74,7 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
       <div className="flex items-center gap-2 text-xs">
         <span className="text-muted-foreground">Funding:</span>
         <span className={`font-mono ${
-          isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-foreground'
+          isPositive ? 'text-emerald-400/80' : isNegative ? 'text-rose-400/80' : 'text-foreground'
         }`}>
           {isPositive ? '+' : ''}{ratePercentage}%
         </span>
@@ -97,7 +97,7 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
         </div>
         <div className="flex items-center gap-3">
           <span className={`font-mono ${
-            isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-foreground'
+            isPositive ? 'text-emerald-400/80' : isNegative ? 'text-rose-400/80' : 'text-foreground'
           }`}>
             {isPositive ? '+' : ''}{ratePercentage}%
           </span>
@@ -122,12 +122,12 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
         </div>
         <div className="flex items-center gap-1.5">
           {isPositive ? (
-            <TrendingUp className="h-3 w-3 text-green-500" />
+            <TrendingUp className="h-3 w-3 text-emerald-400/80" />
           ) : isNegative ? (
-            <TrendingDown className="h-3 w-3 text-red-500" />
+            <TrendingDown className="h-3 w-3 text-rose-400/80" />
           ) : null}
           <span className={`text-sm font-mono font-medium ${
-            isPositive ? 'text-green-500' : isNegative ? 'text-red-500' : 'text-foreground'
+            isPositive ? 'text-emerald-400/80' : isNegative ? 'text-rose-400/80' : 'text-foreground'
           }`}>
             {isPositive ? '+' : ''}{ratePercentage}%
           </span>
@@ -157,9 +157,9 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
           <span className="text-muted-foreground">Est. Annual</span>
           <span className={`font-mono ${
             parseFloat(estimatedAnnualRate || '0') > 0
-              ? 'text-green-500'
+              ? 'text-emerald-400/80'
               : parseFloat(estimatedAnnualRate || '0') < 0
-              ? 'text-red-500'
+              ? 'text-rose-400/80'
               : 'text-foreground'
           }`}>
             {estimatedAnnualRate}%
@@ -170,9 +170,9 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
       {/* Payment Direction Indicator */}
       <div className={`p-2 rounded text-xs flex items-center gap-2 ${
         isPositive
-          ? 'bg-green-500/10 border border-green-500/20 text-green-400'
+          ? 'bg-emerald-500/20 border border-emerald-500/30 text-emerald-400/80'
           : isNegative
-          ? 'bg-red-500/10 border border-red-500/20 text-red-400'
+          ? 'bg-rose-500/20 border border-rose-500/30 text-rose-400/80'
           : 'bg-secondary text-muted-foreground'
       }`}>
         {isPositive ? (
@@ -207,7 +207,7 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
                 <div
                   key={idx}
                   className={`flex-1 rounded-t transition-all ${
-                    isRatePositive ? 'bg-green-500/50' : rate < 0 ? 'bg-red-500/50' : 'bg-muted'
+                    isRatePositive ? 'bg-emerald-500/50' : rate < 0 ? 'bg-rose-500/50' : 'bg-muted'
                   }`}
                   style={{ height: `${height}px` }}
                   title={`${(rate / 100).toFixed(4)}%`}
@@ -234,9 +234,9 @@ export const FundingRateBadge: FC<{ rateBps: number }> = ({ rateBps }) => {
   return (
     <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${
       isPositive
-        ? 'bg-green-500/20 text-green-500'
+        ? 'bg-emerald-500/20 text-emerald-400/80'
         : isNegative
-        ? 'bg-red-500/20 text-red-500'
+        ? 'bg-rose-500/20 text-rose-400/80'
         : 'bg-secondary text-muted-foreground'
     }`}>
       {isPositive ? '+' : ''}{ratePercentage}%

@@ -347,7 +347,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
           <div
             key={position.id}
             className={`grid grid-cols-7 gap-4 px-4 py-2.5 text-xs hover:bg-secondary/30 transition-colors ${
-              isAtRisk ? 'bg-red-500/5' : ''
+              isAtRisk ? 'bg-rose-500/10' : ''
             }`}
           >
             {/* Market */}
@@ -361,11 +361,11 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
             {/* Side / Leverage */}
             <span className="text-right flex items-center justify-end gap-1.5">
               {isLong ? (
-                <TrendingUp className="h-3 w-3 text-green-500" />
+                <TrendingUp className="h-3 w-3 text-emerald-400/80" />
               ) : (
-                <TrendingDown className="h-3 w-3 text-red-500" />
+                <TrendingDown className="h-3 w-3 text-rose-400/80" />
               )}
-              <span className={isLong ? 'text-green-500' : 'text-red-500'}>
+              <span className={isLong ? 'text-emerald-400/80' : 'text-rose-400/80'}>
                 {position.leverage}x {isLong ? 'Long' : 'Short'}
               </span>
             </span>
@@ -383,7 +383,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
             </span>
 
             {/* Liquidation Price (Public) */}
-            <span className={`text-right font-mono ${isAtRisk ? 'text-red-400' : ''}`}>
+            <span className={`text-right font-mono ${isAtRisk ? 'text-rose-400/80' : ''}`}>
               ${liquidationPrice.toFixed(2)}
             </span>
 

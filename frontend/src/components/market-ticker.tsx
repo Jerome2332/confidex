@@ -127,9 +127,9 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               <span
                 className={`text-lg font-bold font-mono ${
                   priceDirection === 'up'
-                    ? 'text-green-400'
+                    ? 'text-white'
                     : priceDirection === 'down'
-                    ? 'text-red-400'
+                    ? 'text-white/60'
                     : 'text-foreground'
                 }`}
               >
@@ -137,7 +137,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               </span>
               <div
                 className={`flex items-center gap-1 text-sm ${
-                  isPositive ? 'text-green-400' : 'text-red-400'
+                  isPositive ? 'text-white' : 'text-white/60'
                 }`}
               >
                 {isPositive ? (
@@ -155,13 +155,13 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
             <div className="hidden lg:flex items-center gap-4 text-xs text-muted-foreground">
               <div>
                 <span className="mr-1">24h High:</span>
-                <span className="text-green-400 font-mono">
+                <span className="text-white font-mono">
                   {hasValidPrice && marketData.high24h > 0 ? `$${marketData.high24h.toFixed(2)}` : '—'}
                 </span>
               </div>
               <div>
                 <span className="mr-1">24h Low:</span>
-                <span className="text-red-400 font-mono">
+                <span className="text-white/60 font-mono">
                   {hasValidPrice && marketData.low24h < Infinity ? `$${marketData.low24h.toFixed(2)}` : '—'}
                 </span>
               </div>
@@ -195,7 +195,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
             </div>
 
             {/* Status indicator */}
-            <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-green-500' : 'text-muted-foreground'}`}>
+            <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-white' : 'text-muted-foreground'}`}>
               {isStreaming ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
             </div>
             <div className="text-[10px] bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded font-medium">
@@ -228,7 +228,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-green-500' : 'text-muted-foreground'}`}>
+          <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-white' : 'text-muted-foreground'}`}>
             {isStreaming ? (
               <>
                 <Wifi className="h-3 w-3" />
@@ -262,9 +262,9 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
             <span
               className={`text-3xl font-bold font-mono transition-colors duration-300 ${
                 priceDirection === 'up'
-                  ? 'text-green-400'
+                  ? 'text-white'
                   : priceDirection === 'down'
-                  ? 'text-red-400'
+                  ? 'text-white/60'
                   : 'text-foreground'
               }`}
             >
@@ -272,7 +272,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
             </span>
             <div
               className={`flex items-center gap-1 text-sm ${
-                isPositive ? 'text-green-400' : 'text-red-400'
+                isPositive ? 'text-white' : 'text-white/60'
               }`}
             >
               {isPositive ? (
@@ -298,13 +298,13 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
       <div className="grid grid-cols-2 gap-3">
         <div className="p-2 bg-secondary/50 rounded">
           <div className="text-xs text-muted-foreground">24h High</div>
-          <div className="font-mono text-sm text-green-400">
+          <div className="font-mono text-sm text-white">
             {hasValidPrice && marketData.high24h > 0 ? `$${marketData.high24h.toFixed(2)}` : '—'}
           </div>
         </div>
         <div className="p-2 bg-secondary/50 rounded">
           <div className="text-xs text-muted-foreground">24h Low</div>
-          <div className="font-mono text-sm text-red-400">
+          <div className="font-mono text-sm text-white/60">
             {hasValidPrice && marketData.low24h < Infinity ? `$${marketData.low24h.toFixed(2)}` : '—'}
           </div>
         </div>

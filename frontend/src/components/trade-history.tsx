@@ -127,9 +127,9 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                 className={`px-2 py-1 text-xs rounded transition-colors ${
                   filter === key
                     ? key === 'buys'
-                      ? 'bg-green-500/20 text-green-400'
+                      ? 'bg-emerald-500/20 text-emerald-400/80'
                       : key === 'sells'
-                      ? 'bg-red-500/20 text-red-400'
+                      ? 'bg-rose-500/20 text-rose-400/80'
                       : 'bg-secondary text-foreground'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
@@ -139,7 +139,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <div className={`flex items-center gap-1 text-xs ${hasRealData ? 'text-green-500' : 'text-muted-foreground'}`}>
+            <div className={`flex items-center gap-1 text-xs ${hasRealData ? 'text-white' : 'text-muted-foreground'}`}>
               {hasRealData ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
             </div>
             <button
@@ -179,13 +179,13 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                       <div className="flex items-center gap-1">
                         {trade.side === 'buy' ? (
                           <>
-                            <ArrowUpRight className="h-3 w-3 text-green-400" />
-                            <span className="text-green-400 text-xs font-medium">BUY</span>
+                            <ArrowUpRight className="h-3 w-3 text-emerald-400/80" />
+                            <span className="text-emerald-400/80 text-xs font-medium">BUY</span>
                           </>
                         ) : (
                           <>
-                            <ArrowDownRight className="h-3 w-3 text-red-400" />
-                            <span className="text-red-400 text-xs font-medium">SELL</span>
+                            <ArrowDownRight className="h-3 w-3 text-rose-400/80" />
+                            <span className="text-rose-400/80 text-xs font-medium">SELL</span>
                           </>
                         )}
                         {trade.isMine && (
@@ -195,7 +195,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                     </td>
                     <td className={`py-2 px-3 text-right font-mono ${
                       trade.price !== null
-                        ? trade.side === 'buy' ? 'text-green-400' : 'text-red-400'
+                        ? trade.side === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'
                         : 'text-muted-foreground'
                     }`}>
                       {trade.price !== null ? `$${trade.price.toFixed(2)}` : (
@@ -236,7 +236,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
           </h3>
           <div className="flex items-center gap-2">
             {/* Data source indicator */}
-            <div className={`flex items-center gap-1 text-xs ${hasRealData ? 'text-green-500' : 'text-muted-foreground'}`}>
+            <div className={`flex items-center gap-1 text-xs ${hasRealData ? 'text-white' : 'text-muted-foreground'}`}>
               {hasRealData ? (
                 <>
                   <Wifi className="h-3 w-3" />
@@ -278,9 +278,9 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
               className={`flex-1 px-2 py-1 text-xs rounded transition-colors ${
                 filter === key
                   ? key === 'buys'
-                    ? 'bg-green-500/20 text-green-400'
+                    ? 'bg-emerald-500/20 text-emerald-400/80'
                     : key === 'sells'
-                    ? 'bg-red-500/20 text-red-400'
+                    ? 'bg-rose-500/20 text-rose-400/80'
                     : 'bg-background text-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
@@ -293,8 +293,8 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
 
       {/* Error Display */}
       {error && (
-        <div className="px-4 py-2 bg-red-500/10 border-b border-red-500/20">
-          <div className="flex items-center gap-2 text-xs text-red-500">
+        <div className="px-4 py-2 bg-rose-500/20 border-b border-rose-500/30">
+          <div className="flex items-center gap-2 text-xs text-rose-400/80">
             <AlertCircle className="h-3 w-3" />
             <span>{error}</span>
           </div>
@@ -340,13 +340,13 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                 <div className="flex items-center gap-1">
                   {trade.side === 'buy' ? (
                     <>
-                      <ArrowUpRight className="h-3 w-3 text-green-400" />
-                      <span className="text-green-400 text-xs font-medium">BUY</span>
+                      <ArrowUpRight className="h-3 w-3 text-emerald-400/80" />
+                      <span className="text-emerald-400/80 text-xs font-medium">BUY</span>
                     </>
                   ) : (
                     <>
-                      <ArrowDownRight className="h-3 w-3 text-red-400" />
-                      <span className="text-red-400 text-xs font-medium">SELL</span>
+                      <ArrowDownRight className="h-3 w-3 text-rose-400/80" />
+                      <span className="text-rose-400/80 text-xs font-medium">SELL</span>
                     </>
                   )}
                   {trade.isMine && (
@@ -361,8 +361,8 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                   className={`text-right font-mono ${
                     trade.price !== null
                       ? trade.side === 'buy'
-                        ? 'text-green-400'
-                        : 'text-red-400'
+                        ? 'text-emerald-400/80'
+                        : 'text-rose-400/80'
                       : 'text-muted-foreground'
                   }`}
                 >

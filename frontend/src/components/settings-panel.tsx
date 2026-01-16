@@ -246,8 +246,8 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                           <div
                             className={`text-xs flex items-center gap-1 justify-end ${
                               method.isAvailable
-                                ? 'text-green-400'
-                                : 'text-yellow-400'
+                                ? 'text-white'
+                                : 'text-white/60'
                             }`}
                           >
                             {method.isAvailable ? (
@@ -295,15 +295,15 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
               <div className="text-xs text-muted-foreground space-y-1">
                 <div className="flex items-center justify-between">
                   <span>Arcium MPC</span>
-                  <span className="text-green-400">Active</span>
+                  <span className="text-white">Active</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>ZK Proofs</span>
-                  <span className="text-green-400">Enabled</span>
+                  <span className="text-white">Enabled</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span>C-SPL Tokens</span>
-                  <span className="text-yellow-400">Pending</span>
+                  <span className="text-white/60">Pending</span>
                 </div>
               </div>
             </div>

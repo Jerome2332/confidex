@@ -97,8 +97,8 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                     <td className="py-2 px-3">
                       <span className={`text-xs font-medium px-2 py-0.5 rounded ${
                         order.side === 'buy'
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-red-500/20 text-red-400'
+                          ? 'bg-emerald-500/20 text-emerald-400/80'
+                          : 'bg-rose-500/20 text-rose-400/80'
                       }`}>
                         {order.side.toUpperCase()}
                       </span>
@@ -166,8 +166,8 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                   <span
                     className={`text-xs font-medium px-2 py-0.5 rounded ${
                       order.side === 'buy'
-                        ? 'bg-green-500/20 text-green-400'
-                        : 'bg-red-500/20 text-red-400'
+                        ? 'bg-emerald-500/20 text-emerald-400/80'
+                        : 'bg-rose-500/20 text-rose-400/80'
                     }`}
                   >
                     {order.side.toUpperCase()}

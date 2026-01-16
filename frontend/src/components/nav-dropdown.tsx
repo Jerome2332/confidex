@@ -48,8 +48,8 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items, basePath }) =>
       <button
         className={`flex items-center gap-1 text-sm px-3 py-1.5 rounded-lg transition-colors ${
           isActive
-            ? 'font-medium bg-primary/10 text-primary'
-            : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+            ? 'font-medium bg-white/10 text-white'
+            : 'text-white/60 hover:text-white hover:bg-white/10'
         }`}
       >
         {label}
@@ -62,7 +62,7 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items, basePath }) =>
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-1 w-72 bg-card border border-border rounded-lg shadow-lg p-1.5 z-50">
+        <div className="absolute top-full left-0 mt-1 w-72 bg-black border border-white/10 rounded-lg shadow-lg p-1.5 z-50">
           {items.map((item) => {
             const Icon = item.icon;
             const isItemActive = pathname === item.href ||
@@ -74,19 +74,19 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items, basePath }) =>
                 href={item.href}
                 className={`flex items-start gap-3 p-3 rounded-md transition-colors ${
                   isItemActive
-                    ? 'bg-primary/10'
-                    : 'hover:bg-secondary/50'
+                    ? 'bg-white/10'
+                    : 'hover:bg-white/10'
                 }`}
                 onClick={() => setIsOpen(false)}
               >
-                <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center flex-shrink-0">
-                  <Icon className={`h-5 w-5 ${isItemActive ? 'text-primary' : 'text-muted-foreground'}`} />
+                <div className="w-9 h-9 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                  <Icon className={`h-5 w-5 ${isItemActive ? 'text-white' : 'text-white/60'}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className={`text-sm font-medium ${isItemActive ? 'text-primary' : 'text-foreground'}`}>
+                  <div className={`text-sm font-medium ${isItemActive ? 'text-white' : 'text-white'}`}>
                     {item.title}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                  <div className="text-xs text-white/50 mt-0.5 leading-relaxed">
                     {item.description}
                   </div>
                 </div>

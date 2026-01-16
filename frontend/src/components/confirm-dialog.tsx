@@ -152,7 +152,7 @@ export const OrderConfirmDialog: FC<OrderConfirmDialogProps> = ({
             <div className="flex justify-between items-center">
               <span className="text-sm text-muted-foreground">Type</span>
               <span className={`text-sm font-medium ${
-                side === 'buy' ? 'text-green-400' : 'text-red-400'
+                side === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'
               }`}>
                 {side.toUpperCase()} {orderType.toUpperCase()}
               </span>
@@ -177,8 +177,8 @@ export const OrderConfirmDialog: FC<OrderConfirmDialogProps> = ({
 
           {/* Auto-wrap notice */}
           {needsWrap && wrapAmount && (
-            <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg mb-4">
-              <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
+            <div className="p-3 bg-white/5 border border-white/20 rounded-lg mb-4">
+              <div className="flex items-center gap-2 text-sm text-white/80">
                 <Lock className="h-4 w-4" />
                 <span>Will auto-wrap {wrapAmount} with this transaction</span>
               </div>
@@ -212,8 +212,8 @@ export const OrderConfirmDialog: FC<OrderConfirmDialogProps> = ({
             }}
             className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               side === 'buy'
-                ? 'bg-green-500 hover:bg-green-600 text-white'
-                : 'bg-red-500 hover:bg-red-600 text-white'
+                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30'
+                : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30'
             }`}
           >
             {needsWrap ? `Wrap & ${side === 'buy' ? 'Buy' : 'Sell'}` : `${side === 'buy' ? 'Buy' : 'Sell'} SOL`}

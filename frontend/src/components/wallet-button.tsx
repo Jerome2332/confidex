@@ -25,7 +25,7 @@ export const WalletButton: FC = () => {
     return (
       <button
         onClick={() => setVisible(true)}
-        className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2 rounded-lg font-medium hover:bg-primary/90 transition-colors"
+        className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-lg font-medium hover:bg-white/90 transition-colors"
       >
         <Wallet className="h-4 w-4" />
         Connect Wallet
@@ -37,15 +37,15 @@ export const WalletButton: FC = () => {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex items-center gap-2 bg-secondary px-3 py-2 rounded-lg">
-        <div className="w-2 h-2 bg-primary rounded-full animate-pulse" />
-        <span className="text-sm font-mono">{shortAddress}</span>
+      <div className="flex items-center gap-2 bg-white/10 border border-white/20 px-3 py-2 rounded-lg">
+        <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+        <span className="text-sm font-mono text-white">{shortAddress}</span>
         <button
           onClick={handleCopy}
-          className="text-muted-foreground hover:text-foreground transition-colors"
+          className="text-white/60 hover:text-white transition-colors"
         >
           {copied ? (
-            <Check className="h-4 w-4 text-primary" />
+            <Check className="h-4 w-4 text-white" />
           ) : (
             <Copy className="h-4 w-4" />
           )}
@@ -53,7 +53,7 @@ export const WalletButton: FC = () => {
       </div>
       <button
         onClick={disconnect}
-        className="p-2 text-muted-foreground hover:text-destructive transition-colors"
+        className="p-2 text-white/60 hover:text-red-400 transition-colors"
         title="Disconnect"
       >
         <LogOut className="h-4 w-4" />

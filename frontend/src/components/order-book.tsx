@@ -104,14 +104,14 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
       >
         {/* Depth visualization background */}
         <div
-          className={`absolute inset-y-0 ${isAsk ? 'right-0' : 'left-0'} opacity-15 transition-all ${
-            isAsk ? 'bg-red-500' : 'bg-green-500'
+          className={`absolute inset-y-0 ${isAsk ? 'right-0' : 'left-0'} opacity-20 transition-all ${
+            isAsk ? 'bg-rose-500/50' : 'bg-emerald-500/50'
           }`}
           style={{ width: depthWidth }}
         />
 
         {/* Price */}
-        <span className={`relative z-10 font-mono ${isAsk ? 'text-red-400' : 'text-green-400'}`}>
+        <span className={`relative z-10 font-mono ${isAsk ? 'text-rose-400/80' : 'text-emerald-400/80'}`}>
           {entry.price.toFixed(precision === '1' ? 0 : precision === '0.1' ? 1 : 2)}
         </span>
 
@@ -189,13 +189,13 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className={`font-mono font-semibold text-sm ${
-                  priceChange === 'up' ? 'text-green-400' :
-                  priceChange === 'down' ? 'text-red-400' : 'text-foreground'
+                  priceChange === 'up' ? 'text-white' :
+                  priceChange === 'down' ? 'text-white/60' : 'text-foreground'
                 }`}>
                   ${midPrice.toFixed(2)}
                 </span>
-                {priceChange === 'up' && <TrendingUp className="h-3 w-3 text-green-400" />}
-                {priceChange === 'down' && <TrendingDown className="h-3 w-3 text-red-400" />}
+                {priceChange === 'up' && <TrendingUp className="h-3 w-3 text-white" />}
+                {priceChange === 'down' && <TrendingDown className="h-3 w-3 text-white/60" />}
               </div>
               <span className="text-[10px] text-muted-foreground font-mono">
                 Spread: ${spread.toFixed(2)} ({spreadPercent}%)
@@ -213,10 +213,10 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
             <div className="flex items-center justify-between text-[10px]">
               <div className="flex items-center gap-3">
                 <span className="text-muted-foreground">
-                  Asks: <span className="text-red-400">{asks.reduce((sum, a) => sum + a.orderCount, 0)}</span>
+                  Asks: <span className="text-rose-400/80">{asks.reduce((sum, a) => sum + a.orderCount, 0)}</span>
                 </span>
                 <span className="text-muted-foreground">
-                  Bids: <span className="text-green-400">{bids.reduce((sum, b) => sum + b.orderCount, 0)}</span>
+                  Bids: <span className="text-emerald-400/80">{bids.reduce((sum, b) => sum + b.orderCount, 0)}</span>
                 </span>
               </div>
               <div className="flex items-center gap-1 text-muted-foreground">
@@ -243,10 +243,10 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                 key={trade.id}
                 className="grid grid-cols-3 px-2 py-1 text-xs hover:bg-secondary/30 transition-colors"
               >
-                <span className={`font-mono ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`font-mono ${trade.side === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
                   ${trade.price.toFixed(2)}
                 </span>
-                <span className={`text-right text-[10px] ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-right text-[10px] ${trade.side === 'buy' ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
                   {trade.side.toUpperCase()}
                 </span>
                 <span className="text-right text-muted-foreground text-[10px]">
@@ -261,7 +261,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{recentTrades.length} recent trades</span>
               <div className="flex items-center gap-1">
-                <Activity className="h-2.5 w-2.5 text-green-500" />
+                <Activity className="h-2.5 w-2.5 text-white/60" />
                 <span>Live</span>
               </div>
             </div>

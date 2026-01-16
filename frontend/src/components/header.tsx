@@ -39,13 +39,13 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
 
   return (
     <>
-      <header className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
+      <header className="border-b border-white/10 bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/60 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Shield className="h-7 w-7 text-primary" />
-            <span className="text-xl font-bold">Confidex</span>
-            <span className="text-[10px] text-muted-foreground bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">
+            <Shield className="h-7 w-7 text-white" />
+            <span className="text-xl font-bold text-white">Confidex</span>
+            <span className="text-[10px] bg-white/10 text-white/80 px-1.5 py-0.5 rounded font-medium border border-white/20">
               DEVNET
             </span>
           </Link>
@@ -67,8 +67,8 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
                   href={link.href}
                   className={`text-sm px-3 py-1.5 rounded-lg transition-colors ${
                     pathname === link.href
-                      ? 'font-medium bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                      ? 'font-medium bg-white/10 text-white'
+                      : 'text-white/60 hover:text-white hover:bg-white/10'
                   }`}
                 >
                   {link.label}
@@ -80,7 +80,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
                 href="https://docs.arcium.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-sm px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors flex items-center gap-1"
+                className="text-sm px-3 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
               >
                 Docs
                 <ExternalLink className="h-3 w-3" />
@@ -90,7 +90,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
             {/* Settings Button */}
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary/50 rounded-lg transition-colors"
+              className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               title="Settings"
             >
               <Settings className="h-5 w-5" />

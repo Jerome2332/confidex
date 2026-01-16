@@ -687,8 +687,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
               onClick={() => setSide('buy')}
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
                 side === 'buy'
-                  ? 'bg-green-500 text-white'
-                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
               Buy
@@ -697,8 +697,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
               onClick={() => setSide('sell')}
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
                 side === 'sell'
-                  ? 'bg-red-500 text-white'
-                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
               Sell
@@ -710,8 +710,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
               onClick={() => setPositionSide('long')}
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
                 positionSide === 'long'
-                  ? 'bg-green-500 text-white'
-                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
               <TrendingUp className="h-4 w-4" />
@@ -721,8 +721,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
               onClick={() => setPositionSide('short')}
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
                 positionSide === 'short'
-                  ? 'bg-red-500 text-white'
-                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
               <TrendingDown className="h-4 w-4" />
@@ -916,7 +916,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       )}
 
       {connected && insufficientBalanceError && (
-        <div className="mx-3 mb-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs flex items-center gap-2 text-red-400 shrink-0">
+        <div className="mx-3 mb-2 p-2 bg-rose-500/20 border border-rose-500/30 rounded text-xs flex items-center gap-2 text-rose-400/80 shrink-0">
           <AlertCircle className="h-3 w-3" />
           <span>{insufficientBalanceError}</span>
         </div>
@@ -930,11 +930,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           className={`w-full py-3 rounded font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
             tradingMode === 'perps'
               ? positionSide === 'long'
-                ? 'bg-green-500 hover:bg-green-600 text-white'
-                : 'bg-red-500 hover:bg-red-600 text-white'
+                ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30'
+                : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30'
               : side === 'buy'
-              ? 'bg-green-500 hover:bg-green-600 text-white'
-              : 'bg-red-500 hover:bg-red-600 text-white'
+              ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/30'
+              : 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-400 border border-rose-500/30'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           {isSubmitting || isGenerating || isOpeningPosition ? (

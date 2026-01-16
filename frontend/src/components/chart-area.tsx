@@ -91,15 +91,15 @@ export const ChartArea: FC = () => {
             return (
               <div key={i} className="flex flex-col items-center">
                 <div
-                  className={`w-px ${isUp ? 'bg-green-500' : 'bg-red-500'}`}
+                  className={`w-px ${isUp ? 'bg-white' : 'bg-white/40'}`}
                   style={{ height: wickHeight }}
                 />
                 <div
-                  className={`w-2 rounded-sm ${isUp ? 'bg-green-500' : 'bg-red-500'}`}
+                  className={`w-2 rounded-sm ${isUp ? 'bg-white' : 'bg-white/40'}`}
                   style={{ height }}
                 />
                 <div
-                  className={`w-px ${isUp ? 'bg-green-500' : 'bg-red-500'}`}
+                  className={`w-px ${isUp ? 'bg-white' : 'bg-white/40'}`}
                   style={{ height: wickHeight * 0.7 }}
                 />
               </div>
@@ -113,7 +113,7 @@ export const ChartArea: FC = () => {
             <span className="text-3xl font-bold font-mono">
               ${displayPrice.toFixed(2)}
             </span>
-            <div className={`flex items-center gap-1 ${isPositive ? 'text-green-500' : 'text-red-500'}`}>
+            <div className={`flex items-center gap-1 ${isPositive ? 'text-white' : 'text-white/60'}`}>
               {isPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
               <span className="text-sm font-medium">
                 {isPositive ? '+' : ''}{mockChange.toFixed(2)}%
@@ -123,8 +123,8 @@ export const ChartArea: FC = () => {
           <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <span>{activeTimeframe === 'D' ? 'Daily' : activeTimeframe + ' minute'} timeframe</span>
             {isStreaming && (
-              <span className="flex items-center gap-1 text-green-500">
-                <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              <span className="flex items-center gap-1 text-white">
+                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
                 Live
               </span>
             )}

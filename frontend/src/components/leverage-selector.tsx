@@ -113,9 +113,9 @@ export const LeverageSelector: FC<LeverageSelectorProps> = ({
             disabled={disabled}
             className={`w-16 bg-secondary border rounded px-2 py-1 text-sm text-right font-mono ${
               isVeryHighLeverage
-                ? 'border-red-500/50 text-red-400'
+                ? 'border-rose-500/30 text-rose-400/80'
                 : isHighLeverage
-                ? 'border-yellow-500/50 text-yellow-400'
+                ? 'border-white/30 text-white/80'
                 : 'border-border'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           />
@@ -136,9 +136,9 @@ export const LeverageSelector: FC<LeverageSelectorProps> = ({
           disabled={disabled}
           className={`flex-1 h-1 cursor-pointer appearance-none bg-secondary rounded-full ${
             isVeryHighLeverage
-              ? '[&::-webkit-slider-thumb]:bg-red-500'
+              ? '[&::-webkit-slider-thumb]:bg-rose-400/80'
               : isHighLeverage
-              ? '[&::-webkit-slider-thumb]:bg-yellow-500'
+              ? '[&::-webkit-slider-thumb]:bg-white/80'
               : '[&::-webkit-slider-thumb]:bg-primary'
           } [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full disabled:opacity-50 disabled:cursor-not-allowed`}
         />
@@ -155,9 +155,9 @@ export const LeverageSelector: FC<LeverageSelectorProps> = ({
             className={`flex-1 text-xs py-1.5 rounded border transition-colors ${
               value === preset
                 ? preset >= 15
-                  ? 'bg-red-500/20 border-red-500 text-red-400'
+                  ? 'bg-rose-500/20 border-rose-500/30 text-rose-400/80'
                   : preset >= 10
-                  ? 'bg-yellow-500/20 border-yellow-500 text-yellow-400'
+                  ? 'bg-white/10 border-white/30 text-white/80'
                   : 'bg-primary/20 border-primary text-primary'
                 : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/50'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
@@ -171,8 +171,8 @@ export const LeverageSelector: FC<LeverageSelectorProps> = ({
       {showWarning && isHighLeverage && (
         <div className={`p-2 rounded text-xs flex items-start gap-2 ${
           isVeryHighLeverage
-            ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-            : 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-400'
+            ? 'bg-rose-500/20 border border-rose-500/30 text-rose-400/80'
+            : 'bg-white/10 border border-white/30 text-white/80'
         }`}>
           <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
           <span>

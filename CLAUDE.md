@@ -456,3 +456,30 @@ if (isWASMSupported()) {
 - **C-SPL SDK issues:** Fall back to ShadowWire (production-ready) or Inco confidential tokens
 - **Arcium testnet instability:** Fall back to ZK-only approach or Inco for encrypted storage
 - **Settlement layer:** ShadowWire is most mature option if C-SPL delayed
+
+## Branding Guidelines
+
+See `/frontend/BRAND_GUIDELINES.md` for comprehensive design documentation.
+
+### Quick Reference
+
+**Monochrome Palette:**
+- Background: `bg-black`
+- Surfaces: `bg-white/5`, `bg-white/10`
+- Text: `text-white`, `text-white/60`, `text-white/50`
+- Borders: `border-white/10`, `border-white/20`
+
+**Trading Accents (Subtle):**
+- Buy/Long: `bg-emerald-500/20 text-emerald-400/80 border-emerald-500/30`
+- Sell/Short: `bg-rose-500/20 text-rose-400/80 border-rose-500/30`
+
+**Typography:**
+- Headings: `font-light`
+- Body: `font-light` or `font-normal`
+- Buttons: `font-medium`
+- Numbers/Prices: `font-mono`
+
+**Components:**
+- Buttons: `rounded-lg`
+- Cards: `rounded-xl`
+- Badges: `rounded-full`

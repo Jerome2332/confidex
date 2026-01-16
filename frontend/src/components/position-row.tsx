@@ -47,12 +47,12 @@ export const PositionRow: FC<PositionRowProps> = ({
   if (compact) {
     return (
       <div className={`flex items-center justify-between py-2 px-3 border-b border-border last:border-0 ${
-        isHighRisk ? 'bg-red-500/5' : isAtRisk ? 'bg-yellow-500/5' : ''
+        isHighRisk ? 'bg-rose-500/10' : isAtRisk ? 'bg-white/5' : ''
       }`}>
         <div className="flex items-center gap-2">
-          <div className={`w-1.5 h-1.5 rounded-full ${isLong ? 'bg-green-500' : 'bg-red-500'}`} />
+          <div className={`w-1.5 h-1.5 rounded-full ${isLong ? 'bg-emerald-400/80' : 'bg-rose-400/80'}`} />
           <span className="text-sm font-medium">{position.marketSymbol}</span>
-          <span className={`text-xs ${isLong ? 'text-green-500' : 'text-red-500'}`}>
+          <span className={`text-xs ${isLong ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>
             {position.leverage}x {isLong ? 'Long' : 'Short'}
           </span>
         </div>
@@ -67,7 +67,7 @@ export const PositionRow: FC<PositionRowProps> = ({
             <Lock className="h-3 w-3" />
             <span>PnL</span>
           </div>
-          {isAtRisk && <AlertTriangle className={`h-3 w-3 ${isHighRisk ? 'text-red-500' : 'text-yellow-500'}`} />}
+          {isAtRisk && <AlertTriangle className={`h-3 w-3 ${isHighRisk ? 'text-rose-400/80' : 'text-white/80'}`} />}
         </div>
       </div>
     );
@@ -75,19 +75,19 @@ export const PositionRow: FC<PositionRowProps> = ({
 
   return (
     <div className={`p-3 border-b border-border last:border-0 transition-colors ${
-      isHighRisk ? 'bg-red-500/5' : isAtRisk ? 'bg-yellow-500/5' : 'hover:bg-secondary/50'
+      isHighRisk ? 'bg-rose-500/10' : isAtRisk ? 'bg-white/5' : 'hover:bg-secondary/50'
     }`}>
       {/* Header Row */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {isLong ? (
-            <TrendingUp className="h-4 w-4 text-green-500" />
+            <TrendingUp className="h-4 w-4 text-emerald-400/80" />
           ) : (
-            <TrendingDown className="h-4 w-4 text-red-500" />
+            <TrendingDown className="h-4 w-4 text-rose-400/80" />
           )}
           <span className="font-medium">{position.marketSymbol}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded ${
-            isLong ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'
+            isLong ? 'bg-emerald-500/20 text-emerald-400/80' : 'bg-rose-500/20 text-rose-400/80'
           }`}>
             {position.leverage}x {isLong ? 'Long' : 'Short'}
           </span>
@@ -190,7 +190,7 @@ export const PositionRow: FC<PositionRowProps> = ({
         {/* Liquidation Price (Public) */}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Liq. Price</span>
-          <span className={`font-mono ${isHighRisk ? 'text-red-500' : isAtRisk ? 'text-yellow-500' : 'text-foreground'}`}>
+          <span className={`font-mono ${isHighRisk ? 'text-rose-400/80' : isAtRisk ? 'text-white/80' : 'text-foreground'}`}>
             ${liquidationPrice.toFixed(2)}
           </span>
         </div>
@@ -200,8 +200,8 @@ export const PositionRow: FC<PositionRowProps> = ({
       {isAtRisk && (
         <div className={`mt-2 p-2 rounded text-xs flex items-center gap-2 ${
           isHighRisk
-            ? 'bg-red-500/10 border border-red-500/20 text-red-400'
-            : 'bg-yellow-500/10 border border-yellow-500/20 text-yellow-400'
+            ? 'bg-rose-500/20 border border-rose-500/30 text-rose-400/80'
+            : 'bg-white/10 border border-white/30 text-white/80'
         }`}>
           <AlertTriangle className="h-3 w-3 shrink-0" />
           <span>
@@ -225,7 +225,7 @@ export const PositionRow: FC<PositionRowProps> = ({
 
       {/* Threshold Verification Status */}
       {!position.thresholdVerified && (
-        <div className="mt-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs text-blue-400 flex items-center gap-2">
+        <div className="mt-2 p-2 bg-white/5 border border-white/20 rounded text-xs text-white/80 flex items-center gap-2">
           <Loader2 className="h-3 w-3 animate-spin" />
           <span>Verifying position parameters via MPC...</span>
         </div>
