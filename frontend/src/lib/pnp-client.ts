@@ -16,12 +16,21 @@ import type { PNPMarketData } from './pnp-types';
 // REST API base URL
 const API_URL = PNP_API_URL;
 
+// Check if API URL is likely to resolve (avoid unnecessary network calls)
+const API_LIKELY_AVAILABLE = !API_URL.includes('api.pnp.exchange');
+
 /**
  * Fetch market data using REST API
  */
 export async function fetchMarketData(
   marketId: PublicKey
 ): Promise<PNPMarketData | null> {
+  // Skip network call if API is known to be unavailable
+  if (!API_LIKELY_AVAILABLE) {
+    console.log('[PNP Client] API unavailable, skipping fetch');
+    return null;
+  }
+
   try {
     const response = await fetch(`${API_URL}/markets/${marketId.toBase58()}`);
 
@@ -62,6 +71,12 @@ export async function fetchMarketData(
 export async function fetchAllMarkets(
   limit: number = 20
 ): Promise<PNPMarketData[]> {
+  // Skip network call if API is known to be unavailable
+  if (!API_LIKELY_AVAILABLE) {
+    console.log('[PNP Client] API unavailable, skipping fetch');
+    return [];
+  }
+
   try {
     const response = await fetch(`${API_URL}/markets?limit=${limit}&active=true`);
 
@@ -154,6 +169,12 @@ export async function fetchUserPositions(
     avgNoCost: number;
   }>
 > {
+  // Skip network call if API is known to be unavailable
+  if (!API_LIKELY_AVAILABLE) {
+    // Return empty positions silently (not an error)
+    return [];
+  }
+
   try {
     const response = await fetch(
       `${API_URL}/users/${userPubkey.toBase58()}/positions`

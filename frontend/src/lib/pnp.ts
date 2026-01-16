@@ -32,6 +32,105 @@ const PNP_API_URL =
 // Feature flag: Use SDK vs REST API fallback
 const USE_SDK = process.env.NEXT_PUBLIC_PNP_USE_SDK !== 'false';
 
+// Feature flag: Use mock data when API unavailable (for development/demo)
+const USE_MOCK_FALLBACK = process.env.NEXT_PUBLIC_PNP_USE_MOCK !== 'false';
+
+/**
+ * Mock markets for development/demo when PNP API is unavailable
+ */
+function getMockMarkets(): PredictionMarket[] {
+  // Generate deterministic mock addresses
+  const mockMarkets: PredictionMarket[] = [
+    {
+      id: new PublicKey('11111111111111111111111111111112'),
+      question: 'Will Bitcoin reach $150,000 by end of 2026?',
+      creator: new PublicKey('11111111111111111111111111111111'),
+      yesToken: {
+        mint: new PublicKey('YESt1111111111111111111111111111111111111111'),
+        symbol: 'YES',
+        supply: BigInt(500000 * 1e6),
+        price: 0.42,
+      },
+      noToken: {
+        mint: new PublicKey('NOoo1111111111111111111111111111111111111111'),
+        symbol: 'NO',
+        supply: BigInt(500000 * 1e6),
+        price: 0.58,
+      },
+      collateralMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+      totalLiquidity: BigInt(100000 * 1e6),
+      endTime: new Date('2026-12-31T23:59:59Z'),
+      resolved: false,
+    },
+    {
+      id: new PublicKey('22222222222222222222222222222222'),
+      question: 'Will Solana TPS exceed 100,000 in Q1 2026?',
+      creator: new PublicKey('11111111111111111111111111111111'),
+      yesToken: {
+        mint: new PublicKey('YESt2222222222222222222222222222222222222222'),
+        symbol: 'YES',
+        supply: BigInt(300000 * 1e6),
+        price: 0.65,
+      },
+      noToken: {
+        mint: new PublicKey('NOoo2222222222222222222222222222222222222222'),
+        symbol: 'NO',
+        supply: BigInt(300000 * 1e6),
+        price: 0.35,
+      },
+      collateralMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+      totalLiquidity: BigInt(50000 * 1e6),
+      endTime: new Date('2026-03-31T23:59:59Z'),
+      resolved: false,
+    },
+    {
+      id: new PublicKey('33333333333333333333333333333333'),
+      question: 'Will Ethereum ETF see $10B inflows in 2026?',
+      creator: new PublicKey('11111111111111111111111111111111'),
+      yesToken: {
+        mint: new PublicKey('YESt3333333333333333333333333333333333333333'),
+        symbol: 'YES',
+        supply: BigInt(750000 * 1e6),
+        price: 0.55,
+      },
+      noToken: {
+        mint: new PublicKey('NOoo3333333333333333333333333333333333333333'),
+        symbol: 'NO',
+        supply: BigInt(750000 * 1e6),
+        price: 0.45,
+      },
+      collateralMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+      totalLiquidity: BigInt(200000 * 1e6),
+      endTime: new Date('2026-12-31T23:59:59Z'),
+      resolved: false,
+    },
+    {
+      id: new PublicKey('44444444444444444444444444444444'),
+      question: 'Will a major country adopt Bitcoin as legal tender in 2026?',
+      creator: new PublicKey('11111111111111111111111111111111'),
+      yesToken: {
+        mint: new PublicKey('YESt4444444444444444444444444444444444444444'),
+        symbol: 'YES',
+        supply: BigInt(400000 * 1e6),
+        price: 0.28,
+      },
+      noToken: {
+        mint: new PublicKey('NOoo4444444444444444444444444444444444444444'),
+        symbol: 'NO',
+        supply: BigInt(400000 * 1e6),
+        price: 0.72,
+      },
+      collateralMint: new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+      totalLiquidity: BigInt(80000 * 1e6),
+      endTime: new Date('2026-12-31T23:59:59Z'),
+      resolved: false,
+    },
+  ];
+
+  console.log('[PNP] Using mock markets (API unavailable)');
+  return mockMarkets;
+}
+
 /**
  * Market outcome token
  */
@@ -341,7 +440,7 @@ export async function fetchMarket(
     );
 
     if (!response.ok) {
-      return null;
+      throw new Error(`API returned ${response.status}`);
     }
 
     const data = await response.json();
@@ -377,6 +476,18 @@ export async function fetchMarket(
     };
   } catch (error) {
     console.error('[PNP] Failed to fetch market:', error);
+
+    // Try to find in mock data if enabled
+    if (USE_MOCK_FALLBACK) {
+      const mockMarket = getMockMarkets().find(
+        (m) => m.id.toBase58() === marketId.toBase58()
+      );
+      if (mockMarket) {
+        console.log('[PNP] Found market in mock data');
+        return mockMarket;
+      }
+    }
+
     return null;
   }
 }
@@ -432,7 +543,7 @@ export async function fetchActiveMarkets(
     );
 
     if (!response.ok) {
-      return [];
+      throw new Error(`API returned ${response.status}`);
     }
 
     const data = await response.json();
@@ -460,6 +571,12 @@ export async function fetchActiveMarkets(
     }));
   } catch (error) {
     console.error('[PNP] Failed to fetch active markets:', error);
+
+    // Return mock data if enabled
+    if (USE_MOCK_FALLBACK) {
+      return getMockMarkets().slice(0, limit);
+    }
+
     return [];
   }
 }
