@@ -8,6 +8,12 @@
   Built for <a href="https://solana.com/hackathon">Solana Privacy Hack 2026</a>
 </p>
 
+<p align="center">
+  <a href="HACKATHON_SUBMISSION.md"><strong>Hackathon Submission</strong></a> |
+  <a href="EATING_GLASS.md"><strong>Technical Challenges (Eating Glass)</strong></a> |
+  <a href="project-docs/"><strong>Documentation</strong></a>
+</p>
+
 ---
 
 ## Live Demo
@@ -33,11 +39,19 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 
 ## Features
 
+### Spot Trading
 - **Encrypted Orders**: Amount and price encrypted via Arcium MPC
 - **ZK Compliance**: Groth16 proofs verify blacklist non-membership
 - **Private Settlement**: Bulletproof-based transfers hide amounts
 - **MEV Protection**: Orders invisible until matched
 - **Institutional Ready**: Compliant trading with privacy
+
+### Private Perpetuals (NEW)
+- **Leveraged Positions**: 1-20x leverage with encrypted position data
+- **Hybrid Privacy Model**: Core position data encrypted, liquidation thresholds public
+- **Permissionless Liquidations**: MPC-verified thresholds enable liquidation without revealing position details
+- **Funding Rate System**: 8-hour funding intervals with TWAP
+- **Auto-Deleverage**: Insurance fund protection with ADL mechanism
 
 ## Quick Start
 
