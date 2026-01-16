@@ -12,7 +12,7 @@
  * - Market creation: Backend API (requires server wallet)
  */
 
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
 import {
   fetchMarketData,
   fetchAllMarkets,
@@ -22,7 +22,14 @@ import {
   calculateTokensReceived,
   calculateUsdcReceived,
   calculatePrice,
+  calculatePythagoreanPrices,
+  initializeSDK,
+  isSDKAvailable,
 } from './pnp-client';
+import { PNP_RPC_URL, PNP_NETWORK } from './constants';
+
+// Internal API base for server-side transaction building
+const BUILD_TX_API = '/api/pnp/build-tx';
 import type { CreateMarketResponse } from './pnp-types';
 
 // PNP configuration
@@ -34,6 +41,30 @@ const USE_SDK = process.env.NEXT_PUBLIC_PNP_USE_SDK !== 'false';
 
 // Feature flag: Use mock data when API unavailable (for development/demo)
 const USE_MOCK_FALLBACK = process.env.NEXT_PUBLIC_PNP_USE_MOCK !== 'false';
+
+// PNP-specific connection (mainnet by default for prediction markets)
+let pnpConnection: Connection | null = null;
+function getPnpConnection(): Connection {
+  if (!pnpConnection) {
+    pnpConnection = new Connection(PNP_RPC_URL, 'confirmed');
+    console.log(`[PNP] Using ${PNP_NETWORK} connection: ${PNP_RPC_URL}`);
+  }
+  return pnpConnection;
+}
+
+/**
+ * Parse endTime from API response - handles both hex strings and numbers
+ */
+function parseEndTime(endTime: number | string): number {
+  if (typeof endTime === 'string') {
+    // Check if it's a hex string (only hex chars, 8 chars or less)
+    if (/^[0-9a-f]+$/i.test(endTime) && endTime.length <= 8) {
+      return parseInt(endTime, 16);
+    }
+    return parseInt(endTime, 10);
+  }
+  return endTime || 0;
+}
 
 /**
  * Mock markets for development/demo when PNP API is unavailable
@@ -173,8 +204,21 @@ export interface MarketPosition {
  */
 export interface WalletAdapter {
   publicKey: PublicKey;
-  signTransaction: (tx: Transaction) => Promise<Transaction>;
+  signTransaction: <T extends Transaction | VersionedTransaction>(tx: T) => Promise<T>;
   sendTransaction?: (tx: Transaction, connection: Connection) => Promise<string>;
+}
+
+/**
+ * Build transaction response from server API
+ */
+interface BuildTxResponse {
+  success: boolean;
+  transaction?: string; // Base64 encoded serialized transaction
+  blockhash?: string;
+  lastValidBlockHeight?: number;
+  message?: string;
+  error?: string;
+  details?: string | { userBalance?: string; required?: string };
 }
 
 /**
@@ -229,16 +273,17 @@ export async function createMarket(
       'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
     ),
     totalLiquidity: BigInt(data.marketDetails.initialLiquidity),
-    endTime: new Date(data.marketDetails.endTime * 1000),
+    endTime: new Date(parseEndTime(data.marketDetails.endTime) * 1000),
     resolved: data.marketDetails.resolved,
   };
 }
 
 /**
- * Buy outcome tokens using wallet adapter signing
+ * Buy outcome tokens using server-side transaction building + wallet signing
+ * Note: Uses PNP's network (mainnet by default) regardless of wallet adapter connection
  */
 export async function buyOutcomeTokens(
-  connection: Connection,
+  _connection: Connection, // Kept for API compatibility, but we use PNP connection
   marketId: PublicKey,
   outcome: 'YES' | 'NO',
   amount: number, // In USDC
@@ -250,6 +295,7 @@ export async function buyOutcomeTokens(
     outcome,
     amount,
     maxPrice,
+    network: PNP_NETWORK,
   });
 
   if (!USE_SDK) {
@@ -262,37 +308,86 @@ export async function buyOutcomeTokens(
     };
   }
 
+  // Use PNP-specific connection (mainnet by default)
+  const pnpConn = getPnpConnection();
+
   try {
-    // Build transaction using SDK
-    const transaction = await buildBuyTokensTransaction(
-      connection,
-      marketId,
-      outcome === 'YES',
-      amount,
-      wallet.publicKey
-    );
+    // Try server-side transaction building first
+    console.log('[PNP] Building transaction via server API...');
+    const buildResponse = await fetch(BUILD_TX_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'buy',
+        marketId: marketId.toBase58(),
+        isYes: outcome === 'YES',
+        amount,
+        userPubkey: wallet.publicKey.toBase58(),
+        minimumOut: 0, // No slippage protection for now
+      }),
+    });
 
-    // If SDK returned null, use simulation mode
-    if (!transaction) {
-      console.warn('[PNP] Transaction building unavailable, using simulation');
-      const tokensReceived = calculateTokensReceived(amount, maxPrice);
-      return {
-        signature: 'simulated_' + Date.now(),
-        tokensReceived,
-      };
+    const buildData: BuildTxResponse = await buildResponse.json();
+
+    if (!buildResponse.ok || !buildData.success || !buildData.transaction) {
+      // Handle specific errors
+      if (buildData.error === 'Insufficient balance') {
+        const details = buildData.details as { userBalance?: string; required?: string };
+        throw new Error(
+          `Insufficient USDC balance. Have: ${details?.userBalance || '0'}, Need: ${details?.required || amount}`
+        );
+      }
+
+      // Fall back to simulation if server unavailable (503 errors)
+      if (buildResponse.status === 503) {
+        console.warn('[PNP] Server unavailable, using simulation:', buildData.error);
+        const tokensReceived = calculateTokensReceived(amount, maxPrice);
+        return {
+          signature: 'simulated_' + Date.now(),
+          tokensReceived,
+        };
+      }
+
+      // For other errors, throw with details
+      throw new Error(buildData.error || 'Transaction build failed');
     }
 
-    // Sign and send via wallet adapter
-    let signature: string;
-    if (wallet.sendTransaction) {
-      signature = await wallet.sendTransaction(transaction, connection);
-    } else {
-      const signedTx = await wallet.signTransaction(transaction);
-      signature = await connection.sendRawTransaction(signedTx.serialize());
-    }
+    // Deserialize the transaction
+    const txBuffer = Buffer.from(buildData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+
+    console.log('[PNP] Transaction built, requesting wallet signature...');
+
+    // Sign with wallet
+    const signedTx = await wallet.signTransaction(transaction);
+
+    // Send to PNP network (mainnet by default)
+    const signature = await pnpConn.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: false,
+      maxRetries: 3,
+      preflightCommitment: 'confirmed',
+    });
+
+    console.log('[PNP] Transaction sent:', signature);
 
     // Wait for confirmation
-    await connection.confirmTransaction(signature, 'confirmed');
+    const confirmation = await pnpConn.confirmTransaction(
+      {
+        signature,
+        blockhash: buildData.blockhash!,
+        lastValidBlockHeight: buildData.lastValidBlockHeight!,
+      },
+      'confirmed'
+    );
+
+    if (confirmation.value.err) {
+      // Parse common on-chain errors
+      const errStr = JSON.stringify(confirmation.value.err);
+      if (errStr.includes('InsufficientFunds') || errStr.includes('0x1')) {
+        throw new Error('Insufficient USDC balance. You need mainnet USDC to trade on PNP markets.');
+      }
+      throw new Error(`Transaction failed: ${errStr}`);
+    }
 
     const tokensReceived = calculateTokensReceived(amount, maxPrice);
 
@@ -300,15 +395,22 @@ export async function buyOutcomeTokens(
     return { signature, tokensReceived };
   } catch (error) {
     console.error('[PNP] Buy transaction failed:', error);
+    // Add context for common errors
+    if (error instanceof Error) {
+      if (error.message.includes('0x1') || error.message.includes('insufficient')) {
+        throw new Error('Insufficient USDC. PNP markets use mainnet USDC as collateral.');
+      }
+    }
     throw error;
   }
 }
 
 /**
- * Sell outcome tokens using wallet adapter signing
+ * Sell outcome tokens using server-side transaction building + wallet signing
+ * Note: Uses PNP's network (mainnet by default) regardless of wallet adapter connection
  */
 export async function sellOutcomeTokens(
-  connection: Connection,
+  _connection: Connection, // Kept for API compatibility, but we use PNP connection
   marketId: PublicKey,
   outcome: 'YES' | 'NO',
   tokenAmount: bigint,
@@ -320,6 +422,7 @@ export async function sellOutcomeTokens(
     outcome,
     tokenAmount: tokenAmount.toString(),
     minPrice,
+    network: PNP_NETWORK,
   });
 
   if (!USE_SDK) {
@@ -331,18 +434,29 @@ export async function sellOutcomeTokens(
     };
   }
 
-  try {
-    const transaction = await buildSellTokensTransaction(
-      connection,
-      marketId,
-      outcome === 'YES',
-      tokenAmount,
-      wallet.publicKey
-    );
+  // Use PNP-specific connection (mainnet by default)
+  const pnpConn = getPnpConnection();
 
-    // If SDK returned null, use simulation mode
-    if (!transaction) {
-      console.warn('[PNP] Transaction building unavailable, using simulation');
+  try {
+    // Try server-side transaction building
+    console.log('[PNP] Building sell transaction via server API...');
+    const buildResponse = await fetch(BUILD_TX_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'sell',
+        marketId: marketId.toBase58(),
+        isYes: outcome === 'YES',
+        amount: Number(tokenAmount) / 1e6, // Convert from base units to USDC
+        userPubkey: wallet.publicKey.toBase58(),
+      }),
+    });
+
+    const buildData: BuildTxResponse = await buildResponse.json();
+
+    if (!buildResponse.ok || !buildData.success || !buildData.transaction) {
+      // Fall back to simulation if server unavailable
+      console.warn('[PNP] Server transaction build failed, using simulation:', buildData.error);
       const usdcReceived = calculateUsdcReceived(tokenAmount, minPrice);
       return {
         signature: 'simulated_' + Date.now(),
@@ -350,15 +464,37 @@ export async function sellOutcomeTokens(
       };
     }
 
-    let signature: string;
-    if (wallet.sendTransaction) {
-      signature = await wallet.sendTransaction(transaction, connection);
-    } else {
-      const signedTx = await wallet.signTransaction(transaction);
-      signature = await connection.sendRawTransaction(signedTx.serialize());
-    }
+    // Deserialize the transaction
+    const txBuffer = Buffer.from(buildData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(txBuffer);
 
-    await connection.confirmTransaction(signature, 'confirmed');
+    console.log('[PNP] Sell transaction built, requesting wallet signature...');
+
+    // Sign with wallet
+    const signedTx = await wallet.signTransaction(transaction);
+
+    // Send to PNP network (mainnet by default)
+    const signature = await pnpConn.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: false,
+      maxRetries: 3,
+      preflightCommitment: 'confirmed',
+    });
+
+    console.log('[PNP] Sell transaction sent:', signature);
+
+    // Wait for confirmation
+    const confirmation = await pnpConn.confirmTransaction(
+      {
+        signature,
+        blockhash: buildData.blockhash!,
+        lastValidBlockHeight: buildData.lastValidBlockHeight!,
+      },
+      'confirmed'
+    );
+
+    if (confirmation.value.err) {
+      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
 
     const usdcReceived = calculateUsdcReceived(tokenAmount, minPrice);
 
@@ -400,6 +536,11 @@ export async function fetchMarket(
       const data = await fetchMarketData(marketId);
       if (!data) return null;
 
+      // Calculate prices using Pythagorean formula
+      const yesSupply = BigInt(data.marketDetails.yesTokenSupply);
+      const noSupply = BigInt(data.marketDetails.noTokenSupply);
+      const { yesPrice, noPrice } = calculatePythagoreanPrices(yesSupply, noSupply);
+
       return {
         id: data.market,
         question: data.marketDetails.question,
@@ -407,24 +548,18 @@ export async function fetchMarket(
         yesToken: {
           mint: data.yesTokenMint,
           symbol: 'YES',
-          supply: BigInt(data.marketDetails.yesTokenSupply),
-          price: calculatePrice(
-            BigInt(data.marketDetails.yesTokenSupply),
-            BigInt(data.marketDetails.marketReserves)
-          ),
+          supply: yesSupply,
+          price: yesPrice,
         },
         noToken: {
           mint: data.noTokenMint,
           symbol: 'NO',
-          supply: BigInt(data.marketDetails.noTokenSupply),
-          price: calculatePrice(
-            BigInt(data.marketDetails.noTokenSupply),
-            BigInt(data.marketDetails.marketReserves)
-          ),
+          supply: noSupply,
+          price: noPrice,
         },
         collateralMint: data.collateralMint,
         totalLiquidity: BigInt(data.marketDetails.initialLiquidity),
-        endTime: new Date(data.marketDetails.endTime * 1000),
+        endTime: new Date(parseEndTime(data.marketDetails.endTime) * 1000),
         resolved: data.marketDetails.resolved,
       };
     } catch (error) {
@@ -445,6 +580,11 @@ export async function fetchMarket(
 
     const data = await response.json();
 
+    // Calculate prices using Pythagorean formula
+    const yesSupply = BigInt(data.marketDetails.yesTokenSupply);
+    const noSupply = BigInt(data.marketDetails.noTokenSupply);
+    const { yesPrice, noPrice } = calculatePythagoreanPrices(yesSupply, noSupply);
+
     return {
       id: new PublicKey(data.market),
       question: data.marketDetails.question,
@@ -452,26 +592,20 @@ export async function fetchMarket(
       yesToken: {
         mint: new PublicKey(data.yesTokenMint),
         symbol: 'YES',
-        supply: BigInt(data.marketDetails.yesTokenSupply),
-        price: calculatePrice(
-          BigInt(data.marketDetails.yesTokenSupply),
-          BigInt(data.marketDetails.marketReserves)
-        ),
+        supply: yesSupply,
+        price: yesPrice,
       },
       noToken: {
         mint: new PublicKey(data.noTokenMint),
         symbol: 'NO',
-        supply: BigInt(data.marketDetails.noTokenSupply),
-        price: calculatePrice(
-          BigInt(data.marketDetails.noTokenSupply),
-          BigInt(data.marketDetails.marketReserves)
-        ),
+        supply: noSupply,
+        price: noPrice,
       },
       collateralMint: new PublicKey(
         data.collateralMint || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
       ),
       totalLiquidity: BigInt(data.marketDetails.initialLiquidity),
-      endTime: new Date(data.marketDetails.endTime * 1000),
+      endTime: new Date(parseEndTime(data.marketDetails.endTime) * 1000),
       resolved: data.marketDetails.resolved,
     };
   } catch (error) {
@@ -493,109 +627,104 @@ export async function fetchMarket(
 }
 
 /**
- * Fetch all active markets using SDK or REST API fallback
+ * Fetch all active markets using internal API (SDK server-side) or fallbacks
  */
 export async function fetchActiveMarkets(
   connection: Connection,
   limit: number = 10
 ): Promise<PredictionMarket[]> {
-  // Check if we should skip API calls entirely (known unavailable)
-  const apiLikelyUnavailable = PNP_API_URL.includes('api.pnp.exchange');
+  // Always try internal API first (uses SDK server-side)
+  // This works regardless of external API availability
+  try {
+    console.log('[PNP] Fetching markets via internal API...');
+    const markets = await fetchAllMarkets(limit);
 
-  if (USE_SDK && !apiLikelyUnavailable) {
-    try {
-      const markets = await fetchAllMarkets(limit);
+    if (markets.length > 0) {
+      console.log(`[PNP] Got ${markets.length} markets from internal API`);
+      return markets.map((m) => {
+        // Calculate prices using Pythagorean bonding curve
+        const yesSupply = BigInt(m.marketDetails.yesTokenSupply || '0');
+        const noSupply = BigInt(m.marketDetails.noTokenSupply || '0');
+        const { yesPrice, noPrice } = calculatePythagoreanPrices(yesSupply, noSupply);
 
-      // If SDK returned results, map and return them
-      if (markets.length > 0) {
-        return markets.map((m) => ({
+        // Parse endTime - handles hex strings from API
+        const endTimeSeconds = parseEndTime(m.marketDetails.endTime);
+
+        return {
           id: m.market,
           question: m.marketDetails.question,
-          creator: new PublicKey(m.marketDetails.creator),
+          creator: new PublicKey(m.marketDetails.creator || '11111111111111111111111111111111'),
           yesToken: {
             mint: m.yesTokenMint,
             symbol: 'YES' as const,
-            supply: BigInt(m.marketDetails.yesTokenSupply),
-            price: calculatePrice(
-              BigInt(m.marketDetails.yesTokenSupply),
-              BigInt(m.marketDetails.marketReserves)
-            ),
+            supply: yesSupply,
+            price: yesPrice,
           },
           noToken: {
             mint: m.noTokenMint,
             symbol: 'NO' as const,
-            supply: BigInt(m.marketDetails.noTokenSupply),
-            price: calculatePrice(
-              BigInt(m.marketDetails.noTokenSupply),
-              BigInt(m.marketDetails.marketReserves)
-            ),
+            supply: noSupply,
+            price: noPrice,
           },
           collateralMint: m.collateralMint,
-          totalLiquidity: BigInt(m.marketDetails.initialLiquidity),
-          endTime: new Date(m.marketDetails.endTime * 1000),
+          totalLiquidity: BigInt(m.marketDetails.initialLiquidity || '0'),
+          endTime: new Date((endTimeSeconds || 0) * 1000),
           resolved: m.marketDetails.resolved,
-        }));
-      }
-      // Empty results - fall through to REST API / mock
-      console.log('[PNP] SDK returned no markets, trying fallback');
-    } catch (error) {
-      console.warn('[PNP] SDK fetch markets failed, trying REST API:', error);
-      // Fall through to REST API
+        };
+      });
     }
-  }
-
-  // Skip REST API if known unavailable - go directly to mock
-  if (apiLikelyUnavailable) {
-    console.log('[PNP] API unavailable, using mock data');
-    if (USE_MOCK_FALLBACK) {
-      return getMockMarkets().slice(0, limit);
-    }
-    return [];
-  }
-
-  // REST API fallback
-  try {
-    const response = await fetch(
-      `${PNP_API_URL}/markets?limit=${limit}&active=true`
-    );
-
-    if (!response.ok) {
-      throw new Error(`API returned ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    return data.markets.map((m: Record<string, unknown>) => ({
-      id: new PublicKey(m.id as string),
-      question: m.question as string,
-      creator: new PublicKey(m.creator as string),
-      yesToken: {
-        mint: new PublicKey(m.yesTokenMint as string),
-        symbol: 'YES' as const,
-        supply: BigInt(m.yesTokenSupply as string),
-        price: m.yesPrice as number,
-      },
-      noToken: {
-        mint: new PublicKey(m.noTokenMint as string),
-        symbol: 'NO' as const,
-        supply: BigInt(m.noTokenSupply as string),
-        price: m.noPrice as number,
-      },
-      collateralMint: new PublicKey(m.collateralMint as string),
-      totalLiquidity: BigInt(m.liquidity as string),
-      endTime: new Date(m.endTime as number),
-      resolved: false,
-    }));
+    console.log('[PNP] Internal API returned no markets');
   } catch (error) {
-    console.error('[PNP] Failed to fetch active markets:', error);
-
-    // Return mock data if enabled
-    if (USE_MOCK_FALLBACK) {
-      return getMockMarkets().slice(0, limit);
-    }
-
-    return [];
+    console.warn('[PNP] Internal API fetch failed:', error);
   }
+
+  // External REST API fallback (only if configured to a different URL)
+  const externalApiAvailable = !PNP_API_URL.includes('api.pnp.exchange');
+  if (externalApiAvailable) {
+    try {
+      console.log('[PNP] Trying external API fallback...');
+      const response = await fetch(
+        `${PNP_API_URL}/markets?limit=${limit}&active=true`
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.markets?.length > 0) {
+          return data.markets.map((m: Record<string, unknown>) => ({
+            id: new PublicKey(m.id as string),
+            question: m.question as string,
+            creator: new PublicKey(m.creator as string),
+            yesToken: {
+              mint: new PublicKey(m.yesTokenMint as string),
+              symbol: 'YES' as const,
+              supply: BigInt(m.yesTokenSupply as string),
+              price: m.yesPrice as number,
+            },
+            noToken: {
+              mint: new PublicKey(m.noTokenMint as string),
+              symbol: 'NO' as const,
+              supply: BigInt(m.noTokenSupply as string),
+              price: m.noPrice as number,
+            },
+            collateralMint: new PublicKey(m.collateralMint as string),
+            totalLiquidity: BigInt(m.liquidity as string),
+            endTime: new Date(m.endTime as number),
+            resolved: false,
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('[PNP] External API failed:', error);
+    }
+  }
+
+  // Mock data fallback
+  if (USE_MOCK_FALLBACK) {
+    console.log('[PNP] Using mock markets as fallback');
+    return getMockMarkets().slice(0, limit);
+  }
+
+  return [];
 }
 
 /**
@@ -702,3 +831,6 @@ export async function createConfidentialMarket(
 
 // Re-export utility functions
 export { calculatePrice, calculateTokensReceived, calculateUsdcReceived };
+
+// Re-export SDK utilities
+export { initializeSDK, isSDKAvailable };

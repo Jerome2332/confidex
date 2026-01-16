@@ -1,64 +1,61 @@
 /**
  * PNP SDK Client Wrapper
  *
- * Provides read-only SDK access and transaction builders
- * for wallet adapter signing (browser-safe)
+ * Client-side: Uses internal API routes that proxy to the SDK server-side
+ * Server-side: SDK loads via require() bypassing webpack
  *
- * Note: pnp-sdk v0.2.3 has compatibility issues with @coral-xyz/anchor 0.32.1
- * (expects 'Wallet' export that doesn't exist in newer anchor versions).
- * We use REST API fallback until pnp-sdk is updated.
+ * Architecture:
+ * - pnp-sdk can't load client-side (imports Wallet which is server-only in Anchor)
+ * - Server-side API routes (/api/pnp/*) load SDK via require() and expose endpoints
+ * - Client calls these internal APIs for SDK functionality
+ * - Falls back to mock data if APIs fail
  */
 
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { AnchorProvider } from '@coral-xyz/anchor';
 import { RPC_ENDPOINT, PNP_API_URL } from './constants';
 import type { PNPMarketData } from './pnp-types';
 
-// REST API base URL
+// SDK is not available client-side due to Anchor compatibility issue
+// But we can access it via server-side API routes
+const SDK_AVAILABLE_CLIENT_SIDE = false;
+
+// Internal API routes (server-side SDK access)
+const INTERNAL_API_BASE = '/api/pnp';
+
+// External REST API base URL (fallback)
 const API_URL = PNP_API_URL;
 
-// Check if API URL is likely to resolve (avoid unnecessary network calls)
-const API_LIKELY_AVAILABLE = !API_URL.includes('api.pnp.exchange');
+// Check if external API is likely to resolve
+const EXTERNAL_API_AVAILABLE = !API_URL.includes('api.pnp.exchange');
 
 /**
- * Fetch market data using REST API
+ * Fetch market data using internal API (which uses SDK server-side)
  */
 export async function fetchMarketData(
   marketId: PublicKey
 ): Promise<PNPMarketData | null> {
-  // Skip network call if API is known to be unavailable
-  if (!API_LIKELY_AVAILABLE) {
-    console.log('[PNP Client] API unavailable, skipping fetch');
-    return null;
-  }
-
   try {
-    const response = await fetch(`${API_URL}/markets/${marketId.toBase58()}`);
+    // Try internal API first (uses SDK server-side)
+    const response = await fetch(`${INTERNAL_API_BASE}/markets?id=${marketId.toBase58()}`);
 
-    if (!response.ok) {
-      return null;
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.market) {
+        return mapMarketResponse(data.market);
+      }
     }
 
-    const data = await response.json();
+    // Fall back to external API if available
+    if (EXTERNAL_API_AVAILABLE) {
+      const extResponse = await fetch(`${API_URL}/markets/${marketId.toBase58()}`);
+      if (extResponse.ok) {
+        const data = await extResponse.json();
+        return mapMarketResponse(data);
+      }
+    }
 
-    return {
-      market: new PublicKey(data.market),
-      yesTokenMint: new PublicKey(data.yesTokenMint),
-      noTokenMint: new PublicKey(data.noTokenMint),
-      collateralMint: new PublicKey(
-        data.collateralMint || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
-      ),
-      marketDetails: {
-        id: data.marketDetails?.id || data.market,
-        question: data.marketDetails?.question || data.question,
-        creator: data.marketDetails?.creator || data.creator,
-        initialLiquidity: data.marketDetails?.initialLiquidity || '0',
-        marketReserves: data.marketDetails?.marketReserves || '0',
-        yesTokenSupply: data.marketDetails?.yesTokenSupply || '0',
-        noTokenSupply: data.marketDetails?.noTokenSupply || '0',
-        endTime: data.marketDetails?.endTime || 0,
-        resolved: data.marketDetails?.resolved || false,
-      },
-    };
+    return null;
   } catch (error) {
     console.error('[PNP Client] Failed to fetch market:', error);
     return null;
@@ -66,51 +63,62 @@ export async function fetchMarketData(
 }
 
 /**
- * Fetch all active markets using REST API
+ * Map API response to PNPMarketData format
+ */
+function mapMarketResponse(data: Record<string, unknown>): PNPMarketData {
+  const market = (data.market as string) || (data.id as string);
+  return {
+    market: new PublicKey(market),
+    yesTokenMint: new PublicKey((data.yesTokenMint as string) || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+    noTokenMint: new PublicKey((data.noTokenMint as string) || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'),
+    collateralMint: new PublicKey(
+      (data.collateralMint as string) || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+    ),
+    marketDetails: {
+      id: market,
+      question: (data.question as string) || '',
+      creator: (data.creator as string) || '',
+      initialLiquidity: String(data.initialLiquidity || '0'),
+      marketReserves: String(data.marketReserves || '0'),
+      yesTokenSupply: String(data.yesTokenSupply || '0'),
+      noTokenSupply: String(data.noTokenSupply || '0'),
+      endTime: Number(data.endTime) || 0,
+      resolved: Boolean(data.resolved),
+    },
+  };
+}
+
+/**
+ * Fetch all active markets using internal API (which uses SDK server-side)
  */
 export async function fetchAllMarkets(
   limit: number = 20
 ): Promise<PNPMarketData[]> {
-  // Skip network call if API is known to be unavailable
-  if (!API_LIKELY_AVAILABLE) {
-    console.log('[PNP Client] API unavailable, skipping fetch');
-    return [];
-  }
-
   try {
-    const response = await fetch(`${API_URL}/markets?limit=${limit}&active=true`);
+    // Try internal API first (uses SDK server-side)
+    const response = await fetch(`${INTERNAL_API_BASE}/markets?limit=${limit}`);
 
-    if (!response.ok) {
-      return [];
+    if (response.ok) {
+      const data = await response.json();
+      if (data.success && data.markets) {
+        console.log(`[PNP Client] Fetched ${data.count} markets via SDK (total: ${data.totalCount})`);
+        return data.markets.map(mapMarketResponse);
+      }
     }
 
-    const data = await response.json();
-
-    if (!data.markets) {
-      return [];
+    // Fall back to external API if available
+    if (EXTERNAL_API_AVAILABLE) {
+      const extResponse = await fetch(`${API_URL}/markets?limit=${limit}&active=true`);
+      if (extResponse.ok) {
+        const data = await extResponse.json();
+        if (data.markets) {
+          return data.markets.map(mapMarketResponse);
+        }
+      }
     }
 
-    return data.markets.map(
-      (m: Record<string, unknown>) => ({
-        market: new PublicKey((m.id as string) || (m.market as string)),
-        yesTokenMint: new PublicKey(m.yesTokenMint as string),
-        noTokenMint: new PublicKey(m.noTokenMint as string),
-        collateralMint: new PublicKey(
-          (m.collateralMint as string) || 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
-        ),
-        marketDetails: {
-          id: (m.id as string) || '',
-          question: m.question as string,
-          creator: m.creator as string,
-          initialLiquidity: (m.initialLiquidity as string) || (m.liquidity as string) || '0',
-          marketReserves: (m.marketReserves as string) || '0',
-          yesTokenSupply: (m.yesTokenSupply as string) || '0',
-          noTokenSupply: (m.noTokenSupply as string) || '0',
-          endTime: (m.endTime as number) || 0,
-          resolved: (m.resolved as boolean) || false,
-        },
-      })
-    );
+    console.log('[PNP Client] No markets available from APIs');
+    return [];
   } catch (error) {
     console.error('[PNP Client] Failed to fetch markets:', error);
     return [];
@@ -120,38 +128,47 @@ export async function fetchAllMarkets(
 /**
  * Build a buy tokens transaction for wallet adapter signing
  *
- * Note: SDK-based transaction building is disabled due to anchor compatibility.
- * Returns null to trigger simulation mode in pnp.ts
- *
- * TODO: Enable when pnp-sdk is updated for anchor 0.32.1+
+ * Note: SDK unavailable due to Anchor compatibility.
+ * Returns null to trigger simulation mode.
  */
 export async function buildBuyTokensTransaction(
   connection: Connection,
   marketId: PublicKey,
   isYes: boolean,
   amountUsdc: number,
-  buyerPubkey: PublicKey
+  buyerPubkey: PublicKey,
+  provider?: AnchorProvider
 ): Promise<Transaction | null> {
-  console.warn('[PNP Client] SDK not available, transaction building disabled');
+  if (!SDK_AVAILABLE_CLIENT_SIDE) {
+    // SDK not available - pnp-sdk imports 'Wallet' from anchor which doesn't exist in 0.32.1
+    // See: https://github.com/coral-xyz/anchor/issues/1933
+    console.log('[PNP Client] SDK unavailable (Anchor compatibility), using simulation');
+    return null;
+  }
+
+  // This code path is unreachable until SDK is updated
   return null;
 }
 
 /**
  * Build a sell tokens transaction for wallet adapter signing
  *
- * Note: SDK-based transaction building is disabled due to anchor compatibility.
- * Returns null to trigger simulation mode in pnp.ts
- *
- * TODO: Enable when pnp-sdk is updated for anchor 0.32.1+
+ * Note: SDK unavailable due to Anchor compatibility.
+ * Returns null to trigger simulation mode.
  */
 export async function buildSellTokensTransaction(
   connection: Connection,
   marketId: PublicKey,
   isYes: boolean,
   tokenAmount: bigint,
-  sellerPubkey: PublicKey
+  sellerPubkey: PublicKey,
+  provider?: AnchorProvider
 ): Promise<Transaction | null> {
-  console.warn('[PNP Client] SDK not available, transaction building disabled');
+  if (!SDK_AVAILABLE_CLIENT_SIDE) {
+    console.log('[PNP Client] SDK unavailable (Anchor compatibility), using simulation');
+    return null;
+  }
+
   return null;
 }
 
@@ -170,7 +187,7 @@ export async function fetchUserPositions(
   }>
 > {
   // Skip network call if API is known to be unavailable
-  if (!API_LIKELY_AVAILABLE) {
+  if (!EXTERNAL_API_AVAILABLE) {
     // Return empty positions silently (not an error)
     return [];
   }
@@ -236,7 +253,43 @@ export function calculateUsdcReceived(
 }
 
 /**
- * Calculate price from token supply and reserves (CPMM formula)
+ * Calculate prices for prediction market based on token supplies
+ *
+ * Uses standard AMM formula where prices sum to 1:
+ * - yesPrice = noSupply / (yesSupply + noSupply)
+ * - noPrice = yesSupply / (yesSupply + noSupply)
+ *
+ * When more YES tokens are minted (demand), YES supply increases,
+ * which means YES price decreases (inversely proportional).
+ *
+ * Note: PNP's "Pythagorean curve" refers to the bonding curve math,
+ * but for display prices we use the standard summing-to-1 formula.
+ */
+export function calculatePythagoreanPrices(
+  yesSupply: bigint,
+  noSupply: bigint
+): { yesPrice: number; noPrice: number } {
+  const yes = Number(yesSupply);
+  const no = Number(noSupply);
+
+  // Edge case: no tokens minted yet
+  if (yes === 0 && no === 0) {
+    return { yesPrice: 0.5, noPrice: 0.5 };
+  }
+
+  const total = yes + no;
+
+  // Price is inversely proportional to supply (more supply = lower price)
+  // This ensures prices sum to 1.0
+  return {
+    yesPrice: no / total,
+    noPrice: yes / total,
+  };
+}
+
+/**
+ * @deprecated Use calculatePythagoreanPrices instead
+ * Legacy CPMM formula - kept for compatibility
  */
 export function calculatePrice(
   tokenSupply: bigint,
@@ -248,8 +301,35 @@ export function calculatePrice(
 }
 
 /**
- * Check if SDK is available (currently disabled due to anchor compatibility)
+ * Check if SDK is available (client-side: no, but server API routes work)
  */
 export function isSDKAvailable(): boolean {
-  return false;
+  return SDK_AVAILABLE_CLIENT_SIDE;
+}
+
+/**
+ * Check server-side SDK availability via API health check
+ */
+export async function checkServerSDK(): Promise<boolean> {
+  try {
+    const response = await fetch(`${INTERNAL_API_BASE}/build-tx`);
+    if (response.ok) {
+      const data = await response.json();
+      return data.sdkAvailable === true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Initialize SDK - checks server-side availability
+ */
+export async function initializeSDK(): Promise<boolean> {
+  const serverAvailable = await checkServerSDK();
+  if (serverAvailable) {
+    console.log('[PNP Client] SDK available via server-side API routes');
+  }
+  return serverAvailable;
 }

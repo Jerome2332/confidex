@@ -59,6 +59,19 @@ export const PNP_API_URL =
   process.env.NEXT_PUBLIC_PNP_API_URL || 'https://api.pnp.exchange';
 export const PNP_USE_SDK = process.env.NEXT_PUBLIC_PNP_USE_SDK !== 'false';
 
+// PNP Network Configuration
+// Set to 'mainnet' to use mainnet-beta with real USDC, 'devnet' for devnet with test tokens
+export const PNP_NETWORK = process.env.NEXT_PUBLIC_PNP_NETWORK || 'mainnet';
+export const PNP_RPC_URL =
+  PNP_NETWORK === 'mainnet'
+    ? process.env.NEXT_PUBLIC_PNP_MAINNET_RPC || 'https://api.mainnet-beta.solana.com'
+    : process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com';
+
+// USDC mint addresses
+export const USDC_MAINNET = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+export const USDC_DEVNET = '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'; // Circle's devnet USDC
+export const PNP_DEVNET_COLLATERAL = '2KHoiTvJ2HhqChwE53DRoJYLJ4LcAuM1yKY7qnBRiyLF'; // PNP's custom devnet token
+
 // Settlement layer feature flags
 export const CSPL_ENABLED = false; // Flip to true when C-SPL SDK releases
 export const SHADOWWIRE_ENABLED = true; // Production-ready

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
-import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
+import { AnchorProvider } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
 import {
   PredictionMarket,
@@ -14,6 +15,7 @@ import {
   redeemWinnings,
   calculatePotentialWinnings,
   createMarket,
+  initializeSDK,
 } from '@/lib/pnp';
 
 interface UsePredictionsReturn {
@@ -57,6 +59,15 @@ interface UsePredictionsReturn {
 export function usePredictions(): UsePredictionsReturn {
   const { connection } = useConnection();
   const { publicKey, signTransaction, sendTransaction } = useWallet();
+  const anchorWallet = useAnchorWallet();
+
+  // Create AnchorProvider when wallet is available (for SDK compatibility)
+  const provider = useMemo(() => {
+    if (!anchorWallet) return null;
+    return new AnchorProvider(connection, anchorWallet, {
+      preflightCommitment: 'confirmed',
+    });
+  }, [connection, anchorWallet]);
 
   const [markets, setMarkets] = useState<PredictionMarket[]>([]);
   const [selectedMarket, setSelectedMarket] = useState<PredictionMarket | null>(null);
@@ -235,8 +246,14 @@ export function usePredictions(): UsePredictionsReturn {
     return calculatePotentialWinnings(amount, price);
   }, [selectedMarket]);
 
-  // Load markets on mount
+  // Initialize SDK and load markets on mount
   useEffect(() => {
+    // Pre-load SDK to avoid delay on first transaction
+    initializeSDK().then((available) => {
+      if (available) {
+        console.log('[usePredictions] PNP SDK initialized');
+      }
+    });
     refreshMarkets();
   }, [refreshMarkets]);
 
