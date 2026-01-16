@@ -1,11 +1,14 @@
 'use client';
 
-import { FC, useState, useEffect } from 'react';
-import { TrendingUp, TrendingDown, Activity, Clock, DollarSign } from 'lucide-react';
+import { FC, useState, useEffect, useRef } from 'react';
+import { TrendingUp, TrendingDown, Activity, Clock, Wifi, WifiOff, ChevronDown, Star, Copy, ExternalLink } from 'lucide-react';
+import { useSolPrice } from '@/hooks/use-pyth-price';
+import { toast } from 'sonner';
 
 interface MarketData {
   pair: string;
   price: number;
+  previousPrice: number;
   change24h: number;
   high24h: number;
   low24h: number;
@@ -13,51 +16,209 @@ interface MarketData {
   lastUpdate: Date;
 }
 
-export const MarketTicker: FC = () => {
+interface MarketTickerProps {
+  variant?: 'card' | 'bar';
+}
+
+// Mock program ID for display
+const PROGRAM_ID = '63bxUBrB...3aqfArB';
+const FULL_PROGRAM_ID = '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB';
+
+export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
+  const { price: pythPrice, priceData, isLoading, error, isStreaming, lastUpdate } = useSolPrice();
+
+  const [isFavorite, setIsFavorite] = useState(false);
   const [marketData, setMarketData] = useState<MarketData>({
     pair: 'SOL/USDC',
-    price: 104.50,
-    change24h: 2.34,
-    high24h: 106.25,
-    low24h: 101.80,
-    volume24h: 125000,
+    price: 0,
+    previousPrice: 0,
+    change24h: 0,
+    high24h: 0,
+    low24h: Infinity,
+    volume24h: 48415954.13, // Mock volume
     lastUpdate: new Date(),
   });
 
-  const [isUpdating, setIsUpdating] = useState(false);
+  const [priceDirection, setPriceDirection] = useState<'up' | 'down' | 'neutral'>('neutral');
+  const priceHistory24hRef = useRef<{ price: number; time: Date }[]>([]);
+  const initialPriceRef = useRef<number | null>(null);
 
-  // Simulate price updates
+  // Update market data when Pyth price changes
   useEffect(() => {
-    const interval = setInterval(() => {
-      setIsUpdating(true);
+    if (pythPrice && pythPrice > 0) {
+      if (initialPriceRef.current === null) {
+        initialPriceRef.current = pythPrice;
+      }
+
+      priceHistory24hRef.current.push({ price: pythPrice, time: new Date() });
+
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      priceHistory24hRef.current = priceHistory24hRef.current
+        .filter(p => p.time.getTime() > oneDayAgo)
+        .slice(-1000);
+
+      const prices = priceHistory24hRef.current.map(p => p.price);
+      const high24h = Math.max(...prices, pythPrice);
+      const low24h = Math.min(...prices.filter(p => p > 0), pythPrice);
+
+      const oldestPrice = priceHistory24hRef.current[0]?.price || initialPriceRef.current || pythPrice;
+      const change24h = oldestPrice > 0 ? ((pythPrice - oldestPrice) / oldestPrice) * 100 : 0;
+
       setMarketData(prev => {
-        const change = (Math.random() - 0.5) * 0.5;
-        const newPrice = Math.round((prev.price + change) * 100) / 100;
-        const newChange = prev.change24h + (Math.random() - 0.5) * 0.1;
+        const direction = pythPrice > prev.price ? 'up' : pythPrice < prev.price ? 'down' : 'neutral';
+        setPriceDirection(direction);
 
         return {
           ...prev,
-          price: Math.max(90, Math.min(120, newPrice)),
-          change24h: Math.round(newChange * 100) / 100,
-          high24h: Math.max(prev.high24h, newPrice),
-          low24h: Math.min(prev.low24h, newPrice),
-          volume24h: prev.volume24h + Math.floor(Math.random() * 1000),
-          lastUpdate: new Date(),
+          price: pythPrice,
+          previousPrice: prev.price,
+          change24h: Math.round(change24h * 100) / 100,
+          high24h,
+          low24h: low24h === Infinity ? pythPrice : low24h,
+          lastUpdate: lastUpdate || new Date(),
         };
       });
-      setTimeout(() => setIsUpdating(false), 300);
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, []);
+    }
+  }, [pythPrice, lastUpdate]);
 
   const isPositive = marketData.change24h >= 0;
+  const hasValidPrice = marketData.price > 0;
+  const priceChangeAbs = Math.abs(marketData.price - (initialPriceRef.current || marketData.price)).toFixed(3);
 
+  const copyContractAddress = () => {
+    navigator.clipboard.writeText(FULL_PROGRAM_ID);
+    toast.success('Contract address copied');
+  };
+
+  const formatVolume = (vol: number) => {
+    if (vol >= 1e9) return `${(vol / 1e9).toFixed(2)}B`;
+    if (vol >= 1e6) return `${(vol / 1e6).toFixed(2)}M`;
+    if (vol >= 1e3) return `${(vol / 1e3).toFixed(2)}K`;
+    return vol.toFixed(2);
+  };
+
+  // Bar variant - compact horizontal layout for header
+  if (variant === 'bar') {
+    return (
+      <div className="bg-card/50 border-b border-border px-4 py-2">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: Pair selector with favorite */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setIsFavorite(!isFavorite)}
+              className={`p-1 transition-colors ${isFavorite ? 'text-yellow-500' : 'text-muted-foreground hover:text-yellow-500'}`}
+            >
+              <Star className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />
+            </button>
+            <button className="flex items-center gap-2 hover:bg-secondary/50 rounded-lg px-2 py-1 transition-colors">
+              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-[10px] font-bold">
+                SOL
+              </div>
+              <span className="font-semibold">{marketData.pair}</span>
+              <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">Spot</span>
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            </button>
+          </div>
+
+          {/* Center: Price and stats */}
+          <div className="flex items-center gap-6">
+            {/* Price and change */}
+            <div className="flex items-center gap-3">
+              <span
+                className={`text-lg font-bold font-mono ${
+                  priceDirection === 'up'
+                    ? 'text-green-400'
+                    : priceDirection === 'down'
+                    ? 'text-red-400'
+                    : 'text-foreground'
+                }`}
+              >
+                {hasValidPrice ? `$${marketData.price.toFixed(2)}` : '—'}
+              </span>
+              <div
+                className={`flex items-center gap-1 text-sm ${
+                  isPositive ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {isPositive ? (
+                  <TrendingUp className="h-3 w-3" />
+                ) : (
+                  <TrendingDown className="h-3 w-3" />
+                )}
+                <span className="text-xs font-mono">
+                  {isPositive ? '+' : ''}{priceChangeAbs} / {isPositive ? '+' : ''}{marketData.change24h.toFixed(2)}%
+                </span>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div className="hidden lg:flex items-center gap-4 text-xs text-muted-foreground">
+              <div>
+                <span className="mr-1">24h High:</span>
+                <span className="text-green-400 font-mono">
+                  {hasValidPrice && marketData.high24h > 0 ? `$${marketData.high24h.toFixed(2)}` : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="mr-1">24h Low:</span>
+                <span className="text-red-400 font-mono">
+                  {hasValidPrice && marketData.low24h < Infinity ? `$${marketData.low24h.toFixed(2)}` : '—'}
+                </span>
+              </div>
+              <div>
+                <span className="mr-1">24h Vol:</span>
+                <span className="text-foreground font-mono">{formatVolume(marketData.volume24h)} USDC</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Contract and status */}
+          <div className="flex items-center gap-3">
+            {/* Contract address */}
+            <div className="hidden md:flex items-center gap-1 text-xs">
+              <span className="text-muted-foreground">Contract:</span>
+              <button
+                onClick={copyContractAddress}
+                className="flex items-center gap-1 text-primary hover:underline font-mono"
+              >
+                {PROGRAM_ID}
+                <Copy className="h-3 w-3" />
+              </button>
+              <a
+                href={`https://explorer.solana.com/address/${FULL_PROGRAM_ID}?cluster=devnet`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+
+            {/* Status indicator */}
+            <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-green-500' : 'text-muted-foreground'}`}>
+              {isStreaming ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            </div>
+            <div className="text-[10px] bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded font-medium">
+              PYTH
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Card variant - full card layout (default)
   return (
     <div className="bg-card border border-border rounded-lg p-4">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsFavorite(!isFavorite)}
+            className={`p-1 transition-colors ${isFavorite ? 'text-yellow-500' : 'text-muted-foreground hover:text-yellow-500'}`}
+          >
+            <Star className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />
+          </button>
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
             SOL
           </div>
@@ -66,31 +227,71 @@ export const MarketTicker: FC = () => {
             <span className="text-xs text-muted-foreground">Solana</span>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Activity className={`h-3 w-3 ${isUpdating ? 'text-primary animate-pulse' : ''}`} />
-          <span>Live</span>
+        <div className="flex items-center gap-2">
+          <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-green-500' : 'text-muted-foreground'}`}>
+            {isStreaming ? (
+              <>
+                <Wifi className="h-3 w-3" />
+                <span>Live</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="h-3 w-3" />
+                <span>Polling</span>
+              </>
+            )}
+          </div>
+          <div className="text-[10px] bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded font-medium">
+            PYTH
+          </div>
         </div>
       </div>
 
       {/* Price Display */}
       <div className="mb-4">
-        <div className="flex items-baseline gap-2">
-          <span className={`text-3xl font-bold font-mono transition-colors ${
-            isUpdating ? (isPositive ? 'text-green-400' : 'text-red-400') : 'text-foreground'
-          }`}>
-            ${marketData.price.toFixed(2)}
-          </span>
-          <div className={`flex items-center gap-1 text-sm ${
-            isPositive ? 'text-green-400' : 'text-red-400'
-          }`}>
-            {isPositive ? (
-              <TrendingUp className="h-4 w-4" />
-            ) : (
-              <TrendingDown className="h-4 w-4" />
-            )}
-            <span>{isPositive ? '+' : ''}{marketData.change24h.toFixed(2)}%</span>
+        {isLoading && !hasValidPrice ? (
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-bold font-mono text-muted-foreground animate-pulse">
+              Loading...
+            </span>
           </div>
-        </div>
+        ) : error && !hasValidPrice ? (
+          <div className="text-red-500 text-sm">{error}</div>
+        ) : (
+          <div className="flex items-baseline gap-2">
+            <span
+              className={`text-3xl font-bold font-mono transition-colors duration-300 ${
+                priceDirection === 'up'
+                  ? 'text-green-400'
+                  : priceDirection === 'down'
+                  ? 'text-red-400'
+                  : 'text-foreground'
+              }`}
+            >
+              ${marketData.price.toFixed(2)}
+            </span>
+            <div
+              className={`flex items-center gap-1 text-sm ${
+                isPositive ? 'text-green-400' : 'text-red-400'
+              }`}
+            >
+              {isPositive ? (
+                <TrendingUp className="h-4 w-4" />
+              ) : (
+                <TrendingDown className="h-4 w-4" />
+              )}
+              <span>
+                {isPositive ? '+' : ''}{marketData.change24h.toFixed(2)}%
+              </span>
+            </div>
+          </div>
+        )}
+
+        {priceData && (
+          <div className="text-xs text-muted-foreground mt-1">
+            Confidence: ±{((priceData.confidence / priceData.price) * 100).toFixed(3)}%
+          </div>
+        )}
       </div>
 
       {/* Stats Grid */}
@@ -98,62 +299,59 @@ export const MarketTicker: FC = () => {
         <div className="p-2 bg-secondary/50 rounded">
           <div className="text-xs text-muted-foreground">24h High</div>
           <div className="font-mono text-sm text-green-400">
-            ${marketData.high24h.toFixed(2)}
+            {hasValidPrice && marketData.high24h > 0 ? `$${marketData.high24h.toFixed(2)}` : '—'}
           </div>
         </div>
         <div className="p-2 bg-secondary/50 rounded">
           <div className="text-xs text-muted-foreground">24h Low</div>
           <div className="font-mono text-sm text-red-400">
-            ${marketData.low24h.toFixed(2)}
+            {hasValidPrice && marketData.low24h < Infinity ? `$${marketData.low24h.toFixed(2)}` : '—'}
           </div>
         </div>
-        <div className="p-2 bg-secondary/50 rounded col-span-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-xs text-muted-foreground">24h Volume</div>
-              <div className="font-mono text-sm flex items-center gap-1">
-                <DollarSign className="h-3 w-3" />
-                {(marketData.volume24h / 1000).toFixed(1)}K
-              </div>
-            </div>
-            <div className="text-right">
-              <div className="text-xs text-muted-foreground">Updated</div>
-              <div className="text-xs flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                {marketData.lastUpdate.toLocaleTimeString()}
-              </div>
-            </div>
+        <div className="p-2 bg-secondary/50 rounded">
+          <div className="text-xs text-muted-foreground">24h Volume</div>
+          <div className="font-mono text-sm">{formatVolume(marketData.volume24h)} USDC</div>
+        </div>
+        <div className="p-2 bg-secondary/50 rounded">
+          <div className="text-xs text-muted-foreground">Updated</div>
+          <div className="text-xs flex items-center gap-1">
+            <Clock className="h-3 w-3" />
+            {marketData.lastUpdate.toLocaleTimeString()}
           </div>
         </div>
       </div>
 
-      {/* Price Range Bar */}
-      <div className="mt-4">
-        <div className="flex justify-between text-xs text-muted-foreground mb-1">
-          <span>${marketData.low24h.toFixed(2)}</span>
-          <span>24h Range</span>
-          <span>${marketData.high24h.toFixed(2)}</span>
-        </div>
-        <div className="h-2 bg-secondary rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-red-500 via-yellow-500 to-green-500 rounded-full relative"
-            style={{ width: '100%' }}
-          >
-            {/* Current price indicator */}
-            <div
-              className="absolute top-1/2 -translate-y-1/2 w-1 h-3 bg-white rounded shadow-lg"
-              style={{
-                left: `${((marketData.price - marketData.low24h) / (marketData.high24h - marketData.low24h)) * 100}%`,
-              }}
-            />
+      {/* Contract Address */}
+      <div className="mt-4 pt-3 border-t border-border">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Contract:</span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={copyContractAddress}
+              className="flex items-center gap-1 text-primary hover:underline font-mono"
+            >
+              {PROGRAM_ID}
+              <Copy className="h-3 w-3" />
+            </button>
+            <a
+              href={`https://explorer.solana.com/address/${FULL_PROGRAM_ID}?cluster=devnet`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="h-3 w-3" />
+            </a>
           </div>
         </div>
       </div>
 
-      {/* Quick Stats Footer */}
-      <div className="mt-4 pt-3 border-t border-border flex justify-between text-xs text-muted-foreground">
+      {/* Footer */}
+      <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted-foreground">
         <span>Market: Confidential</span>
-        <span className="text-primary">Privacy Enabled</span>
+        <span className="text-primary flex items-center gap-1">
+          <Activity className="h-3 w-3" />
+          Privacy Enabled
+        </span>
       </div>
     </div>
   );

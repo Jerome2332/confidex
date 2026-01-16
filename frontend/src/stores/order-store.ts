@@ -18,6 +18,7 @@ export interface Order {
   status: OrderStatus;
   createdAt: Date;
   filledPercent: number;
+  slippage?: string; // Slippage tolerance for this order
 }
 
 export interface OrderInput {

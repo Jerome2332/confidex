@@ -1,6 +1,6 @@
 'use client';
 
-import { FC, useState } from 'react';
+import { FC } from 'react';
 import {
   Settings,
   Sliders,
@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { useThemeStore, Theme } from '@/stores/theme-store';
+import { useSettingsStore } from '@/stores/settings-store';
 
 interface SettingsSectionProps {
   title: string;
@@ -58,12 +59,19 @@ const Toggle: FC<ToggleProps> = ({ label, description, checked, onChange }) => (
 );
 
 export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
-  const [slippage, setSlippage] = useState('0.5');
-  const [notifications, setNotifications] = useState(true);
-  const [autoWrap, setAutoWrap] = useState(true);
   const { theme, setTheme } = useThemeStore();
-  const [confirmTx, setConfirmTx] = useState(true);
-  const [privacyMode, setPrivacyMode] = useState(true);
+  const {
+    slippage,
+    setSlippage,
+    autoWrap,
+    setAutoWrap,
+    confirmTx,
+    setConfirmTx,
+    privacyMode,
+    setPrivacyMode,
+    notifications,
+    setNotifications,
+  } = useSettingsStore();
 
   const slippageOptions = ['0.1', '0.5', '1.0', '2.0'];
 

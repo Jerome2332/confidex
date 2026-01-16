@@ -126,7 +126,7 @@ arcup list                 # List installed versions
 
 ### Program ID (Devnet)
 ```
-NEXT_PUBLIC_PROGRAM_ID=FWkEu3vnS2ctMUU3BRBnkAQAqK7PhW8HtwnS5AR2tjGr
+NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
 ```
 
 ## Noir Circuit Pattern

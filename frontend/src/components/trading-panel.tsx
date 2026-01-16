@@ -1,8 +1,8 @@
 'use client';
 
-import { FC, useState, useEffect } from 'react';
+import { FC, useState, useEffect, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { Lock, Loader2, Shield, AlertCircle } from 'lucide-react';
+import { Lock, Loader2, Shield, AlertCircle, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { PublicKey } from '@solana/web3.js';
 import { useProof } from '@/hooks/use-proof';
@@ -19,20 +19,33 @@ import {
 } from '@/lib/confidex-client';
 import { useEncryptedBalance } from '@/hooks/use-encrypted-balance';
 import { useTokenBalance } from '@/hooks/use-token-balance';
+import { useSettingsStore } from '@/stores/settings-store';
+import { OrderConfirmDialog } from './confirm-dialog';
 import { NATIVE_MINT } from '@solana/spl-token';
 import Link from 'next/link';
+import { useSolPrice } from '@/hooks/use-pyth-price';
 
 type OrderSide = 'buy' | 'sell';
 type OrderType = 'limit' | 'market';
 
-export const TradingPanel: FC = () => {
+interface TradingPanelProps {
+  variant?: 'default' | 'sidebar';
+  showAccountSection?: boolean;
+}
+
+const PERCENTAGE_PRESETS = [25, 50, 75, 100];
+
+export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showAccountSection = true }) => {
+  const isSidebar = variant === 'sidebar';
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction, signMessage } = useWallet();
   const [side, setSide] = useState<OrderSide>('buy');
   const [orderType, setOrderType] = useState<OrderType>('limit');
   const [amount, setAmount] = useState('');
   const [price, setPrice] = useState('');
+  const [sizePercent, setSizePercent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showConfirmDialog, setShowConfirmDialog] = useState(false);
 
   // Use proof, encryption, and balance hooks
   const { isGenerating, proofReady, lastProof, generateProof } = useProof();
@@ -40,6 +53,75 @@ export const TradingPanel: FC = () => {
   const { addOrder, setIsPlacingOrder } = useOrderStore();
   const { balances: wrappedBalances, isLoading: isLoadingBalances, refresh: refreshBalances, canAfford, isEncrypted } = useEncryptedBalance();
   const { balances: tokenBalances, refresh: refreshTokenBalances } = useTokenBalance();
+  const { autoWrap, slippage, notifications, confirmTx, privacyMode, setPrivacyMode } = useSettingsStore();
+  const { price: solPrice } = useSolPrice();
+
+  // Show balances (inverse of privacy mode)
+  const showBalances = !privacyMode;
+
+  // Calculate available balance for display
+  const availableBalance = useMemo(() => {
+    if (side === 'buy') {
+      // Buying SOL with USDC
+      const total = wrappedBalances.usdc + (autoWrap ? tokenBalances.usdc : BigInt(0));
+      return Number(total) / 1e6;
+    } else {
+      // Selling SOL for USDC
+      const total = wrappedBalances.sol + (autoWrap ? tokenBalances.sol : BigInt(0));
+      return Number(total) / 1e9;
+    }
+  }, [side, wrappedBalances, tokenBalances, autoWrap]);
+
+  // Calculate order value
+  const orderValue = useMemo(() => {
+    if (!amount || parseFloat(amount) <= 0) return null;
+    const amountNum = parseFloat(amount);
+    if (orderType === 'market' && solPrice) {
+      return amountNum * solPrice;
+    }
+    if (orderType === 'limit' && price && parseFloat(price) > 0) {
+      return amountNum * parseFloat(price);
+    }
+    return null;
+  }, [amount, price, orderType, solPrice]);
+
+  // Handle percentage preset click
+  const handlePercentageClick = (percent: number) => {
+    setSizePercent(percent);
+    if (availableBalance > 0) {
+      if (side === 'buy') {
+        // Calculate SOL amount based on USDC balance and current price
+        const usdcToUse = availableBalance * (percent / 100);
+        const priceToUse = orderType === 'limit' && price ? parseFloat(price) : (solPrice || 100);
+        if (priceToUse > 0) {
+          const solAmount = usdcToUse / priceToUse;
+          setAmount(solAmount.toFixed(4));
+        }
+      } else {
+        // Direct SOL percentage
+        const solAmount = availableBalance * (percent / 100);
+        setAmount(solAmount.toFixed(4));
+      }
+    }
+  };
+
+  // Handle slider change
+  const handleSliderChange = (value: number) => {
+    setSizePercent(value);
+    if (availableBalance > 0) {
+      if (side === 'buy') {
+        const usdcToUse = availableBalance * (value / 100);
+        const priceToUse = orderType === 'limit' && price ? parseFloat(price) : (solPrice || 100);
+        if (priceToUse > 0) {
+          const solAmount = usdcToUse / priceToUse;
+          setAmount(solAmount.toFixed(4));
+        }
+      } else {
+        const solAmount = availableBalance * (value / 100);
+        setAmount(solAmount.toFixed(4));
+      }
+    }
+  };
 
   // Calculate required amount and wrap needs
   const getOrderRequirements = () => {
@@ -50,71 +132,74 @@ export const TradingPanel: FC = () => {
     const amountLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
 
     if (side === 'sell') {
-      // Selling SOL: need wrapped SOL
       const currentWrapped = wrappedBalances.sol;
       const availableUnwrapped = tokenBalances.sol;
 
       if (currentWrapped >= amountLamports) {
-        // Have enough wrapped, no wrap needed
         return { requiredAmount: amountLamports, wrapNeeded: BigInt(0), canProceed: true, needsWrap: false };
       }
 
       const wrapNeeded = amountLamports - currentWrapped;
       const totalAvailable = currentWrapped + availableUnwrapped;
 
-      if (totalAvailable >= amountLamports) {
-        // Can wrap the difference
+      if (totalAvailable >= amountLamports && autoWrap) {
         return { requiredAmount: amountLamports, wrapNeeded, canProceed: true, needsWrap: true };
       }
 
-      // Truly insufficient
       return { requiredAmount: amountLamports, wrapNeeded, canProceed: false, needsWrap: false };
     } else {
-      // Buying SOL: need wrapped USDC (amount * price)
       if (orderType === 'limit' && price && parseFloat(price) > 0) {
         const totalUsdcNeeded = BigInt(Math.floor(parseFloat(amount) * parseFloat(price) * 1e6));
         const currentWrapped = wrappedBalances.usdc;
         const availableUnwrapped = tokenBalances.usdc;
 
         if (currentWrapped >= totalUsdcNeeded) {
-          // Have enough wrapped, no wrap needed
           return { requiredAmount: totalUsdcNeeded, wrapNeeded: BigInt(0), canProceed: true, needsWrap: false };
         }
 
         const wrapNeeded = totalUsdcNeeded - currentWrapped;
         const totalAvailable = currentWrapped + availableUnwrapped;
 
-        if (totalAvailable >= totalUsdcNeeded) {
-          // Can wrap the difference
+        if (totalAvailable >= totalUsdcNeeded && autoWrap) {
           return { requiredAmount: totalUsdcNeeded, wrapNeeded, canProceed: true, needsWrap: true };
         }
 
-        // Truly insufficient
         return { requiredAmount: totalUsdcNeeded, wrapNeeded, canProceed: false, needsWrap: false };
       }
 
-      // Market order or no price yet - allow proceed
       return { requiredAmount: BigInt(0), wrapNeeded: BigInt(0), canProceed: true, needsWrap: false };
     }
   };
 
   const { requiredAmount, wrapNeeded, canProceed, needsWrap } = getOrderRequirements();
 
-  // Check if user has truly insufficient balance (can't even wrap to cover it)
+  // Check if user has truly insufficient balance
   const getInsufficientBalanceError = (): string | null => {
     if (!amount || parseFloat(amount) <= 0) return null;
     if (canProceed) return null;
 
     if (side === 'sell') {
+      const wrappedHave = Number(wrappedBalances.sol) / 1e9;
       const totalAvailable = wrappedBalances.sol + tokenBalances.sol;
       const needed = parseFloat(amount);
       const have = Number(totalAvailable) / 1e9;
+
+      if (totalAvailable >= BigInt(Math.floor(needed * 1e9)) && !autoWrap) {
+        return `Insufficient wrapped SOL. Have: ${wrappedHave.toFixed(4)} wrapped. Enable auto-wrap or wrap tokens first.`;
+      }
+
       return `Insufficient SOL. Have: ${have.toFixed(4)}, Need: ${needed.toFixed(4)}`;
     } else {
       if (orderType === 'limit' && price && parseFloat(price) > 0) {
+        const wrappedHave = Number(wrappedBalances.usdc) / 1e6;
         const totalAvailable = wrappedBalances.usdc + tokenBalances.usdc;
         const needed = parseFloat(amount) * parseFloat(price);
         const have = Number(totalAvailable) / 1e6;
+
+        if (totalAvailable >= BigInt(Math.floor(needed * 1e6)) && !autoWrap) {
+          return `Insufficient wrapped USDC. Have: ${wrappedHave.toFixed(2)} wrapped. Enable auto-wrap or wrap tokens first.`;
+        }
+
         return `Insufficient USDC. Have: ${have.toFixed(2)}, Need: ${needed.toFixed(2)}`;
       }
     }
@@ -129,36 +214,51 @@ export const TradingPanel: FC = () => {
   // Initialize encryption on wallet connect
   useEffect(() => {
     if (connected && publicKey && !isInitialized) {
-      console.log('[TradingPanel] Wallet connected, initializing encryption...');
       initializeEncryption().catch(console.error);
     }
   }, [connected, publicKey, isInitialized, initializeEncryption]);
 
-  const handleSubmit = async () => {
-    console.log('[TradingPanel] handleSubmit called');
-    console.log('[TradingPanel] State:', { connected, publicKey: publicKey?.toString(), amount, price, orderType });
-
+  // Handle button click
+  const handleButtonClick = () => {
     if (!connected || !publicKey) {
-      console.log('[TradingPanel] Wallet not connected');
       toast.error('Please connect your wallet');
       return;
     }
 
     if (!amount || (orderType === 'limit' && !price)) {
-      console.log('[TradingPanel] Missing fields');
       toast.error('Please fill in all fields');
       return;
     }
 
-    // Check for truly insufficient balance (can't proceed even with auto-wrap)
     if (insufficientBalanceError) {
-      console.log('[TradingPanel] Insufficient balance:', insufficientBalanceError);
+      toast.error(insufficientBalanceError);
+      return;
+    }
+
+    if (confirmTx) {
+      setShowConfirmDialog(true);
+    } else {
+      handleSubmit();
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!connected || !publicKey) {
+      toast.error('Please connect your wallet');
+      return;
+    }
+
+    if (!amount || (orderType === 'limit' && !price)) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    if (insufficientBalanceError) {
       toast.error(insufficientBalanceError);
       return;
     }
 
     if (!signMessage) {
-      console.log('[TradingPanel] signMessage not available');
       toast.error('Wallet does not support message signing');
       return;
     }
@@ -167,15 +267,8 @@ export const TradingPanel: FC = () => {
     setIsPlacingOrder(true);
 
     try {
-      // Step 0: Check if exchange and pair are initialized
-      console.log('[TradingPanel] Step 0: Checking program state...');
-
       const exchangeReady = await isExchangeInitialized(connection);
       if (!exchangeReady) {
-        console.log('[TradingPanel] Exchange not initialized');
-        toast.error('Exchange not initialized on devnet. Please contact admin.', { duration: 5000 });
-
-        // For demo purposes, show a simulated success flow
         toast.info('Demo mode: Simulating order flow...', { id: 'demo-mode' });
         await simulateDemoOrder();
         return;
@@ -187,36 +280,20 @@ export const TradingPanel: FC = () => {
 
       const pairReady = await isPairInitialized(connection, baseMint, quoteMint);
       if (!pairReady) {
-        console.log('[TradingPanel] Trading pair not initialized');
-        toast.error('SOL/USDC pair not initialized on devnet. Please contact admin.', { duration: 5000 });
-
-        // For demo purposes, show a simulated success flow
         toast.info('Demo mode: Simulating order flow...', { id: 'demo-mode' });
         await simulateDemoOrder();
         return;
       }
 
-      // Step 1: Generate ZK eligibility proof
-      console.log('[TradingPanel] Step 1: Generating ZK proof...');
       toast.info('Generating eligibility proof...', { id: 'proof-gen' });
-
       const proofResult = await generateProof();
-      console.log('[TradingPanel] Proof generated:', {
-        proofLength: proofResult.proof.length,
-        rootLength: proofResult.blacklistRoot.length,
-      });
       toast.success('Proof generated', { id: 'proof-gen' });
 
-      // Step 2: Initialize encryption if needed
       if (!isInitialized) {
-        console.log('[TradingPanel] Step 2: Initializing encryption...');
         await initializeEncryption();
       }
 
-      // Step 3: Encrypt order parameters
-      console.log('[TradingPanel] Step 3: Encrypting order parameters...');
       toast.info('Encrypting order...', { id: 'encrypt' });
-
       const amountLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
       const priceLamports = orderType === 'limit'
         ? BigInt(Math.floor(parseFloat(price) * 1e6))
@@ -224,15 +301,7 @@ export const TradingPanel: FC = () => {
 
       const encryptedAmount = await encryptValue(amountLamports);
       const encryptedPrice = await encryptValue(priceLamports);
-
-      console.log('[TradingPanel] Encrypted values:', {
-        encryptedAmountLength: encryptedAmount.length,
-        encryptedPriceLength: encryptedPrice.length,
-      });
       toast.success('Order encrypted', { id: 'encrypt' });
-
-      // Step 4: Build transaction using Anchor-compatible client
-      console.log('[TradingPanel] Step 4: Building transaction...');
 
       const programSide = side === 'buy' ? ProgramSide.Buy : ProgramSide.Sell;
       const programOrderType = orderType === 'limit' ? ProgramOrderType.Limit : ProgramOrderType.Market;
@@ -240,10 +309,7 @@ export const TradingPanel: FC = () => {
       let transaction;
 
       if (needsWrap && wrapNeeded > BigInt(0)) {
-        // Auto-wrap flow: combine wrap + place_order in one transaction
-        console.log('[TradingPanel] Auto-wrap needed, wrapping', wrapNeeded.toString());
         toast.info('Wrapping tokens & placing order...', { id: 'tx-build' });
-
         const wrapTokenMint = side === 'sell'
           ? NATIVE_MINT
           : new PublicKey(TRADING_PAIRS[0].quoteMint);
@@ -261,15 +327,8 @@ export const TradingPanel: FC = () => {
           wrapTokenMint,
           wrapAmount: wrapNeeded,
         });
-
-        console.log('[TradingPanel] Auto-wrap transaction built:', {
-          blockhash: transaction.recentBlockhash?.slice(0, 16) + '...',
-          instructionCount: transaction.instructions.length,
-        });
       } else {
-        // Standard flow: just place_order
         toast.info('Building transaction...', { id: 'tx-build' });
-
         transaction = await buildPlaceOrderTransaction({
           connection,
           maker: publicKey,
@@ -281,25 +340,14 @@ export const TradingPanel: FC = () => {
           encryptedPrice,
           eligibilityProof: proofResult.proof,
         });
-
-        console.log('[TradingPanel] Transaction built:', {
-          blockhash: transaction.recentBlockhash?.slice(0, 16) + '...',
-          instructionCount: transaction.instructions.length,
-        });
       }
 
       toast.success('Transaction built', { id: 'tx-build' });
-
-      // Step 5: Send transaction
-      console.log('[TradingPanel] Step 5: Sending transaction...');
       toast.info('Sending transaction - please approve in wallet...', { id: 'tx-send' });
 
       const signature = await sendTransaction(transaction, connection);
-      console.log('[TradingPanel] Transaction sent:', signature);
-
       toast.info('Confirming transaction...', { id: 'tx-send' });
 
-      // Wait for confirmation
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
       const confirmation = await connection.confirmTransaction({
         signature,
@@ -308,13 +356,9 @@ export const TradingPanel: FC = () => {
       });
 
       if (confirmation.value.err) {
-        console.error('[TradingPanel] Transaction failed:', confirmation.value.err);
         throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
 
-      console.log('[TradingPanel] Transaction confirmed:', confirmation);
-
-      // Step 6: Add to order store
       const orderId = Date.now();
       addOrder({
         id: orderId.toString(),
@@ -328,34 +372,35 @@ export const TradingPanel: FC = () => {
         status: 'open',
         createdAt: new Date(),
         filledPercent: 0,
+        slippage,
       });
 
-      toast.success(
-        `${side.toUpperCase()} order placed successfully`,
-        {
-          id: 'tx-send',
-          description: (
-            <a
-              href={`https://explorer.solana.com/tx/${signature}?cluster=devnet`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline"
-            >
-              View on Explorer
-            </a>
-          ),
-        }
-      );
+      if (notifications) {
+        toast.success(
+          `${side.toUpperCase()} order placed successfully`,
+          {
+            id: 'tx-send',
+            description: (
+              <a
+                href={`https://explorer.solana.com/tx/${signature}?cluster=devnet`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline"
+              >
+                View on Explorer
+              </a>
+            ),
+          }
+        );
+      } else {
+        toast.dismiss('tx-send');
+      }
 
-      console.log('[TradingPanel] Order placed successfully!');
-
-      // Refresh balances after successful order (especially important for auto-wrap)
       refreshBalances();
       refreshTokenBalances();
-
-      // Reset form
       setAmount('');
       setPrice('');
+      setSizePercent(0);
 
     } catch (error) {
       console.error('[TradingPanel] Error:', error);
@@ -369,28 +414,17 @@ export const TradingPanel: FC = () => {
     }
   };
 
-  // Demo mode simulation for when exchange is not initialized
   const simulateDemoOrder = async () => {
     try {
-      // Step 1: Generate ZK eligibility proof
-      console.log('[TradingPanel] Demo Step 1: Generating ZK proof...');
       toast.info('Generating eligibility proof...', { id: 'proof-gen' });
-
       const proofResult = await generateProof();
-      console.log('[TradingPanel] Demo proof generated:', {
-        proofLength: proofResult.proof.length,
-      });
       toast.success('Proof generated (simulated)', { id: 'proof-gen' });
 
-      // Step 2: Initialize encryption
       if (!isInitialized) {
         await initializeEncryption();
       }
 
-      // Step 3: Encrypt order
-      console.log('[TradingPanel] Demo Step 2: Encrypting order...');
       toast.info('Encrypting order...', { id: 'encrypt' });
-
       const amountLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
       const priceLamports = orderType === 'limit'
         ? BigInt(Math.floor(parseFloat(price) * 1e6))
@@ -398,13 +432,10 @@ export const TradingPanel: FC = () => {
 
       const encryptedAmount = await encryptValue(amountLamports);
       const encryptedPrice = await encryptValue(priceLamports);
-
       toast.success('Order encrypted (simulated)', { id: 'encrypt' });
 
-      // Simulate network delay
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Add to local order store (demo)
       const orderId = Date.now();
       addOrder({
         id: orderId.toString(),
@@ -418,19 +449,24 @@ export const TradingPanel: FC = () => {
         status: 'open',
         createdAt: new Date(),
         filledPercent: 0,
+        slippage,
       });
 
-      toast.success(
-        `Demo: ${side.toUpperCase()} order simulated`,
-        {
-          id: 'demo-mode',
-          description: 'Exchange not yet initialized on devnet. Order stored locally.',
-        }
-      );
+      if (notifications) {
+        toast.success(
+          `Demo: ${side.toUpperCase()} order simulated`,
+          {
+            id: 'demo-mode',
+            description: 'Exchange not yet initialized on devnet. Order stored locally.',
+          }
+        );
+      } else {
+        toast.dismiss('demo-mode');
+      }
 
-      // Reset form
       setAmount('');
       setPrice('');
+      setSizePercent(0);
 
     } catch (error) {
       console.error('[TradingPanel] Demo error:', error);
@@ -441,101 +477,149 @@ export const TradingPanel: FC = () => {
     }
   };
 
+  // Format balance display
+  const formatUsdBalance = (value: number) => {
+    if (solPrice && side === 'sell') {
+      return `$${(value * solPrice).toFixed(2)}`;
+    }
+    return `$${value.toFixed(2)}`;
+  };
+
   return (
-    <div className="bg-card border border-border rounded-lg p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold">Place Order</h2>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Lock className="h-3 w-3" />
-          <span>Encrypted</span>
-        </div>
+    <div className={`flex flex-col h-full ${isSidebar ? 'bg-card' : 'bg-card border border-border rounded-lg'}`}>
+      {/* Order Type Tabs */}
+      <div className="flex border-b border-border shrink-0">
+        <button
+          onClick={() => setOrderType('market')}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+            orderType === 'market'
+              ? 'text-foreground border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Market
+        </button>
+        <button
+          onClick={() => setOrderType('limit')}
+          className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
+            orderType === 'limit'
+              ? 'text-foreground border-b-2 border-primary'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
+        >
+          Limit
+        </button>
       </div>
 
-      {/* Pair Selector */}
-      <div className="mb-6">
-        <label className="text-sm text-muted-foreground mb-2 block">
-          Trading Pair
-        </label>
-        <select className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-foreground">
-          <option value="SOL/USDC">SOL / USDC</option>
-          <option value="BONK/USDC" disabled>BONK / USDC (coming soon)</option>
+      {/* Token Selector */}
+      <div className="px-3 py-2 border-b border-border/50 shrink-0">
+        <select
+          className="w-full bg-secondary border border-border rounded px-3 py-1.5 text-sm"
+          defaultValue="SOL"
+        >
+          <option value="SOL">SOL</option>
         </select>
       </div>
 
-      {/* Side Tabs */}
-      <div className="flex mb-6">
+      {/* Buy/Sell Toggle */}
+      <div className="flex gap-1 px-3 py-3 shrink-0">
         <button
           onClick={() => setSide('buy')}
-          className={`flex-1 py-3 text-center font-medium rounded-l-lg transition-colors ${
+          className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
             side === 'buy'
-              ? 'bg-green-500/20 text-green-400 border border-green-500/50'
-              : 'bg-secondary text-muted-foreground border border-border'
+              ? 'bg-green-500 text-white'
+              : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
           }`}
         >
           Buy
         </button>
         <button
           onClick={() => setSide('sell')}
-          className={`flex-1 py-3 text-center font-medium rounded-r-lg transition-colors ${
+          className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
             side === 'sell'
-              ? 'bg-red-500/20 text-red-400 border border-red-500/50'
-              : 'bg-secondary text-muted-foreground border border-border'
+              ? 'bg-red-500 text-white'
+              : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
           }`}
         >
           Sell
         </button>
       </div>
 
-      {/* Order Type */}
-      <div className="flex gap-4 mb-6">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="orderType"
-            checked={orderType === 'limit'}
-            onChange={() => setOrderType('limit')}
-            className="text-primary"
-          />
-          <span className="text-sm">Limit</span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input
-            type="radio"
-            name="orderType"
-            checked={orderType === 'market'}
-            onChange={() => setOrderType('market')}
-            className="text-primary"
-          />
-          <span className="text-sm">Market</span>
-        </label>
+      {/* Available to Trade */}
+      <div className="px-3 py-1 text-xs text-muted-foreground shrink-0">
+        Available to Trade:{' '}
+        <span className="text-foreground font-mono">
+          {showBalances ? (
+            side === 'buy'
+              ? `${availableBalance.toFixed(2)} USDC`
+              : `${availableBalance.toFixed(4)} SOL`
+          ) : (
+            '••••••'
+          )}
+        </span>
       </div>
 
-      {/* Amount Input */}
-      <div className="mb-4">
-        <label className="text-sm text-muted-foreground mb-2 block">
-          Amount (SOL)
-        </label>
+      {/* Size Input */}
+      <div className="px-3 py-2 space-y-2 shrink-0">
+        <label className="text-xs text-muted-foreground">Size</label>
         <div className="relative">
           <input
             type="number"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              // Update percentage when manually typing
+              if (availableBalance > 0 && e.target.value) {
+                const newPercent = Math.min(100, Math.max(0, (parseFloat(e.target.value) / availableBalance) * 100));
+                setSizePercent(Math.round(newPercent));
+              }
+            }}
             placeholder="0.00"
             step="0.01"
             min="0"
-            className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-foreground placeholder:text-muted-foreground"
+            className="w-full bg-secondary border border-border rounded px-3 py-2 text-sm pr-16"
           />
-          <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+            SOL
+          </span>
+        </div>
+
+        {/* Percentage Slider */}
+        <div className="flex items-center gap-2">
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={sizePercent}
+            onChange={(e) => handleSliderChange(parseInt(e.target.value))}
+            className="flex-1 h-1 accent-primary cursor-pointer"
+          />
+          <span className="text-xs text-muted-foreground w-10 text-right">{sizePercent}%</span>
+        </div>
+
+        {/* Percentage Presets */}
+        <div className="flex gap-1">
+          {PERCENTAGE_PRESETS.map(pct => (
+            <button
+              key={pct}
+              onClick={() => handlePercentageClick(pct)}
+              className={`flex-1 text-xs py-1 rounded border transition-colors ${
+                sizePercent === pct
+                  ? 'bg-primary/20 border-primary text-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/50'
+              }`}
+            >
+              {pct}%
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Price Input (Limit only) */}
       {orderType === 'limit' && (
-        <div className="mb-6">
-          <label className="text-sm text-muted-foreground mb-2 block">
-            Price (USDC)
-          </label>
-          <div className="relative">
+        <div className="px-3 py-2 shrink-0">
+          <label className="text-xs text-muted-foreground">Price</label>
+          <div className="relative mt-1">
             <input
               type="number"
               value={price}
@@ -543,113 +627,190 @@ export const TradingPanel: FC = () => {
               placeholder="0.00"
               step="0.01"
               min="0"
-              className="w-full bg-secondary border border-border rounded-lg px-4 py-3 text-foreground placeholder:text-muted-foreground"
+              className="w-full bg-secondary border border-border rounded px-3 py-2 text-sm pr-16"
             />
-            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          </div>
-        </div>
-      )}
-
-      {/* Proof Status */}
-      {isGenerating && (
-        <div className="mb-4 p-3 bg-secondary rounded-lg">
-          <div className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin text-primary" />
-            <span className="text-sm">Generating ZK proof...</span>
-          </div>
-        </div>
-      )}
-
-      {proofReady && !isGenerating && (
-        <div className="mb-4 p-3 bg-secondary rounded-lg">
-          <div className="flex items-center gap-2">
-            <Shield className="h-4 w-4 text-primary" />
-            <span className="text-sm text-primary">Proof ready</span>
-          </div>
-        </div>
-      )}
-
-      {/* Encryption Status */}
-      {connected && (
-        <div className="mb-4 text-xs text-muted-foreground">
-          Encryption: {isInitialized ? '✓ Ready' : 'Initializing...'}
-        </div>
-      )}
-
-      {/* Zero Total Balance Warning - truly no funds at all */}
-      {connected && hasZeroTotalBalance && !isLoadingBalances && (
-        <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400">
-            <AlertCircle className="h-4 w-4" />
-            <span>No tokens available. Deposit funds to start trading.</span>
-          </div>
-        </div>
-      )}
-
-      {/* Auto-wrap Notice - has unwrapped tokens that will be auto-wrapped */}
-      {connected && needsWrap && canProceed && !isLoadingBalances && (
-        <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400">
-            <Shield className="h-4 w-4" />
-            <span>
-              Will auto-wrap {side === 'sell'
-                ? `${(Number(wrapNeeded) / 1e9).toFixed(4)} SOL`
-                : `${(Number(wrapNeeded) / 1e6).toFixed(2)} USDC`
-              } with your order
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+              USDC
             </span>
           </div>
         </div>
       )}
 
-      {/* Insufficient Balance Warning - can't proceed even with auto-wrap */}
+      {/* Info Rows */}
+      <div className="px-3 py-2 space-y-1.5 text-xs shrink-0">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Order Value</span>
+          <span className="font-mono">
+            {orderValue !== null ? `$${orderValue.toFixed(2)}` : 'N/A'}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Slippage</span>
+          <span className="font-mono">Est: 0% / Max: {slippage}%</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Fees</span>
+          <span className="font-mono">0.07% / 0.04%</span>
+        </div>
+      </div>
+
+      {/* Status Messages */}
+      {isGenerating && (
+        <div className="mx-3 mb-2 p-2 bg-secondary rounded text-xs flex items-center gap-2 shrink-0">
+          <Loader2 className="h-3 w-3 animate-spin text-primary" />
+          <span>Generating ZK proof...</span>
+        </div>
+      )}
+
+      {proofReady && !isGenerating && (
+        <div className="mx-3 mb-2 p-2 bg-secondary rounded text-xs flex items-center gap-2 shrink-0">
+          <Shield className="h-3 w-3 text-primary" />
+          <span className="text-primary">Proof ready</span>
+        </div>
+      )}
+
+      {connected && needsWrap && canProceed && !isLoadingBalances && (
+        <div className="mx-3 mb-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs flex items-center gap-2 text-blue-400 shrink-0">
+          <Shield className="h-3 w-3" />
+          <span>
+            Will auto-wrap {side === 'sell'
+              ? `${(Number(wrapNeeded) / 1e9).toFixed(4)} SOL`
+              : `${(Number(wrapNeeded) / 1e6).toFixed(2)} USDC`
+            }
+          </span>
+        </div>
+      )}
+
       {connected && insufficientBalanceError && (
-        <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-          <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-            <AlertCircle className="h-4 w-4" />
-            <span>{insufficientBalanceError}</span>
-          </div>
+        <div className="mx-3 mb-2 p-2 bg-red-500/10 border border-red-500/20 rounded text-xs flex items-center gap-2 text-red-400 shrink-0">
+          <AlertCircle className="h-3 w-3" />
+          <span>{insufficientBalanceError}</span>
         </div>
       )}
 
       {/* Submit Button */}
-      <button
-        onClick={handleSubmit}
-        disabled={!connected || isSubmitting || isGenerating || !!insufficientBalanceError || hasZeroTotalBalance}
-        className={`w-full py-4 rounded-lg font-semibold transition-colors flex items-center justify-center gap-2 ${
-          side === 'buy'
-            ? 'bg-green-500 hover:bg-green-600 text-white'
-            : 'bg-red-500 hover:bg-red-600 text-white'
-        } disabled:opacity-50 disabled:cursor-not-allowed`}
-      >
-        {isSubmitting || isGenerating ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin" />
-            {isGenerating ? 'Generating Proof...' : 'Processing...'}
-          </>
-        ) : !connected ? (
-          'Connect Wallet'
-        ) : hasZeroTotalBalance ? (
-          'No Funds Available'
-        ) : insufficientBalanceError ? (
-          'Insufficient Balance'
-        ) : needsWrap ? (
-          `Wrap & ${side === 'buy' ? 'Buy' : 'Sell'} SOL`
-        ) : (
-          `${side === 'buy' ? 'Buy' : 'Sell'} SOL`
-        )}
-      </button>
-
-      {/* Privacy Notice */}
-      <div className="mt-4 flex items-start gap-2 text-xs text-muted-foreground">
-        <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-        <p>
-          Your order amount and price are encrypted using Arcium MPC.
-          Only matching orders can reveal if prices cross.
-          {isEncrypted && (
-            <span className="text-primary ml-1">(C-SPL enabled)</span>
+      <div className="px-3 py-3 shrink-0">
+        <button
+          onClick={handleButtonClick}
+          disabled={!connected || isSubmitting || isGenerating || !!insufficientBalanceError || hasZeroTotalBalance}
+          className={`w-full py-3 rounded font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
+            side === 'buy'
+              ? 'bg-green-500 hover:bg-green-600 text-white'
+              : 'bg-red-500 hover:bg-red-600 text-white'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          {isSubmitting || isGenerating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {isGenerating ? 'Generating Proof...' : 'Processing...'}
+            </>
+          ) : !connected ? (
+            'Connect Wallet'
+          ) : hasZeroTotalBalance ? (
+            'No Funds Available'
+          ) : insufficientBalanceError ? (
+            'Insufficient Balance'
+          ) : needsWrap ? (
+            `Wrap & ${side === 'buy' ? 'Buy' : 'Sell'} SOL`
+          ) : (
+            `${side === 'buy' ? 'Buy' : 'Sell'} SOL`
           )}
-        </p>
+        </button>
       </div>
+
+      {/* Account Section */}
+      {showAccountSection && (
+        <div className="mt-auto border-t border-border p-3 space-y-3 shrink-0">
+          {/* Deposit/Withdraw Buttons */}
+          <div className="flex gap-2">
+            <Link
+              href="/wrap"
+              className="flex-1 py-2 text-center text-xs font-medium bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors"
+            >
+              Deposit
+            </Link>
+            <Link
+              href="/wrap?tab=unwrap"
+              className="flex-1 py-2 text-center text-xs font-medium bg-secondary text-foreground rounded hover:bg-secondary/80 transition-colors border border-border"
+            >
+              Withdraw
+            </Link>
+          </div>
+
+          {/* Account Equity */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Account Equity</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPrivacyMode(!privacyMode)}
+                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {showBalances ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                </button>
+                <button
+                  onClick={() => { refreshBalances(); refreshTokenBalances(); }}
+                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                  disabled={isLoadingBalances}
+                >
+                  <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+            <div className="text-lg font-semibold font-mono">
+              {isLoadingBalances ? (
+                <span className="text-muted-foreground animate-pulse">Loading...</span>
+              ) : showBalances ? (
+                `$${((Number(wrappedBalances.sol) / 1e9 * (solPrice || 0)) + (Number(wrappedBalances.usdc) / 1e6)).toFixed(2)}`
+              ) : (
+                '••••••'
+              )}
+            </div>
+          </div>
+
+          {/* Token Breakdown */}
+          <div className="space-y-1.5 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">SOL</span>
+              <span className="font-mono">
+                {showBalances ? `${(Number(wrappedBalances.sol) / 1e9).toFixed(4)}` : '••••'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">USDC</span>
+              <span className="font-mono">
+                {showBalances ? `${(Number(wrappedBalances.usdc) / 1e6).toFixed(2)}` : '••••'}
+              </span>
+            </div>
+          </div>
+
+          {/* Encryption Status */}
+          <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border/50">
+            <div className="flex items-center gap-1">
+              <Lock className="h-3 w-3" />
+              <span>Encrypted Balances</span>
+            </div>
+            {isEncrypted && <span className="text-primary">C-SPL</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Dialog */}
+      <OrderConfirmDialog
+        isOpen={showConfirmDialog}
+        onClose={() => setShowConfirmDialog(false)}
+        onConfirm={handleSubmit}
+        side={side}
+        amount={amount}
+        price={price}
+        orderType={orderType}
+        needsWrap={needsWrap}
+        wrapAmount={needsWrap ? (
+          side === 'sell'
+            ? `${(Number(wrapNeeded) / 1e9).toFixed(4)} SOL`
+            : `${(Number(wrapNeeded) / 1e6).toFixed(2)} USDC`
+        ) : undefined}
+      />
     </div>
   );
 };
