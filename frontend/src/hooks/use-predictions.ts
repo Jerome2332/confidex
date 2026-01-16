@@ -13,6 +13,7 @@ import {
   sellOutcomeTokens,
   redeemWinnings,
   calculatePotentialWinnings,
+  createMarket,
 } from '@/lib/pnp';
 
 interface UsePredictionsReturn {
@@ -55,7 +56,7 @@ interface UsePredictionsReturn {
  */
 export function usePredictions(): UsePredictionsReturn {
   const { connection } = useConnection();
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, signTransaction, sendTransaction } = useWallet();
 
   const [markets, setMarkets] = useState<PredictionMarket[]>([]);
   const [selectedMarket, setSelectedMarket] = useState<PredictionMarket | null>(null);
@@ -133,7 +134,7 @@ export function usePredictions(): UsePredictionsReturn {
         outcome,
         amount,
         maxPrice,
-        { publicKey, signTransaction }
+        { publicKey, signTransaction, sendTransaction }
       );
 
       // Refresh market and positions
@@ -150,7 +151,7 @@ export function usePredictions(): UsePredictionsReturn {
     } finally {
       setIsTransacting(false);
     }
-  }, [connection, publicKey, signTransaction, selectedMarket, selectMarket, refreshPositions]);
+  }, [connection, publicKey, signTransaction, sendTransaction, selectedMarket, selectMarket, refreshPositions]);
 
   // Sell outcome tokens
   const sellTokens = useCallback(async (
@@ -172,7 +173,7 @@ export function usePredictions(): UsePredictionsReturn {
         outcome,
         tokenAmount,
         minPrice,
-        { publicKey, signTransaction }
+        { publicKey, signTransaction, sendTransaction }
       );
 
       // Refresh market and positions
@@ -189,7 +190,7 @@ export function usePredictions(): UsePredictionsReturn {
     } finally {
       setIsTransacting(false);
     }
-  }, [connection, publicKey, signTransaction, selectedMarket, selectMarket, refreshPositions]);
+  }, [connection, publicKey, signTransaction, sendTransaction, selectedMarket, selectMarket, refreshPositions]);
 
   // Redeem winnings
   const redeem = useCallback(async () => {
@@ -208,7 +209,7 @@ export function usePredictions(): UsePredictionsReturn {
       const result = await redeemWinnings(
         connection,
         selectedMarket.id,
-        { publicKey, signTransaction }
+        { publicKey, signTransaction, sendTransaction }
       );
 
       await refreshPositions();
@@ -221,7 +222,7 @@ export function usePredictions(): UsePredictionsReturn {
     } finally {
       setIsTransacting(false);
     }
-  }, [connection, publicKey, signTransaction, selectedMarket, refreshPositions]);
+  }, [connection, publicKey, signTransaction, sendTransaction, selectedMarket, refreshPositions]);
 
   // Calculate potential winnings helper
   const calculateWinnings = useCallback((amount: number, outcome: 'YES' | 'NO') => {

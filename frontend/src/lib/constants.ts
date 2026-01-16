@@ -53,3 +53,12 @@ export const SHADOWWIRE_FEE_BPS = 100; // 1%
 // Encryption settings
 export const ENCRYPTED_VALUE_SIZE = 64;
 export const GROTH16_PROOF_SIZE = 388;
+
+// PNP Prediction Markets
+export const PNP_API_URL =
+  process.env.NEXT_PUBLIC_PNP_API_URL || 'https://api.pnp.exchange';
+export const PNP_USE_SDK = process.env.NEXT_PUBLIC_PNP_USE_SDK !== 'false';
+
+// Settlement layer feature flags
+export const CSPL_ENABLED = false; // Flip to true when C-SPL SDK releases
+export const SHADOWWIRE_ENABLED = true; // Production-ready

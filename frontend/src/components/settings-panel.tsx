@@ -12,9 +12,14 @@ import {
   ChevronRight,
   Info,
   X,
+  Zap,
+  Check,
+  Clock,
 } from 'lucide-react';
 import { useThemeStore, Theme } from '@/stores/theme-store';
 import { useSettingsStore } from '@/stores/settings-store';
+import { useSettlementSelector } from '@/hooks/use-unified-settlement';
+import type { SettlementMethod } from '@/lib/settlement';
 
 interface SettingsSectionProps {
   title: string;
@@ -71,7 +76,16 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
     setPrivacyMode,
     notifications,
     setNotifications,
+    showSettlementFees,
+    setShowSettlementFees,
   } = useSettingsStore();
+
+  const {
+    currentMethod,
+    setMethod,
+    allMethods,
+    getMethodStatus,
+  } = useSettlementSelector();
 
   const slippageOptions = ['0.1', '0.5', '1.0', '2.0'];
 
@@ -155,6 +169,112 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
               description="Show confirmation dialog before signing"
               checked={confirmTx}
               onChange={setConfirmTx}
+            />
+          </SettingsSection>
+
+          {/* Settlement Settings */}
+          <SettingsSection title="Settlement">
+            <div className="p-3 bg-secondary/50 rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <Zap className="h-4 w-4 text-primary" />
+                <span className="text-sm font-medium">Settlement Method</span>
+              </div>
+              <div className="space-y-2">
+                {/* Auto option */}
+                <button
+                  onClick={() => setMethod('auto')}
+                  className={`w-full p-3 rounded-lg text-left transition-colors ${
+                    currentMethod === 'auto'
+                      ? 'bg-primary/20 border border-primary'
+                      : 'bg-background hover:bg-secondary border border-transparent'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-sm font-medium flex items-center gap-2">
+                        Auto
+                        {currentMethod === 'auto' && (
+                          <Check className="h-3 w-3 text-primary" />
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Automatically select best available
+                      </div>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Recommended
+                    </div>
+                  </div>
+                </button>
+
+                {/* Individual methods */}
+                {allMethods.map((method) => {
+                  const status = getMethodStatus(method.id);
+                  const isDisabled = !method.isAvailable;
+
+                  return (
+                    <button
+                      key={method.id}
+                      onClick={() => !isDisabled && setMethod(method.id)}
+                      disabled={isDisabled}
+                      className={`w-full p-3 rounded-lg text-left transition-colors ${
+                        currentMethod === method.id
+                          ? 'bg-primary/20 border border-primary'
+                          : isDisabled
+                          ? 'bg-muted/30 border border-transparent cursor-not-allowed opacity-60'
+                          : 'bg-background hover:bg-secondary border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm font-medium flex items-center gap-2">
+                            {method.name}
+                            {currentMethod === method.id && (
+                              <Check className="h-3 w-3 text-primary" />
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {method.description}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-mono">
+                            {method.feeBps > 0
+                              ? `${method.feeBps / 100}% fee`
+                              : 'No fee'}
+                          </div>
+                          <div
+                            className={`text-xs flex items-center gap-1 justify-end ${
+                              method.isAvailable
+                                ? 'text-green-400'
+                                : 'text-yellow-400'
+                            }`}
+                          >
+                            {method.isAvailable ? (
+                              <>
+                                <Check className="h-3 w-3" />
+                                Available
+                              </>
+                            ) : (
+                              <>
+                                <Clock className="h-3 w-3" />
+                                Coming Soon
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <Toggle
+              label="Show settlement fees"
+              description="Display fees in order preview"
+              checked={showSettlementFees}
+              onChange={setShowSettlementFees}
             />
           </SettingsSection>
 
