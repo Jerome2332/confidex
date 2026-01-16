@@ -6,7 +6,7 @@ import { TradingPanel } from '@/components/trading-panel';
 import { ChartArea } from '@/components/chart-area';
 import { BottomTabs } from '@/components/bottom-tabs';
 
-export default function TradePage() {
+export default function PerpetualsPage() {
   return (
     <main className="h-screen flex flex-col bg-background">
       {/* Header with Market Ticker */}
@@ -33,9 +33,9 @@ export default function TradePage() {
           <BottomTabs defaultHeight={200} />
         </div>
 
-        {/* Right: Trading Panel (full height) - Spot mode */}
+        {/* Right: Trading Panel (full height) */}
         <div className="w-80 border-l border-border overflow-y-auto hidden md:block">
-          <TradingPanel mode="spot" />
+          <TradingPanel mode="perps" />
         </div>
       </div>
     </main>

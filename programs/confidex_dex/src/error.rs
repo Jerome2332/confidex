@@ -67,4 +67,54 @@ pub enum ConfidexError {
 
     #[msg("Invalid encrypted data length")]
     InvalidEncryptedDataLength,
+
+    // === Perpetuals Errors ===
+
+    #[msg("Invalid leverage (must be 1-20)")]
+    InvalidLeverage,
+
+    #[msg("Invalid margin basis points")]
+    InvalidMarginBps,
+
+    #[msg("Invalid funding interval")]
+    InvalidFundingInterval,
+
+    #[msg("Funding state does not match market")]
+    InvalidFundingState,
+
+    #[msg("Invalid ADL threshold (must be > 0)")]
+    InvalidAdlThreshold,
+
+    #[msg("Funding update not due yet")]
+    FundingNotDue,
+
+    #[msg("Market is not active")]
+    MarketNotActive,
+
+    #[msg("Position is not open")]
+    PositionNotOpen,
+
+    #[msg("Position is not liquidatable")]
+    PositionNotLiquidatable,
+
+    #[msg("Liquidation threshold not verified by MPC")]
+    ThresholdNotVerified,
+
+    #[msg("Open interest limit exceeded")]
+    OpenInterestLimitExceeded,
+
+    #[msg("Insufficient collateral for position")]
+    InsufficientCollateral,
+
+    #[msg("Position size too small")]
+    PositionTooSmall,
+
+    #[msg("Invalid oracle price")]
+    InvalidOraclePrice,
+
+    #[msg("Oracle price is stale")]
+    StaleOraclePrice,
+
+    #[msg("Insurance fund depleted")]
+    InsuranceFundDepleted,
 }

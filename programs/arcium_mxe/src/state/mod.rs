@@ -76,6 +76,7 @@ impl ComputationRequest {
 /// Types of MPC computations supported
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ComputationType {
+    // === Spot DEX Operations ===
     /// Compare two encrypted prices (returns encrypted bool)
     ComparePrices,
     /// Calculate fill amount from order sizes
@@ -86,6 +87,32 @@ pub enum ComputationType {
     Subtract,
     /// Multiply two encrypted values
     Multiply,
+
+    // === Perpetuals Operations ===
+    /// Verify that claimed liquidation threshold matches encrypted position data
+    /// Inputs: encrypted_collateral, encrypted_size, encrypted_entry_price, claimed_threshold (public)
+    /// Output: valid (bool, revealed)
+    VerifyPositionParams,
+    /// Check if position should be liquidated based on mark price
+    /// Inputs: encrypted_collateral, encrypted_size, encrypted_entry_price, mark_price (public)
+    /// Output: should_liquidate (bool, revealed)
+    CheckLiquidation,
+    /// Calculate PnL for a position
+    /// Inputs: encrypted_size, encrypted_entry_price, exit_price (public), is_long (public)
+    /// Output: encrypted_pnl
+    CalculatePnl,
+    /// Calculate funding payment for a position
+    /// Inputs: encrypted_size, funding_rate (public), funding_delta (public)
+    /// Output: encrypted_funding_payment
+    CalculateFunding,
+    /// Calculate margin ratio for health check
+    /// Inputs: encrypted_collateral, encrypted_size, encrypted_entry_price, mark_price (public)
+    /// Output: margin_ratio_bps (u16, can be revealed for liquidation)
+    CalculateMarginRatio,
+    /// Update encrypted collateral after funding settlement
+    /// Inputs: encrypted_collateral, encrypted_funding_payment
+    /// Output: new_encrypted_collateral
+    UpdateCollateral,
 }
 
 /// Status of a computation request

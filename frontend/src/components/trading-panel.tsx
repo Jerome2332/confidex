@@ -2,7 +2,7 @@
 
 import { FC, useState, useEffect, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { Lock, Loader2, Shield, AlertCircle, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { Lock, Loader2, Shield, AlertCircle, Eye, EyeOff, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
 import { PublicKey } from '@solana/web3.js';
 import { useProof } from '@/hooks/use-proof';
@@ -20,32 +20,60 @@ import {
 import { useEncryptedBalance } from '@/hooks/use-encrypted-balance';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 import { useSettingsStore } from '@/stores/settings-store';
+import { usePerpetualStore } from '@/stores/perpetuals-store';
 import { OrderConfirmDialog } from './confirm-dialog';
+import { LeverageSelector } from './leverage-selector';
+import { FundingDisplay } from './funding-display';
 import { NATIVE_MINT } from '@solana/spl-token';
 import Link from 'next/link';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 
 type OrderSide = 'buy' | 'sell';
+type PositionSide = 'long' | 'short';
 type OrderType = 'limit' | 'market';
+
+type TradingMode = 'spot' | 'perps';
 
 interface TradingPanelProps {
   variant?: 'default' | 'sidebar';
   showAccountSection?: boolean;
+  mode?: TradingMode;
 }
 
 const PERCENTAGE_PRESETS = [25, 50, 75, 100];
 
-export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showAccountSection = true }) => {
+export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showAccountSection = true, mode = 'spot' }) => {
   const isSidebar = variant === 'sidebar';
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction, signMessage } = useWallet();
   const [side, setSide] = useState<OrderSide>('buy');
+  const [positionSide, setPositionSide] = useState<PositionSide>('long');
   const [orderType, setOrderType] = useState<OrderType>('limit');
   const [amount, setAmount] = useState('');
   const [price, setPrice] = useState('');
+  const [collateral, setCollateral] = useState('');
   const [sizePercent, setSizePercent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+
+  // Use the mode prop instead of store tradingMode
+  const tradingMode = mode;
+
+  // Perpetuals store
+  const {
+    currentInput,
+    setCurrentInput,
+    defaultLeverage,
+    maxLeverage,
+    fundingRates,
+    selectedMarket,
+    isOpeningPosition,
+    setIsOpeningPosition,
+    estimateLiquidationPrice,
+  } = usePerpetualStore();
+
+  // Local leverage state synced with store
+  const [leverage, setLeverage] = useState(defaultLeverage);
 
   // Use proof, encryption, and balance hooks
   const { isGenerating, proofReady, lastProof, generateProof } = useProof();
@@ -485,10 +513,31 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     return `$${value.toFixed(2)}`;
   };
 
+  // Calculate estimated liquidation price for perpetuals
+  const estimatedLiqPrice = useMemo(() => {
+    if (tradingMode !== 'perps' || !solPrice || !collateral || !amount) return null;
+    const collateralNum = parseFloat(collateral);
+    const sizeNum = parseFloat(amount);
+    if (isNaN(collateralNum) || isNaN(sizeNum) || sizeNum <= 0) return null;
+
+    // Simple liquidation price estimation
+    // For longs: liq_price = entry_price * (1 - initial_margin/leverage + maintenance_margin)
+    // For shorts: liq_price = entry_price * (1 + initial_margin/leverage - maintenance_margin)
+    const entryPrice = solPrice;
+    const maintenanceMarginBps = 500; // 5% maintenance margin
+
+    return estimateLiquidationPrice(positionSide, entryPrice, leverage, maintenanceMarginBps);
+  }, [tradingMode, solPrice, collateral, amount, leverage, positionSide, estimateLiquidationPrice]);
+
+  // Get current funding rate for display
+  const currentFundingInfo = fundingRates.get(selectedMarket);
+
   return (
     <div className={`flex flex-col h-full ${isSidebar ? 'bg-card' : 'bg-card border border-border rounded-lg'}`}>
-      {/* Order Type Tabs */}
-      <div className="flex border-b border-border shrink-0">
+      {/* Order Form Section */}
+      <div className="flex-1 flex flex-col">
+        {/* Order Type Tabs */}
+        <div className="flex border-b border-border shrink-0">
         <button
           onClick={() => setOrderType('market')}
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
@@ -521,29 +570,70 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         </select>
       </div>
 
-      {/* Buy/Sell Toggle */}
+      {/* Buy/Sell Toggle (Spot) or Long/Short Toggle (Perps) */}
       <div className="flex gap-1 px-3 py-3 shrink-0">
-        <button
-          onClick={() => setSide('buy')}
-          className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
-            side === 'buy'
-              ? 'bg-green-500 text-white'
-              : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
-          }`}
-        >
-          Buy
-        </button>
-        <button
-          onClick={() => setSide('sell')}
-          className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
-            side === 'sell'
-              ? 'bg-red-500 text-white'
-              : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
-          }`}
-        >
-          Sell
-        </button>
+        {tradingMode === 'spot' ? (
+          <>
+            <button
+              onClick={() => setSide('buy')}
+              className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
+                side === 'buy'
+                  ? 'bg-green-500 text-white'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+              }`}
+            >
+              Buy
+            </button>
+            <button
+              onClick={() => setSide('sell')}
+              className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
+                side === 'sell'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+              }`}
+            >
+              Sell
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setPositionSide('long')}
+              className={`flex-1 py-2 text-sm font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
+                positionSide === 'long'
+                  ? 'bg-green-500 text-white'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+              }`}
+            >
+              <TrendingUp className="h-4 w-4" />
+              Long
+            </button>
+            <button
+              onClick={() => setPositionSide('short')}
+              className={`flex-1 py-2 text-sm font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
+                positionSide === 'short'
+                  ? 'bg-red-500 text-white'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground border border-border'
+              }`}
+            >
+              <TrendingDown className="h-4 w-4" />
+              Short
+            </button>
+          </>
+        )}
       </div>
+
+      {/* Leverage Selector (Perps only) */}
+      {tradingMode === 'perps' && (
+        <div className="px-3 py-2 border-b border-border/50 shrink-0">
+          <LeverageSelector
+            value={leverage}
+            onChange={setLeverage}
+            maxLeverage={maxLeverage}
+            showWarning={true}
+          />
+        </div>
+      )}
 
       {/* Available to Trade */}
       <div className="px-3 py-1 text-xs text-muted-foreground shrink-0">
@@ -639,20 +729,55 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       {/* Info Rows */}
       <div className="px-3 py-2 space-y-1.5 text-xs shrink-0">
         <div className="flex justify-between">
-          <span className="text-muted-foreground">Order Value</span>
+          <span className="text-muted-foreground">
+            {tradingMode === 'perps' ? 'Position Value' : 'Order Value'}
+          </span>
           <span className="font-mono">
             {orderValue !== null ? `$${orderValue.toFixed(2)}` : 'N/A'}
           </span>
         </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Slippage</span>
-          <span className="font-mono">Est: 0% / Max: {slippage}%</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Fees</span>
-          <span className="font-mono">0.07% / 0.04%</span>
-        </div>
+
+        {tradingMode === 'perps' ? (
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Leverage</span>
+              <span className="font-mono">{leverage}x</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Est. Liq. Price</span>
+              <span className={`font-mono ${estimatedLiqPrice && solPrice && Math.abs(estimatedLiqPrice - solPrice) / solPrice < 0.1 ? 'text-red-400' : ''}`}>
+                {estimatedLiqPrice !== null ? `$${estimatedLiqPrice.toFixed(2)}` : 'N/A'}
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fees</span>
+              <span className="font-mono">0.07% / 0.04%</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Slippage</span>
+              <span className="font-mono">Est: 0% / Max: {slippage}%</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fees</span>
+              <span className="font-mono">0.07% / 0.04%</span>
+            </div>
+          </>
+        )}
       </div>
+
+      {/* Funding Rate Display (Perps only) */}
+      {tradingMode === 'perps' && (
+        <div className="px-3 py-2 shrink-0">
+          <FundingDisplay
+            fundingInfo={currentFundingInfo}
+            variant="compact"
+            showCountdown={true}
+          />
+        </div>
+      )}
 
       {/* Status Messages */}
       {isGenerating && (
@@ -692,17 +817,21 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       <div className="px-3 py-3 shrink-0">
         <button
           onClick={handleButtonClick}
-          disabled={!connected || isSubmitting || isGenerating || !!insufficientBalanceError || hasZeroTotalBalance}
+          disabled={!connected || isSubmitting || isGenerating || !!insufficientBalanceError || hasZeroTotalBalance || isOpeningPosition}
           className={`w-full py-3 rounded font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
-            side === 'buy'
+            tradingMode === 'perps'
+              ? positionSide === 'long'
+                ? 'bg-green-500 hover:bg-green-600 text-white'
+                : 'bg-red-500 hover:bg-red-600 text-white'
+              : side === 'buy'
               ? 'bg-green-500 hover:bg-green-600 text-white'
               : 'bg-red-500 hover:bg-red-600 text-white'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
-          {isSubmitting || isGenerating ? (
+          {isSubmitting || isGenerating || isOpeningPosition ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" />
-              {isGenerating ? 'Generating Proof...' : 'Processing...'}
+              {isGenerating ? 'Generating Proof...' : isOpeningPosition ? 'Opening Position...' : 'Processing...'}
             </>
           ) : !connected ? (
             'Connect Wallet'
@@ -710,6 +839,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             'No Funds Available'
           ) : insufficientBalanceError ? (
             'Insufficient Balance'
+          ) : tradingMode === 'perps' ? (
+            <>
+              {positionSide === 'long' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              Open {leverage}x {positionSide === 'long' ? 'Long' : 'Short'}
+            </>
           ) : needsWrap ? (
             `Wrap & ${side === 'buy' ? 'Buy' : 'Sell'} SOL`
           ) : (
@@ -717,10 +851,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           )}
         </button>
       </div>
+      </div>
 
-      {/* Account Section */}
+      {/* Account Section - pushed to bottom */}
       {showAccountSection && (
-        <div className="mt-auto border-t border-border p-3 space-y-3 shrink-0">
+        <div className="border-t border-border p-3 space-y-3 shrink-0 mt-auto">
           {/* Deposit/Withdraw Buttons */}
           <div className="flex gap-2">
             <Link
@@ -737,27 +872,52 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             </Link>
           </div>
 
-          {/* Account Equity */}
-          <div className="space-y-2">
+          {/* Wallet Balance (Regular SPL tokens) */}
+          <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Account Equity</span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPrivacyMode(!privacyMode)}
-                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {showBalances ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                </button>
-                <button
-                  onClick={() => { refreshBalances(); refreshTokenBalances(); }}
-                  className="p-1 text-muted-foreground hover:text-foreground transition-colors"
-                  disabled={isLoadingBalances}
-                >
-                  <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
-                </button>
-              </div>
+              <span className="text-xs text-muted-foreground">Wallet Balance</span>
+              <button
+                onClick={() => { refreshBalances(); refreshTokenBalances(); }}
+                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+                disabled={isLoadingBalances}
+              >
+                <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
+              </button>
             </div>
-            <div className="text-lg font-semibold font-mono">
+            <div className="text-sm font-semibold font-mono">
+              {isLoadingBalances ? (
+                <span className="text-muted-foreground animate-pulse">Loading...</span>
+              ) : showBalances ? (
+                `$${((Number(tokenBalances.sol) / 1e9 * (solPrice || 0)) + (Number(tokenBalances.usdc) / 1e6)).toFixed(2)}`
+              ) : (
+                '••••••'
+              )}
+            </div>
+            <div className="flex gap-3 text-[10px] text-muted-foreground">
+              <span className="font-mono">
+                {showBalances ? `${tokenBalances.solUiAmount} SOL` : '•••• SOL'}
+              </span>
+              <span className="font-mono">
+                {showBalances ? `${tokenBalances.usdcUiAmount} USDC` : '•••• USDC'}
+              </span>
+            </div>
+          </div>
+
+          {/* Trading Balance (Wrapped C-SPL tokens) */}
+          <div className="space-y-1.5 pt-2 border-t border-border/50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1">
+                <Lock className="h-3 w-3 text-primary" />
+                <span className="text-xs text-muted-foreground">Trading Balance</span>
+              </div>
+              <button
+                onClick={() => setPrivacyMode(!privacyMode)}
+                className="p-1 text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {showBalances ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              </button>
+            </div>
+            <div className="text-sm font-semibold font-mono">
               {isLoadingBalances ? (
                 <span className="text-muted-foreground animate-pulse">Loading...</span>
               ) : showBalances ? (
@@ -766,31 +926,25 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
                 '••••••'
               )}
             </div>
-          </div>
-
-          {/* Token Breakdown */}
-          <div className="space-y-1.5 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">SOL</span>
+            <div className="flex gap-3 text-[10px] text-muted-foreground">
               <span className="font-mono">
-                {showBalances ? `${(Number(wrappedBalances.sol) / 1e9).toFixed(4)}` : '••••'}
+                {showBalances ? `${(Number(wrappedBalances.sol) / 1e9).toFixed(4)} cSOL` : '•••• cSOL'}
+              </span>
+              <span className="font-mono">
+                {showBalances ? `${(Number(wrappedBalances.usdc) / 1e6).toFixed(2)} cUSDC` : '•••• cUSDC'}
               </span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">USDC</span>
-              <span className="font-mono">
-                {showBalances ? `${(Number(wrappedBalances.usdc) / 1e6).toFixed(2)}` : '••••'}
-              </span>
-            </div>
+            {Number(wrappedBalances.sol) === 0 && Number(wrappedBalances.usdc) === 0 && connected && (
+              <p className="text-[10px] text-muted-foreground/70 mt-1">
+                Deposit funds above to start trading privately
+              </p>
+            )}
           </div>
 
           {/* Encryption Status */}
           <div className="flex items-center justify-between text-xs text-muted-foreground pt-2 border-t border-border/50">
-            <div className="flex items-center gap-1">
-              <Lock className="h-3 w-3" />
-              <span>Encrypted Balances</span>
-            </div>
-            {isEncrypted && <span className="text-primary">C-SPL</span>}
+            <span className="text-[10px]">Privacy: {isEncrypted ? 'Encrypted' : 'Standard'}</span>
+            {isEncrypted && <span className="text-[10px] text-primary">C-SPL Active</span>}
           </div>
         </div>
       )}

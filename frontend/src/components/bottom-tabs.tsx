@@ -3,8 +3,12 @@
 import { FC, useState } from 'react';
 import { OpenOrders } from './open-orders';
 import { TradeHistory } from './trade-history';
-import { ChevronUp, ChevronDown, ChevronDownIcon, Wallet, BarChart3, Clock, History, Filter } from 'lucide-react';
+import { PositionRow, NoPositions } from './position-row';
+import { ChevronUp, ChevronDown, ChevronDownIcon, Filter, RefreshCw, Lock, TrendingUp, TrendingDown, X, Loader2 } from 'lucide-react';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { useTokenBalance } from '@/hooks/use-token-balance';
+import { useSolPrice } from '@/hooks/use-pyth-price';
+import { usePerpetualStore, PerpPosition } from '@/stores/perpetuals-store';
 
 type TabId = 'balances' | 'positions' | 'open-orders' | 'trade-history' | 'order-history';
 
@@ -161,10 +165,27 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
   filter,
   connected,
 }) => {
-  // Mock balance data
+  const { balances: tokenBalances, isLoading, refresh } = useTokenBalance();
+  const { price: solPrice } = useSolPrice();
+
+  // Calculate real balances from wallet
+  const solAmount = parseFloat(tokenBalances.solUiAmount) || 0;
+  const usdcAmount = parseFloat(tokenBalances.usdcUiAmount) || 0;
+  const solUsdcValue = solAmount * (solPrice || 0);
+
   const balances = [
-    { coin: 'SOL', total: 0, available: 0, usdcValue: 0, pnl: 0, pnlPercent: 0 },
-    { coin: 'USDC', total: 0, available: 0, usdcValue: 0, pnl: 0, pnlPercent: 0 },
+    {
+      coin: 'SOL',
+      total: solAmount,
+      available: solAmount,
+      usdcValue: solUsdcValue,
+    },
+    {
+      coin: 'USDC',
+      total: usdcAmount,
+      available: usdcAmount,
+      usdcValue: usdcAmount,
+    },
   ];
 
   const filteredBalances = balances
@@ -189,21 +210,33 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
   return (
     <div className="h-full">
       {/* Table Header */}
-      <div className="grid grid-cols-6 gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/30 bg-secondary/20">
-        <span>Coin</span>
+      <div className="grid grid-cols-5 gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/30 bg-secondary/20">
+        <span className="flex items-center gap-2">
+          Coin
+          <button
+            onClick={() => refresh()}
+            className={`p-0.5 hover:text-foreground transition-colors ${isLoading ? 'animate-spin' : ''}`}
+            title="Refresh balances"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </span>
         <span className="text-right">Total Balance</span>
         <span className="text-right">Available</span>
         <span className="text-right">USDC Value</span>
-        <span className="text-right">PNL (ROE %)</span>
-        <span className="text-right">Contract</span>
+        <span className="text-right">Price</span>
       </div>
 
       {/* Table Body */}
-      {filteredBalances.length > 0 ? (
+      {isLoading && filteredBalances.every(b => b.total === 0) ? (
+        <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
+          Loading balances...
+        </div>
+      ) : filteredBalances.length > 0 ? (
         filteredBalances.map(balance => (
           <div
             key={balance.coin}
-            className="grid grid-cols-6 gap-4 px-4 py-2.5 text-xs hover:bg-secondary/30 transition-colors"
+            className="grid grid-cols-5 gap-4 px-4 py-2.5 text-xs hover:bg-secondary/30 transition-colors"
           >
             <span className="font-medium flex items-center gap-2">
               <div
@@ -220,14 +253,9 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
             <span className="text-right font-mono">{balance.total.toFixed(4)}</span>
             <span className="text-right font-mono">{balance.available.toFixed(4)}</span>
             <span className="text-right font-mono">${balance.usdcValue.toFixed(2)}</span>
-            <span
-              className={`text-right font-mono ${
-                balance.pnl >= 0 ? 'text-green-400' : 'text-red-400'
-              }`}
-            >
-              {balance.pnl >= 0 ? '+' : ''}${balance.pnl.toFixed(2)} ({balance.pnlPercent.toFixed(2)}%)
+            <span className="text-right font-mono text-muted-foreground">
+              {balance.coin === 'SOL' ? `$${(solPrice || 0).toFixed(2)}` : '$1.00'}
             </span>
-            <span className="text-right text-muted-foreground">—</span>
           </div>
         ))
       ) : (
@@ -241,10 +269,47 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
 
 // Positions Tab Component
 const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
+  const { positions, isClosingPosition, setIsClosingPosition, removePosition } = usePerpetualStore();
+  const { price: solPrice } = useSolPrice();
+
+  const handleClosePosition = async (positionId: string) => {
+    setIsClosingPosition(positionId);
+    try {
+      // TODO: Implement actual position close via program
+      // For now, simulate closing
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      removePosition(positionId);
+    } catch (error) {
+      console.error('Failed to close position:', error);
+    } finally {
+      setIsClosingPosition(null);
+    }
+  };
+
   if (!connected) {
     return (
       <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
         Connect wallet to view positions
+      </div>
+    );
+  }
+
+  if (positions.length === 0) {
+    return (
+      <div className="h-full">
+        {/* Table Header */}
+        <div className="grid grid-cols-7 gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/30 bg-secondary/20">
+          <span>Market</span>
+          <span className="text-right">Side / Leverage</span>
+          <span className="text-right">Size</span>
+          <span className="text-right">Entry Price</span>
+          <span className="text-right">Liq. Price</span>
+          <span className="text-right">Unrealized PnL</span>
+          <span className="text-right">Actions</span>
+        </div>
+        <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
+          No open positions
+        </div>
       </div>
     );
   }
@@ -254,18 +319,98 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       {/* Table Header */}
       <div className="grid grid-cols-7 gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/30 bg-secondary/20">
         <span>Market</span>
-        <span className="text-right">Side</span>
+        <span className="text-right">Side / Leverage</span>
         <span className="text-right">Size</span>
         <span className="text-right">Entry Price</span>
-        <span className="text-right">Mark Price</span>
-        <span className="text-right">PNL</span>
+        <span className="text-right">Liq. Price</span>
+        <span className="text-right">Unrealized PnL</span>
         <span className="text-right">Actions</span>
       </div>
 
-      {/* Empty State */}
-      <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
-        No open positions
-      </div>
+      {/* Position Rows */}
+      {positions.map(position => {
+        const isLong = position.side === 'long';
+        const liquidationPrice = isLong
+          ? position.liquidatableBelowPrice
+          : position.liquidatableAbovePrice;
+        const isClosing = isClosingPosition === position.id;
+
+        // Calculate distance to liquidation for warning
+        const distanceToLiq = solPrice && liquidationPrice
+          ? isLong
+            ? ((solPrice - liquidationPrice) / solPrice) * 100
+            : ((liquidationPrice - solPrice) / solPrice) * 100
+          : null;
+        const isAtRisk = distanceToLiq !== null && distanceToLiq < 10;
+
+        return (
+          <div
+            key={position.id}
+            className={`grid grid-cols-7 gap-4 px-4 py-2.5 text-xs hover:bg-secondary/30 transition-colors ${
+              isAtRisk ? 'bg-red-500/5' : ''
+            }`}
+          >
+            {/* Market */}
+            <span className="font-medium flex items-center gap-2">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-[8px] font-bold text-white">
+                S
+              </div>
+              {position.marketSymbol}
+            </span>
+
+            {/* Side / Leverage */}
+            <span className="text-right flex items-center justify-end gap-1.5">
+              {isLong ? (
+                <TrendingUp className="h-3 w-3 text-green-500" />
+              ) : (
+                <TrendingDown className="h-3 w-3 text-red-500" />
+              )}
+              <span className={isLong ? 'text-green-500' : 'text-red-500'}>
+                {position.leverage}x {isLong ? 'Long' : 'Short'}
+              </span>
+            </span>
+
+            {/* Size (Encrypted) */}
+            <span className="text-right font-mono flex items-center justify-end gap-1">
+              <Lock className="h-3 w-3 text-primary" />
+              <span className="text-muted-foreground">••••••</span>
+            </span>
+
+            {/* Entry Price (Encrypted) */}
+            <span className="text-right font-mono flex items-center justify-end gap-1">
+              <Lock className="h-3 w-3 text-primary" />
+              <span className="text-muted-foreground">••••••</span>
+            </span>
+
+            {/* Liquidation Price (Public) */}
+            <span className={`text-right font-mono ${isAtRisk ? 'text-red-400' : ''}`}>
+              ${liquidationPrice.toFixed(2)}
+            </span>
+
+            {/* Unrealized PnL (Encrypted) */}
+            <span className="text-right font-mono flex items-center justify-end gap-1">
+              <Lock className="h-3 w-3 text-primary" />
+              <span className="text-muted-foreground">••••••</span>
+            </span>
+
+            {/* Actions */}
+            <span className="text-right">
+              <button
+                onClick={() => handleClosePosition(position.id)}
+                disabled={isClosing}
+                className="p-1 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
+                title="Close Position"
+              >
+                {isClosing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4" />
+                )}
+              </button>
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 };

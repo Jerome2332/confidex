@@ -99,4 +99,116 @@ pub mod confidex_dex {
     pub fn set_pair_vaults(ctx: Context<SetPairVaults>) -> Result<()> {
         instructions::admin::set_pair_vaults_handler(ctx)
     }
+
+    // === Perpetuals Instructions ===
+
+    /// Initialize a perpetual futures market
+    pub fn initialize_perp_market(
+        ctx: Context<InitializePerpMarket>,
+        max_leverage: u8,
+        maintenance_margin_bps: u16,
+        initial_margin_bps: u16,
+        taker_fee_bps: u16,
+        maker_fee_bps: u16,
+        liquidation_fee_bps: u16,
+        min_position_size: u64,
+        tick_size: u64,
+        max_open_interest: u64,
+        funding_interval_seconds: u64,
+        max_funding_rate_bps: u16,
+    ) -> Result<()> {
+        instructions::perp_init_market::handler(
+            ctx,
+            max_leverage,
+            maintenance_margin_bps,
+            initial_margin_bps,
+            taker_fee_bps,
+            maker_fee_bps,
+            liquidation_fee_bps,
+            min_position_size,
+            tick_size,
+            max_open_interest,
+            funding_interval_seconds,
+            max_funding_rate_bps,
+        )
+    }
+
+    /// Initialize global liquidation configuration
+    pub fn initialize_liquidation_config(
+        ctx: Context<InitializeLiquidationConfig>,
+        liquidation_bonus_bps: u16,
+        insurance_fund_share_bps: u16,
+        max_liquidation_per_tx: u64,
+        min_liquidation_threshold: u64,
+        adl_enabled: bool,
+        adl_trigger_threshold_bps: u16,
+    ) -> Result<()> {
+        instructions::perp_init_liquidation::handler(
+            ctx,
+            liquidation_bonus_bps,
+            insurance_fund_share_bps,
+            max_liquidation_per_tx,
+            min_liquidation_threshold,
+            adl_enabled,
+            adl_trigger_threshold_bps,
+        )
+    }
+
+    /// Update funding rate for a perpetual market (keeper crank)
+    pub fn update_funding_rate(ctx: Context<UpdateFundingRate>) -> Result<()> {
+        instructions::perp_update_funding::handler(ctx)
+    }
+
+    // === Position Management Instructions ===
+
+    /// Open a new perpetual position
+    pub fn open_position(
+        ctx: Context<OpenPosition>,
+        params: OpenPositionParams,
+    ) -> Result<()> {
+        instructions::perp_open_position::handler(ctx, params)
+    }
+
+    /// Close a perpetual position (full or partial)
+    pub fn close_position(
+        ctx: Context<ClosePosition>,
+        params: ClosePositionParams,
+    ) -> Result<()> {
+        instructions::perp_close_position::handler(ctx, params)
+    }
+
+    /// Add margin/collateral to an existing position
+    pub fn add_margin(
+        ctx: Context<AddMargin>,
+        params: AddMarginParams,
+    ) -> Result<()> {
+        instructions::perp_add_margin::handler(ctx, params)
+    }
+
+    /// Remove excess margin from a position
+    pub fn remove_margin(
+        ctx: Context<RemoveMargin>,
+        params: RemoveMarginParams,
+    ) -> Result<()> {
+        instructions::perp_remove_margin::handler(ctx, params)
+    }
+
+    // === Liquidation Instructions ===
+
+    /// Liquidate an underwater position
+    /// Anyone can call this - incentivized by liquidation bonus
+    pub fn liquidate_position(ctx: Context<LiquidatePosition>) -> Result<()> {
+        instructions::perp_liquidate::handler(ctx)
+    }
+
+    /// Auto-deleverage when insurance fund is depleted
+    /// Force-closes profitable positions to cover underwater liquidations
+    pub fn auto_deleverage(ctx: Context<AutoDeleverage>) -> Result<()> {
+        instructions::perp_auto_deleverage::handler(ctx)
+    }
+
+    /// Settle accumulated funding payments for a position
+    pub fn settle_funding(ctx: Context<SettleFunding>) -> Result<()> {
+        instructions::perp_settle_funding::handler(ctx)
+    }
 }
