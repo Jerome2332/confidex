@@ -7,6 +7,10 @@ import { CONFIDEX_PROGRAM_ID } from '@/lib/constants';
 import { deriveUserBalancePda, derivePairPda, deriveExchangePda } from '@/lib/confidex-client';
 import { TRADING_PAIRS } from '@/lib/constants';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('settlement');
+
 // C-SPL settlement is coming soon - this prepares the infrastructure
 const CSPL_ENABLED = false;
 
@@ -125,20 +129,20 @@ export function useCsplSettlement(): UseCsplSettlementReturn {
 
     setIsSettling(true);
 
-    console.log('[CsplSettlement] Executing settlement...');
-    console.log('  Buyer:', params.buyerAddress.toString());
-    console.log('  Seller:', params.sellerAddress.toString());
-    console.log('  C-SPL enabled:', CSPL_ENABLED);
+    log.debug('Executing settlement...');
+    log.debug('  Buyer:', { toString: params.buyerAddress.toString() });
+    log.debug('  Seller:', { toString: params.sellerAddress.toString() });
+    log.debug('  C-SPL enabled:', { CSPL_ENABLED: CSPL_ENABLED });
 
     try {
       if (!CSPL_ENABLED) {
         // Simulation mode - log what would happen
-        console.log('[CsplSettlement] C-SPL not yet enabled - simulating settlement');
-        console.log('[CsplSettlement] When C-SPL is live, this will:');
-        console.log('  1. Decrypt settlement amounts via Arcium MPC');
-        console.log('  2. Execute C-SPL confidential transfer: SOL seller -> buyer');
-        console.log('  3. Execute C-SPL confidential transfer: USDC buyer -> seller');
-        console.log('  4. Update order statuses to Filled');
+        log.debug('C-SPL not yet enabled - simulating settlement');
+        log.debug('When C-SPL is live, this will:');
+        log.debug('  1. Decrypt settlement amounts via Arcium MPC');
+        log.debug('  2. Execute C-SPL confidential transfer: SOL seller -> buyer');
+        log.debug('  3. Execute C-SPL confidential transfer: USDC buyer -> seller');
+        log.debug('  4. Update order statuses to Filled');
 
         // Simulate processing time
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -169,14 +173,14 @@ export function useCsplSettlement(): UseCsplSettlementReturn {
         };
       }
 
-      console.log('[CsplSettlement] Settlement confirmed:', signature);
+      log.debug('Settlement confirmed:', { signature });
 
       return {
         success: true,
         signature,
       };
     } catch (err) {
-      console.error('[CsplSettlement] Error:', err);
+      log.error('Error', { error: err instanceof Error ? err.message : String(err) });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Settlement failed',
@@ -226,7 +230,7 @@ export async function computeSettlementAmounts(
   sellEncryptedAmount: Uint8Array,
   sellEncryptedPrice: Uint8Array
 ): Promise<MpcSettlementAmounts> {
-  console.log('[MpcSettlement] Computing settlement amounts via MPC...');
+  log.debug('Computing settlement amounts via MPC...');
 
   // Simulate MPC latency
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -249,8 +253,8 @@ export async function computeSettlementAmounts(
   // Calculate quote amount: (amount * price) / 1e9 (adjust for decimals)
   const quoteAmount = (matchedAmount * matchedPrice) / BigInt(1e9);
 
-  console.log('[MpcSettlement] Matched amount:', matchedAmount.toString());
-  console.log('[MpcSettlement] Quote amount:', quoteAmount.toString());
+  log.debug('[MpcSettlement] Matched amount:', { toString: matchedAmount.toString() });
+  log.debug('[MpcSettlement] Quote amount:', { toString: quoteAmount.toString() });
 
   // Pack results as "encrypted" amounts (dev mode: plaintext in first 8 bytes)
   const encryptedBaseAmount = packU64LE(matchedAmount);

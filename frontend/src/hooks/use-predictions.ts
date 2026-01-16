@@ -4,6 +4,10 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useWallet, useConnection, useAnchorWallet } from '@solana/wallet-adapter-react';
 import { AnchorProvider } from '@coral-xyz/anchor';
 import { PublicKey } from '@solana/web3.js';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('hooks');
 import {
   PredictionMarket,
   MarketPosition,
@@ -86,7 +90,7 @@ export function usePredictions(): UsePredictionsReturn {
       const activeMarkets = await fetchActiveMarkets(connection, 20);
       setMarkets(activeMarkets);
     } catch (error) {
-      console.error('Failed to fetch markets:', error);
+      log.error('Failed to fetch markets:', { error: error instanceof Error ? error.message : String(error) });
       setLastError('Failed to load markets');
     } finally {
       setIsLoadingMarkets(false);
@@ -103,7 +107,7 @@ export function usePredictions(): UsePredictionsReturn {
       const userPositions = await getUserPositions(connection, publicKey);
       setPositions(userPositions);
     } catch (error) {
-      console.error('Failed to fetch positions:', error);
+      log.error('Failed to fetch positions:', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       setIsLoadingPositions(false);
     }
@@ -118,7 +122,7 @@ export function usePredictions(): UsePredictionsReturn {
       const market = await fetchMarket(connection, marketId);
       setSelectedMarket(market);
     } catch (error) {
-      console.error('Failed to fetch market:', error);
+      log.error('Failed to fetch market:', { error: error instanceof Error ? error.message : String(error) });
       setLastError('Failed to load market details');
     } finally {
       setIsLoadingMarkets(false);
@@ -251,7 +255,7 @@ export function usePredictions(): UsePredictionsReturn {
     // Pre-load SDK to avoid delay on first transaction
     initializeSDK().then((available) => {
       if (available) {
-        console.log('[usePredictions] PNP SDK initialized');
+        log.debug('PNP SDK initialized');
       }
     });
     refreshMarkets();

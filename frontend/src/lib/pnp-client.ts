@@ -15,6 +15,7 @@ import { Connection, PublicKey, Transaction } from '@solana/web3.js';
 import { AnchorProvider } from '@coral-xyz/anchor';
 import { RPC_ENDPOINT, PNP_API_URL } from './constants';
 import type { PNPMarketData } from './pnp-types';
+import { logger } from './logger';
 
 // SDK is not available client-side due to Anchor compatibility issue
 // But we can access it via server-side API routes
@@ -57,7 +58,7 @@ export async function fetchMarketData(
 
     return null;
   } catch (error) {
-    console.error('[PNP Client] Failed to fetch market:', error);
+    logger.pnp.error('Failed to fetch market', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -101,7 +102,7 @@ export async function fetchAllMarkets(
     if (response.ok) {
       const data = await response.json();
       if (data.success && data.markets) {
-        console.log(`[PNP Client] Fetched ${data.count} markets via SDK (total: ${data.totalCount})`);
+        logger.pnp.info('Fetched markets via SDK', { count: data.count, total: data.totalCount });
         return data.markets.map(mapMarketResponse);
       }
     }
@@ -117,10 +118,10 @@ export async function fetchAllMarkets(
       }
     }
 
-    console.log('[PNP Client] No markets available from APIs');
+    logger.pnp.debug('No markets available from APIs');
     return [];
   } catch (error) {
-    console.error('[PNP Client] Failed to fetch markets:', error);
+    logger.pnp.error('Failed to fetch markets', { error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }
@@ -142,7 +143,7 @@ export async function buildBuyTokensTransaction(
   if (!SDK_AVAILABLE_CLIENT_SIDE) {
     // SDK not available - pnp-sdk imports 'Wallet' from anchor which doesn't exist in 0.32.1
     // See: https://github.com/coral-xyz/anchor/issues/1933
-    console.log('[PNP Client] SDK unavailable (Anchor compatibility), using simulation');
+    logger.pnp.debug('SDK unavailable client-side, using simulation mode');
     return null;
   }
 
@@ -165,7 +166,7 @@ export async function buildSellTokensTransaction(
   provider?: AnchorProvider
 ): Promise<Transaction | null> {
   if (!SDK_AVAILABLE_CLIENT_SIDE) {
-    console.log('[PNP Client] SDK unavailable (Anchor compatibility), using simulation');
+    logger.pnp.debug('SDK unavailable client-side, using simulation mode');
     return null;
   }
 
@@ -223,7 +224,7 @@ export async function fetchUserPositions(
       })
     );
   } catch (error) {
-    console.error('[PNP Client] Failed to fetch positions:', error);
+    logger.pnp.error('Failed to fetch positions', { error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }
@@ -329,7 +330,7 @@ export async function checkServerSDK(): Promise<boolean> {
 export async function initializeSDK(): Promise<boolean> {
   const serverAvailable = await checkServerSDK();
   if (serverAvailable) {
-    console.log('[PNP Client] SDK available via server-side API routes');
+    logger.pnp.info('SDK available via server-side API routes');
   }
   return serverAvailable;
 }

@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('hooks');
+
 // ShadowWire types (importing from the package)
 type TokenSymbol = 'SOL' | 'USDC' | 'RADR' | 'ORE' | 'BONK' | 'JIM' | 'GODL' | 'HUSTLE' | 'ZEC' | 'CRT' | 'BLACKCOIN' | 'GIL' | 'ANON' | 'WLFI' | 'USD1' | 'AOL' | 'IQLABS';
 type TransferType = 'internal' | 'external';
@@ -55,7 +59,7 @@ async function initializeWASM(): Promise<void> {
 
     await sw.initWASM('/wasm/settler_wasm_bg.wasm');
     wasmInitialized = true;
-    console.log('[ShadowWire] WASM initialized successfully');
+    log.debug('WASM initialized successfully');
   })();
 
   return wasmInitPromise;
@@ -110,13 +114,13 @@ export function useShadowWire(): UseShadowWireReturn {
 
         if (!cancelled) {
           setIsReady(true);
-          console.log('[ShadowWire] Client initialized');
+          log.debug('Client initialized');
         }
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error ? err.message : 'Failed to initialize ShadowWire';
           setError(message);
-          console.error('[ShadowWire] Initialization error:', err);
+          log.error('Initialization error', { error: err instanceof Error ? err.message : String(err) });
         }
       } finally {
         if (!cancelled) {
@@ -145,7 +149,7 @@ export function useShadowWire(): UseShadowWireReturn {
 
     console.log('[ShadowWire] Generating proof for', amount, token);
     const proof = await clientRef.current.generateProofLocally(amount, token);
-    console.log('[ShadowWire] Proof generated');
+    log.debug('Proof generated');
     return proof;
   }, []);
 
@@ -161,11 +165,11 @@ export function useShadowWire(): UseShadowWireReturn {
       throw new Error('Wallet not connected');
     }
 
-    console.log('[ShadowWire] Executing transfer...');
-    console.log('  Type:', params.type);
-    console.log('  Token:', params.token);
-    console.log('  Amount:', params.amount);
-    console.log('  Recipient:', params.recipient);
+    log.debug('Executing transfer...');
+    log.debug('  Type:', { type: params.type });
+    log.debug('  Token:', { token: params.token });
+    log.debug('  Amount:', { amount: params.amount });
+    log.debug('  Recipient:', { recipient: params.recipient });
 
     // For internal transfers (amount hidden), generate proof client-side
     if (params.type === 'internal') {
@@ -181,7 +185,7 @@ export function useShadowWire(): UseShadowWireReturn {
         wallet: { signMessage },
       });
 
-      console.log('[ShadowWire] Transfer complete:', result.tx_signature);
+      log.debug('[ShadowWire] Transfer complete:', { tx_signature: result.tx_signature });
       return result;
     }
 
@@ -195,7 +199,7 @@ export function useShadowWire(): UseShadowWireReturn {
       wallet: { signMessage },
     });
 
-    console.log('[ShadowWire] Transfer complete:', result.tx_signature);
+    log.debug('[ShadowWire] Transfer complete:', { tx_signature: result.tx_signature });
     return result;
   }, [publicKey, signMessage, generateProof]);
 
@@ -211,7 +215,7 @@ export function useShadowWire(): UseShadowWireReturn {
       const balance = await clientRef.current.getBalance(publicKey.toBase58(), token);
       return balance;
     } catch (err) {
-      console.warn('[ShadowWire] Failed to get balance:', err);
+      log.warn('Failed to get balance:', { err });
       return null;
     }
   }, [publicKey]);

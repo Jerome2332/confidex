@@ -5,6 +5,10 @@ import { Header } from '@/components/header';
 import { WalletButton } from '@/components/wallet-button';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('ui');
 import {
   ArrowDownUp,
   Lock,
@@ -94,7 +98,7 @@ export default function WrapPage() {
       });
 
       const signature = await sendTransaction(transaction, connection);
-      console.log('[WrapPage] Transaction sent:', signature);
+      log.debug('Transaction sent:', { signature });
 
       // Wait for confirmation
       const confirmation = await connection.confirmTransaction(signature, 'confirmed');
@@ -103,7 +107,7 @@ export default function WrapPage() {
         throw new Error('Transaction failed');
       }
 
-      console.log('[WrapPage] Transaction confirmed');
+      log.debug('Transaction confirmed');
 
       setTxStatus('success');
       setTxMessage(`Successfully wrapped ${amount} ${selectedToken} to c${selectedToken}`);
@@ -113,7 +117,7 @@ export default function WrapPage() {
       // Refresh balances
       await Promise.all([refreshTokenBalances(), refreshWrappedBalances()]);
     } catch (error) {
-      console.error('[WrapPage] Wrap failed:', error);
+      log.error('Wrap failed', { error: error instanceof Error ? error.message : String(error) });
       setTxStatus('error');
       setTxMessage(error instanceof Error ? error.message : 'Transaction failed');
     } finally {
@@ -147,7 +151,7 @@ export default function WrapPage() {
       });
 
       const signature = await sendTransaction(transaction, connection);
-      console.log('[WrapPage] Transaction sent:', signature);
+      log.debug('Transaction sent:', { signature });
 
       // Wait for confirmation
       const confirmation = await connection.confirmTransaction(signature, 'confirmed');
@@ -156,7 +160,7 @@ export default function WrapPage() {
         throw new Error('Transaction failed');
       }
 
-      console.log('[WrapPage] Transaction confirmed');
+      log.debug('Transaction confirmed');
 
       setTxStatus('success');
       setTxMessage(`Successfully unwrapped ${amount} c${selectedToken} to ${selectedToken}`);
@@ -166,7 +170,7 @@ export default function WrapPage() {
       // Refresh balances
       await Promise.all([refreshTokenBalances(), refreshWrappedBalances()]);
     } catch (error) {
-      console.error('[WrapPage] Unwrap failed:', error);
+      log.error('Unwrap failed', { error: error instanceof Error ? error.message : String(error) });
       setTxStatus('error');
       setTxMessage(error instanceof Error ? error.message : 'Transaction failed');
     } finally {

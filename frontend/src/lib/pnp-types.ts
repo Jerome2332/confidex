@@ -29,7 +29,7 @@ export interface PNPMarketDetails {
   marketReserves: string;
   yesTokenSupply: string;
   noTokenSupply: string;
-  endTime: number;
+  endTime: number | string; // Can be unix timestamp (number) or hex string
   resolved: boolean;
   outcome?: 'YES' | 'NO';
 }

@@ -1,6 +1,10 @@
 // Helius API Client - Direct HTTP implementation
 // Using REST API directly for maximum compatibility
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('helius');
+
 // Helius API Key from environment
 const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY || '';
 const HELIUS_RPC_URL = process.env.NEXT_PUBLIC_RPC_ENDPOINT || `https://devnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}`;
@@ -70,7 +74,7 @@ export async function getTransactionsByAddress(
   } = {}
 ): Promise<ParsedTransaction[]> {
   if (!HELIUS_API_KEY) {
-    console.warn('[HeliusClient] No API key found');
+    log.warn('No API key found');
     return [];
   }
 
@@ -96,7 +100,7 @@ export async function getTransactionsByAddress(
     const transactions = await response.json();
     return transactions as ParsedTransaction[];
   } catch (error) {
-    console.error('[HeliusClient] Error fetching transactions:', error);
+    log.error('Error fetching transactions', { error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 }
@@ -142,7 +146,7 @@ export async function parseTransactions(
     const transactions = await response.json();
     return transactions as ParsedTransaction[];
   } catch (error) {
-    console.error('[HeliusClient] Error parsing transactions:', error);
+    log.error('Error parsing transactions', { error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 }
@@ -194,7 +198,7 @@ export async function getSignaturesForAddress(
       err: sig.err,
     }));
   } catch (error) {
-    console.error('[HeliusClient] Error getting signatures:', error);
+    log.error('Error getting signatures', { error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 }

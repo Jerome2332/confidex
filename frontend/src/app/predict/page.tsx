@@ -5,6 +5,10 @@ import { Header } from '@/components/header';
 import { WalletButton } from '@/components/wallet-button';
 import { usePredictions } from '@/hooks/use-predictions';
 import { useWallet } from '@solana/wallet-adapter-react';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('ui');
 import {
   TrendingUp,
   TrendingDown,
@@ -48,7 +52,7 @@ export default function PredictPage() {
       await buyTokens(selectedOutcome, parseFloat(amount), maxPrice);
       setAmount('');
     } catch (error) {
-      console.error('Buy failed:', error);
+      log.error('Buy failed:', { error: error instanceof Error ? error.message : String(error) });
     }
   };
 

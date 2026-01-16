@@ -9,6 +9,10 @@ import { useProof } from '@/hooks/use-proof';
 import { useEncryption } from '@/hooks/use-encryption';
 import { useOrderStore } from '@/stores/order-store';
 import { TRADING_PAIRS } from '@/lib/constants';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('trading');
 import {
   buildPlaceOrderTransaction,
   buildAutoWrapAndPlaceOrderTransaction,
@@ -369,7 +373,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       setSizePercent(0);
 
     } catch (error) {
-      console.error('[TradingPanel] Position open error:', error);
+      log.error('Position open error', { error: error instanceof Error ? error.message : String(error) });
       toast.error(
         error instanceof Error ? error.message : 'Failed to open position',
         { id: 'position-open' }
@@ -540,7 +544,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       setSizePercent(0);
 
     } catch (error) {
-      console.error('[TradingPanel] Error:', error);
+      log.error('Error', { error: error instanceof Error ? error.message : String(error) });
       toast.error(
         error instanceof Error ? error.message : 'Failed to place order',
         { id: 'tx-send' }
@@ -606,7 +610,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       setSizePercent(0);
 
     } catch (error) {
-      console.error('[TradingPanel] Demo error:', error);
+      log.error('Demo error', { error: error instanceof Error ? error.message : String(error) });
       toast.error('Demo simulation failed', { id: 'demo-mode' });
     } finally {
       setIsSubmitting(false);

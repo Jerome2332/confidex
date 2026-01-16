@@ -4,6 +4,10 @@ import { useState, useCallback, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import bs58 from 'bs58';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('proof');
+
 // Groth16 proof size as expected by Sunspot verifier
 const GROTH16_PROOF_SIZE = 388;
 
@@ -121,7 +125,7 @@ export function useProof(): UseProofReturn {
     const cacheKey = publicKey.toBase58();
     const cached = proofCache.current.get(cacheKey);
     if (cached) {
-      console.log('[Proof] Using cached proof');
+      log.debug('Using cached proof');
       setLastProof(cached);
       setProofReady(true);
       return cached;
@@ -135,7 +139,7 @@ export function useProof(): UseProofReturn {
       let result: ProofResult | null = null;
 
       try {
-        console.log('[Proof] Attempting to connect to proof server...');
+        log.debug('Attempting to connect to proof server...');
 
         // Create signed message for proof request
         const timestamp = Date.now();
@@ -172,15 +176,15 @@ export function useProof(): UseProofReturn {
             publicInputs: blacklistRoot, // For Sunspot, public input is the root
           };
 
-          console.log('[Proof] Generated proof via server');
+          log.debug('Generated proof via server');
         }
       } catch (serverError) {
-        console.log('[Proof] Server unavailable, generating local proof');
+        log.debug('Server unavailable, generating local proof');
       }
 
       // If server failed, generate a properly structured proof locally
       if (!result) {
-        console.log('[Proof] Generating structured Groth16 proof locally...');
+        log.debug('Generating structured Groth16 proof locally...');
 
         // Compute empty SMT root (all addresses eligible)
         const blacklistRoot = await computeEmptySmtRoot(TREE_DEPTH);
@@ -199,7 +203,7 @@ export function useProof(): UseProofReturn {
         // Generate properly structured Groth16 proof
         const proof = generateValidProofStructure(publicInputHash);
 
-        console.log('[Proof] Generated proof structure:');
+        log.debug('Generated proof structure:');
         console.log('  - Total size:', proof.length, 'bytes');
         console.log('  - Point A (G1):', Buffer.from(proof.slice(0, 64)).toString('hex').slice(0, 16) + '...');
         console.log('  - Point B (G2):', Buffer.from(proof.slice(64, 192)).toString('hex').slice(0, 16) + '...');
@@ -218,13 +222,13 @@ export function useProof(): UseProofReturn {
       setLastProof(result);
       setProofReady(true);
 
-      console.log('[Proof] Proof generation complete');
-      console.log('  - Proof length:', result.proof.length);
+      log.debug('Proof generation complete');
+      log.debug('  - Proof length:', { length: result.proof.length });
       console.log('  - Blacklist root:', Buffer.from(result.blacklistRoot).toString('hex').slice(0, 16) + '...');
 
       return result;
     } catch (error) {
-      console.error('[Proof] Generation error:', error);
+      log.error('Generation error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     } finally {
       setIsGenerating(false);
@@ -252,7 +256,7 @@ export function useProof(): UseProofReturn {
     }
 
     // Default: all addresses are eligible (empty blacklist)
-    console.log('[Proof] Eligibility check: ELIGIBLE (empty blacklist)');
+    log.debug('Eligibility check: ELIGIBLE (empty blacklist)');
     return true;
   }, [publicKey]);
 

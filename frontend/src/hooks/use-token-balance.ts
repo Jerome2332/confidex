@@ -6,6 +6,10 @@ import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { getAssociatedTokenAddress, getAccount, TokenAccountNotFoundError } from '@solana/spl-token';
 import { TRADING_PAIRS } from '@/lib/constants';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('balance');
+
 // Native SOL mint (not wrapped SOL)
 const NATIVE_SOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 const USDC_MINT = new PublicKey(TRADING_PAIRS[0].quoteMint);
@@ -67,7 +71,7 @@ export function useTokenBalance(): UseTokenBalanceReturn {
     setError(null);
 
     try {
-      console.log('[useTokenBalance] Fetching SPL token balances for', publicKey.toString());
+      log.debug('[useTokenBalance] Fetching SPL token balances for', { toString: publicKey.toString() });
 
       // Fetch native SOL balance
       const solBalance = await connection.getBalance(publicKey);
@@ -81,7 +85,7 @@ export function useTokenBalance(): UseTokenBalanceReturn {
         usdcBalance = usdcAccount.amount;
       } catch (err) {
         if (!(err instanceof TokenAccountNotFoundError)) {
-          console.warn('[useTokenBalance] Error fetching USDC:', err);
+          log.warn('Error fetching USDC:', { err });
         }
         // USDC account doesn't exist, balance is 0
       }
@@ -95,11 +99,11 @@ export function useTokenBalance(): UseTokenBalanceReturn {
 
       setBalances(newBalances);
 
-      console.log('[useTokenBalance] Balances fetched:');
-      console.log('  SOL:', newBalances.solUiAmount);
-      console.log('  USDC:', newBalances.usdcUiAmount);
+      log.debug('Balances fetched:');
+      log.debug('  SOL:', { solUiAmount: newBalances.solUiAmount });
+      log.debug('  USDC:', { usdcUiAmount: newBalances.usdcUiAmount });
     } catch (err) {
-      console.error('[useTokenBalance] Error fetching balances:', err);
+      log.error('Error fetching balances', { error: err instanceof Error ? err.message : String(err) });
       setError(err instanceof Error ? err.message : 'Failed to fetch balances');
     } finally {
       setIsLoading(false);

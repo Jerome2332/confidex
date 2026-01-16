@@ -10,6 +10,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { PublicKey } from '@solana/web3.js';
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api:pnp:markets');
 
 // PNP uses mainnet by default (has 862+ markets with real USDC)
 // Set NEXT_PUBLIC_PNP_NETWORK=devnet to use devnet instead
@@ -36,11 +39,11 @@ function loadSDK(): boolean {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const sdk = require('pnp-sdk');
     PNPClientClass = sdk.PNPClient;
-    console.log('[PNP Markets API] SDK loaded successfully');
+    log.info('SDK loaded successfully');
     return true;
   } catch (error) {
     sdkLoadError = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[PNP Markets API] SDK load failed:', sdkLoadError);
+    log.error('SDK load failed', { error: sdkLoadError });
     return false;
   }
 }
@@ -85,7 +88,7 @@ export async function GET(request: NextRequest) {
           market: serializeMarket(market),
         });
       } catch (error) {
-        console.error('[PNP Markets API] Failed to fetch market:', error);
+        log.error('Failed to fetch market', { error: error instanceof Error ? error.message : String(error) });
         return NextResponse.json(
           {
             error: 'Failed to fetch market',
@@ -134,7 +137,7 @@ export async function GET(request: NextRequest) {
         markets: limitedMarkets.map(serializeMarket),
       });
     } catch (error) {
-      console.error('[PNP Markets API] Failed to fetch markets:', error);
+      log.error('Failed to fetch markets', { error: error instanceof Error ? error.message : String(error) });
       return NextResponse.json(
         {
           error: 'Failed to fetch markets',
@@ -145,7 +148,7 @@ export async function GET(request: NextRequest) {
       );
     }
   } catch (error) {
-    console.error('[PNP Markets API] Error:', error);
+    log.error('Request failed', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       {
         error: 'Request failed',

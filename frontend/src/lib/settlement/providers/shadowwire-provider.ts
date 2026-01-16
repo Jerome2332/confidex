@@ -15,6 +15,10 @@ import type {
 } from '../types';
 import { SHADOWWIRE_FEE_BPS } from '@/lib/constants';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api');
+
 // Lazy-load ShadowWire to avoid SSR issues
 let shadowWireModule: typeof import('@radr/shadowwire') | null = null;
 let wasmInitialized = false;
@@ -40,7 +44,7 @@ async function initializeWASM(): Promise<void> {
 
     await sw.initWASM('/wasm/settler_wasm_bg.wasm');
     wasmInitialized = true;
-    console.log('[ShadowWire Provider] WASM initialized successfully');
+    log.debug('WASM initialized successfully');
   })();
 
   return wasmInitPromise;
@@ -98,9 +102,9 @@ export class ShadowWireProvider implements ISettlementProvider {
       this.client = new sw.ShadowWireClient({ debug: true });
       this.initialized = true;
 
-      console.log('[ShadowWire Provider] Client initialized');
+      log.debug('Client initialized');
     } catch (error) {
-      console.error('[ShadowWire Provider] Initialization error:', error);
+      log.error('Initialization error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -116,11 +120,11 @@ export class ShadowWireProvider implements ISettlementProvider {
       throw new Error('ShadowWire not initialized');
     }
 
-    console.log('[ShadowWire Provider] Executing transfer...');
-    console.log('  Type:', params.type);
-    console.log('  Token:', params.token);
-    console.log('  Amount:', params.amount);
-    console.log('  Recipient:', params.recipient);
+    log.debug('Executing transfer...');
+    log.debug('  Type:', { type: params.type });
+    log.debug('  Token:', { token: params.token });
+    log.debug('  Amount:', { amount: params.amount });
+    log.debug('  Recipient:', { recipient: params.recipient });
 
     try {
       // Map token to ShadowWire token type
@@ -142,10 +146,7 @@ export class ShadowWireProvider implements ISettlementProvider {
           wallet: { signMessage: params.wallet.signMessage },
         });
 
-        console.log(
-          '[ShadowWire Provider] Transfer complete:',
-          result.tx_signature
-        );
+        log.debug('[ShadowWire Provider] Transfer complete:', { tx_signature: result.tx_signature });
 
         return {
           success: result.success,
@@ -167,10 +168,7 @@ export class ShadowWireProvider implements ISettlementProvider {
         wallet: { signMessage: params.wallet.signMessage },
       });
 
-      console.log(
-        '[ShadowWire Provider] Transfer complete:',
-        result.tx_signature
-      );
+      log.debug('[ShadowWire Provider] Transfer complete:', { tx_signature: result.tx_signature });
 
       return {
         success: result.success,
@@ -181,7 +179,7 @@ export class ShadowWireProvider implements ISettlementProvider {
         feeCharged: params.amount * (this.capabilities.feeBps / 10000),
       };
     } catch (error) {
-      console.error('[ShadowWire Provider] Transfer failed:', error);
+      log.error('Transfer failed', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -211,7 +209,7 @@ export class ShadowWireProvider implements ISettlementProvider {
         poolAddress: balance.pool_address,
       };
     } catch (error) {
-      console.warn('[ShadowWire Provider] Failed to get balance:', error);
+      log.warn('Failed to get balance:', { error });
       return null;
     }
   }
@@ -233,7 +231,7 @@ export class ShadowWireProvider implements ISettlementProvider {
       typeof this.client.generateProofLocally
     >[1];
     const proof = await this.client.generateProofLocally(amount, swToken);
-    console.log('[ShadowWire Provider] Proof generated');
+    log.debug('Proof generated');
     return proof;
   }
 }

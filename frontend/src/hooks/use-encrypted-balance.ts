@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('encryption');
 import {
   fetchUserBalance,
   deriveUserBalancePda,
@@ -115,14 +119,14 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
 
       // Production mode: use Arcium decryption
       if (!encryptionReady) {
-        console.warn('[useEncryptedBalance] Encryption not initialized, falling back to dev mode');
+        log.warn('Encryption not initialized, falling back to dev mode');
         return getBalanceFromEncrypted(encryptedBalance);
       }
 
       try {
         return await decryptValue(encryptedBalance);
       } catch (err) {
-        console.error('[useEncryptedBalance] Decryption failed, falling back to dev mode:', err);
+        log.error('Decryption failed, falling back to dev mode', { error: err instanceof Error ? err.message : String(err) });
         return getBalanceFromEncrypted(encryptedBalance);
       }
     },
@@ -139,7 +143,7 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
         const result = new Uint8Array(64);
         const view = new DataView(result.buffer);
         view.setBigUint64(0, amount, true); // little-endian
-        console.log('[useEncryptedBalance] Dev mode: storing plaintext balance');
+        log.debug('Dev mode: storing plaintext balance');
         return result;
       }
 
@@ -165,9 +169,9 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
       // Production mode: would use Arcium MPC comparison
       // For now, simulate by using decrypted values
       // TODO: Replace with actual Arcium compare_encrypted CPI
-      console.log('[useEncryptedBalance] Simulating MPC balance comparison');
-      console.log('  Required:', amount.toString());
-      console.log('  Available:', balance.toString());
+      log.debug('Simulating MPC balance comparison');
+      log.debug('  Required:', { toString: amount.toString() });
+      log.debug('  Available:', { toString: balance.toString() });
 
       // Simulate MPC latency
       await new Promise(resolve => setTimeout(resolve, 100));
@@ -199,7 +203,7 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
     setError(null);
 
     try {
-      console.log('[useEncryptedBalance] Fetching encrypted balances for', publicKey.toString());
+      log.debug('[useEncryptedBalance] Fetching encrypted balances for', { toString: publicKey.toString() });
 
       // Fetch both balances in parallel
       const [solResult, usdcResult] = await Promise.all([
@@ -230,11 +234,11 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
 
       setBalances(newBalances);
 
-      console.log('[useEncryptedBalance] Balances fetched:');
+      log.debug('Balances fetched:');
       console.log('  SOL:', newBalances.solUiAmount, '(encrypted:', detectEncryptionMode(solEncrypted), ')');
       console.log('  USDC:', newBalances.usdcUiAmount, '(encrypted:', detectEncryptionMode(usdcEncrypted), ')');
     } catch (err) {
-      console.error('[useEncryptedBalance] Error fetching balances:', err);
+      log.error('Error fetching balances', { error: err instanceof Error ? err.message : String(err) });
       setError(err instanceof Error ? err.message : 'Failed to fetch balances');
     } finally {
       setIsLoading(false);

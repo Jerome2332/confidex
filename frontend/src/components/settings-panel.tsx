@@ -20,6 +20,7 @@ import { useThemeStore, Theme } from '@/stores/theme-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSettlementSelector } from '@/hooks/use-unified-settlement';
 import type { SettlementMethod } from '@/lib/settlement';
+import { ToggleSwitch } from './ui/toggle-switch';
 
 interface SettingsSectionProps {
   title: string;
@@ -48,18 +49,7 @@ const Toggle: FC<ToggleProps> = ({ label, description, checked, onChange }) => (
         <div className="text-xs text-muted-foreground">{description}</div>
       )}
     </div>
-    <button
-      onClick={() => onChange(!checked)}
-      className={`w-10 h-5 rounded-full transition-colors relative ${
-        checked ? 'bg-primary' : 'bg-muted'
-      }`}
-    >
-      <div
-        className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${
-          checked ? 'translate-x-5' : 'translate-x-0.5'
-        }`}
-      />
-    </button>
+    <ToggleSwitch checked={checked} onChange={onChange} />
   </div>
 );
 

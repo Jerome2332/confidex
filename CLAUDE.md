@@ -47,6 +47,9 @@ pnpm install                    # Install dependencies
 pnpm dev                        # Development server
 pnpm build                      # Production build
 pnpm lint                       # Run ESLint
+pnpm test                       # Run unit tests
+pnpm test:watch                 # Run tests in watch mode
+pnpm test:coverage              # Run tests with coverage
 ```
 
 ## Architecture
@@ -263,9 +266,31 @@ Going live on devnet soon (as of Jan 2026)
 
 ## PNP SDK Integration (Prediction Markets)
 
-PNP Exchange is used for perpetuals/prediction market functionality with privacy-focused tokens as collateral.
+PNP Exchange is a decentralized prediction market protocol on Solana used for prediction market functionality with privacy-focused tokens as collateral. **Hackathon Prize:** $2.5K PNP integration.
 
-**Installation:**
+### Platform Overview
+
+- Uses **Pythagorean bonding curves** for continuous liquidity (no order books)
+- **LLM-assisted oracle** for market resolution (Perplexity + Grok 4)
+- **1% trading fee** split: 50% creators, 15% platform, 15% token holders, 10% referrals, 10% insurance
+- Permissionless market creation with USDC collateral
+
+### Market Models
+
+**V2 Pythagorean Markets (AMM):**
+- Algorithmic market maker with automated price discovery
+- Liquidity split equally into YES/NO positions at creation
+- Pricing formula: `Price(YES)² + Price(NO)² = 1`
+- Prices adjust dynamically based on supply changes
+
+**V3 P2P Parimutuel Markets:**
+- Peer-to-peer betting, no market maker
+- All bets aggregate into shared pool
+- Winners divide pot proportionally by stake
+- Parameters: question, expiration, side selection, max pot ratio, initial liquidity
+
+### Installation
+
 ```bash
 npm install pnp-sdk
 ```
@@ -278,32 +303,116 @@ WALLET_SECRET_BASE58=YourBase58EncodedPrivateKeyHere
 WALLET_SECRET_ARRAY=[38,217,47,162,6,...]
 ```
 
-**Client Initialization:**
+### Client Initialization
+
 ```typescript
 import { PNPClient } from 'pnp-sdk';
 import bs58 from 'bs58';
 
-// With Base58 private key
-const pk = process.env.WALLET_SECRET_BASE58 ? bs58.decode(process.env.WALLET_SECRET_BASE58) : undefined;
-const client = new PNPClient(process.env.RPC_URL!, pk);
-
-// Read-only (no private key)
+// Read-only operations (no private key needed)
 const readOnlyClient = new PNPClient(rpcUrl);
 
-// With Uint8Array
-const client = new PNPClient(rpcUrl, new Uint8Array(privateKeyArray));
+// Write operations (requires private key as Uint8Array or base58)
+const pk = process.env.WALLET_SECRET_BASE58
+  ? bs58.decode(process.env.WALLET_SECRET_BASE58)
+  : undefined;
+const client = new PNPClient(process.env.RPC_URL!, pk);
 ```
 
-**Trading Operations:**
+### SDK Methods
+
+**Market Operations:**
 ```typescript
-// Buy tokens with USDC
-await client.trading!.buyTokensUsdc(...);
+// Create V2 AMM markets
+await client.market.createMarket();
 
-// Fetch global config (read-only)
-const global = await client.fetchGlobalConfig();
+// Create P2P markets
+await client.createP2PMarketGeneral();
+
+// Platform-linked markets
+await client.createMarketTwitter();
+await client.createMarketYoutube();
 ```
 
-**REST API Server:**
+**Trading:**
+```typescript
+// Buy YES/NO tokens with USDC
+await client.trading.buyTokensUsdc(market, outcome, amount);
+
+// Alternative buy method
+await client.trading.buyOutcome(market, isYes, amount);
+
+// Sell outcome tokens
+await client.trading.sellOutcome(market, isYes, tokenAmount);
+```
+
+**Redemption:**
+```typescript
+// Claim winnings from resolved markets
+await client.redeemPosition(market);
+
+// Refund from unresolvable markets
+await client.claimMarketRefund(market);
+await client.claimP2PMarketRefund(market);
+```
+
+**Data Fetching:**
+```typescript
+// Get specific market details
+const market = await client.fetchMarket(marketPubkey);
+
+// List all markets
+const markets = await client.fetchMarkets();
+
+// System configuration
+const config = await client.fetchGlobalConfig();
+
+// All market addresses
+const addresses = await client.fetchMarketAddresses();
+```
+
+**Oracle/Settlement:**
+```typescript
+// Check market resolvability
+const criteria = await client.fetchSettlementCriteria(market);
+
+// Get resolution answer and reasoning
+const settlement = await client.fetchSettlementData(market);
+```
+
+### Market Response Structure
+
+```typescript
+{
+  market: PublicKey,           // Market address
+  yesTokenMint: PublicKey,     // YES outcome token
+  noTokenMint: PublicKey,      // NO outcome token
+  collateralMint: PublicKey,   // USDC mint
+  marketDetails: {
+    id: string,
+    question: string,
+    creator: string,
+    initialLiquidity: string,
+    marketReserves: string,
+    yesTokenSupply: string,
+    noTokenSupply: string,
+    endTime: number,           // Unix timestamp (seconds)
+    resolved: boolean,
+    winning_token_id?: string  // Set after resolution
+  }
+}
+```
+
+### Oracle System
+
+**Two-Step Process:**
+1. **Criteria Generation** (before trading): Validates resolvability, identifies authoritative sources, defines objective metrics
+2. **Settlement** (at expiration): Uses time-bounded evidence, checks sources, shows mathematical reasoning, finalizes on-chain
+
+**AI Providers:** Perplexity and Grok 4 for real-time data retrieval with unbiased, current context.
+
+### REST API Server
+
 ```bash
 npm run api:server                              # Start server on :3000
 npm run api:server "Your market question?"      # Create market via CLI
@@ -313,19 +422,51 @@ npm run api:server "Your market question?"      # Create market via CLI
 - `GET /health` - Health check
 - `POST /create-market` - Create market with `{ "question": "..." }`
 
-**Market Response Structure:**
-```typescript
-{
-  market: PublicKey,           // Market address
-  yesTokenMint: PublicKey,     // YES outcome token
-  noTokenMint: PublicKey,      // NO outcome token
-  marketDetails: {
-    id, question, creator, initialLiquidity,
-    marketReserves, yesTokenSupply, noTokenSupply,
-    endTime, resolved
-  }
+### Known Limitations & Workarounds
+
+**Root Cause:** pnp-sdk v0.2.3 imports `anchor.Wallet` which is conditionally exported only server-side:
+```javascript
+// @coral-xyz/anchor/dist/esm/index.js (all versions)
+if (!isBrowser) {
+    exports.Wallet = require("./nodewallet.js").default;
 }
 ```
+
+**Solution Implemented:** Server-side API routes load SDK via `require()` bypassing webpack:
+- `/api/pnp/markets` - Fetches real market data via SDK (4754+ markets available!)
+- `/api/pnp/build-tx` - SDK status check (trading requires signer)
+- `/api/pnp/create-market` - Market creation (requires server wallet)
+
+**Why NOT Downgrade Anchor:**
+1. `@arcium-hq/client@0.6.2` requires Anchor 0.32.1 exactly
+2. The `Wallet` export is conditional in ALL Anchor versions (0.29.0 through 0.32.1)
+3. Downgrading would break Arcium integration without fixing pnp-sdk
+
+### Confidex Integration Architecture
+
+```
+Client (Browser)                    Server (Node.js)
+─────────────────                   ────────────────
+pnp-client.ts                       /api/pnp/markets
+     │                                    │
+     │ fetch('/api/pnp/...')             │ require('pnp-sdk')
+     │────────────────────────────────►   │
+     │                                    │ SDK loads (Wallet available)
+     │◄────────────────────────────────   │
+     │ JSON response                      │
+     ▼
+pnp.ts (transforms data)
+     │
+     ▼
+use-predictions.ts (React hook)
+```
+
+**Files:**
+- `/frontend/src/app/api/pnp/markets/route.ts` - Server-side SDK market fetching
+- `/frontend/src/app/api/pnp/build-tx/route.ts` - Transaction building (needs signer)
+- `/frontend/src/lib/pnp-client.ts` - Client-side API wrapper
+- `/frontend/src/lib/pnp.ts` - Business logic layer
+- `/frontend/src/hooks/use-predictions.ts` - React hook with AnchorProvider ready
 
 **Docs:** https://docs.pnp.exchange/pnp-sdk
 
@@ -456,6 +597,51 @@ if (isWASMSupported()) {
 - **C-SPL SDK issues:** Fall back to ShadowWire (production-ready) or Inco confidential tokens
 - **Arcium testnet instability:** Fall back to ZK-only approach or Inco for encrypted storage
 - **Settlement layer:** ShadowWire is most mature option if C-SPL delayed
+
+## Frontend Infrastructure
+
+### Logging
+
+Structured logging via `@/lib/logger.ts`:
+- **Environment-aware:** Silent in production (only errors), verbose in development
+- **Namespaced:** `logger.pnp`, `logger.trading`, `logger.settlement`, etc.
+- **Configurable:** Set `NEXT_PUBLIC_LOG_LEVEL` to `debug|info|warn|error`
+
+```typescript
+import { logger, createLogger } from '@/lib/logger';
+
+// Use pre-configured loggers
+logger.pnp.info('Fetched markets', { count: 10 });
+logger.settlement.error('Transfer failed', { error: 'Insufficient balance' });
+
+// Create custom namespace
+const log = createLogger('my-feature');
+log.debug('Processing started');
+```
+
+### Testing
+
+Test framework: **Vitest** with React Testing Library
+
+```bash
+pnpm test                  # Run all tests
+pnpm test:watch            # Watch mode
+pnpm test:coverage         # Coverage report
+```
+
+Test files location: `/frontend/src/__tests__/`
+- `pnp-client.test.ts` - Price calculation and token math
+- `settlement.test.ts` - Settlement amount calculations
+
+### API Security
+
+**Helius Webhook** (`/api/webhooks/helius`):
+- HMAC-SHA256 signature verification
+- Timing-safe comparison (prevents timing attacks)
+- Rate limiting: 100 requests/minute per IP
+- Event deduplication via caching
+
+**Required env:** `HELIUS_WEBHOOK_SECRET`
 
 ## Branding Guidelines
 

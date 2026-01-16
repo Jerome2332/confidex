@@ -4,6 +4,10 @@ import { useState, useCallback, useRef } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { AnchorProvider } from '@coral-xyz/anchor';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('encryption');
 // Arcium imports - includes x25519 re-export from @noble/curves
 import {
   RescueCipher,
@@ -53,7 +57,7 @@ export function useEncryption(): UseEncryptionReturn {
     }
 
     try {
-      console.log('[Encryption] Initializing Arcium encryption...');
+      log.debug('Initializing Arcium encryption...');
 
       // Create a minimal provider for fetching MXE public key
       // Note: In browser, we can't create a full AnchorProvider without a wallet
@@ -78,14 +82,14 @@ export function useEncryption(): UseEncryptionReturn {
 
         if (fetchedKey) {
           mxePublicKey = fetchedKey;
-          console.log('[Encryption] Fetched MXE public key from devnet');
+          log.debug('Fetched MXE public key from devnet');
         } else {
           throw new Error('MXE public key not found');
         }
       } catch (fetchError) {
         // Fall back to using a deterministic key for demo purposes
         // In production, this MUST be fetched from the actual MXE
-        console.warn('[Encryption] Could not fetch MXE key, using demo mode:', fetchError);
+        log.warn('Could not fetch MXE key, using demo mode:', { fetchError });
 
         // Use a deterministic "demo" MXE public key
         // This is NOT secure - only for hackathon demo
@@ -101,18 +105,18 @@ export function useEncryption(): UseEncryptionReturn {
       const ephemeralPrivateKey = x25519.utils.randomPrivateKey();
       const ephemeralPublicKey = x25519.getPublicKey(ephemeralPrivateKey);
 
-      console.log('[Encryption] Generated ephemeral keypair');
+      log.debug('Generated ephemeral keypair');
       console.log('[Encryption] Ephemeral public key:', Buffer.from(ephemeralPublicKey).toString('hex').slice(0, 16) + '...');
 
       // Compute shared secret via X25519 ECDH
       const sharedSecret = x25519.getSharedSecret(ephemeralPrivateKey, mxePublicKey);
 
-      console.log('[Encryption] Computed shared secret via X25519');
+      log.debug('Computed shared secret via X25519');
 
       // Initialize RescueCipher with shared secret
       const cipher = new RescueCipher(sharedSecret);
 
-      console.log('[Encryption] Initialized RescueCipher');
+      log.debug('Initialized RescueCipher');
 
       setContext({
         mxePublicKey,
@@ -122,9 +126,9 @@ export function useEncryption(): UseEncryptionReturn {
       });
       setIsInitialized(true);
 
-      console.log('[Encryption] Encryption context ready');
+      log.debug('Encryption context ready');
     } catch (error) {
-      console.error('[Encryption] Failed to initialize:', error);
+      log.error('Failed to initialize', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }, [publicKey, connection]);
@@ -172,7 +176,7 @@ export function useEncryption(): UseEncryptionReturn {
       const pubkeyHash = await crypto.subtle.digest('SHA-256', pubkeyBuffer);
       result.set(new Uint8Array(pubkeyHash).slice(0, 16), 48);
 
-      console.log('[Encryption] Encrypted value, output length:', result.length);
+      log.debug('[Encryption] Encrypted value, output length:', { length: result.length });
 
       return result;
     },

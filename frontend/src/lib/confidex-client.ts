@@ -17,6 +17,10 @@ import {
 } from '@solana/spl-token';
 import { CONFIDEX_PROGRAM_ID, VERIFIER_PROGRAM_ID, GROTH16_PROOF_SIZE } from './constants';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api');
+
 // Anchor instruction discriminators (pre-computed sha256("global:<instruction_name>")[0..8])
 const PLACE_ORDER_DISCRIMINATOR = new Uint8Array([0x33, 0xc2, 0x9b, 0xaf, 0x6d, 0x82, 0x60, 0x6a]);
 const WRAP_TOKENS_DISCRIMINATOR = new Uint8Array([0xf4, 0x89, 0x39, 0xfb, 0xe8, 0xe0, 0x36, 0x0e]);
@@ -165,7 +169,7 @@ export async function fetchOrderCount(
   try {
     const accountInfo = await connection.getAccountInfo(exchangePda);
     if (!accountInfo) {
-      console.log('[ConfidexClient] Exchange not initialized');
+      log.debug('Exchange not initialized');
       return BigInt(0);
     }
 
@@ -186,10 +190,10 @@ export async function fetchOrderCount(
     const orderCountOffset = 8 + 32 + 32 + 2 + 2 + 1 + 32 + 32 + 8;
     const orderCount = data.readBigUInt64LE(orderCountOffset);
 
-    console.log('[ConfidexClient] Current order count:', orderCount.toString());
+    log.debug('[ConfidexClient] Current order count:', { toString: orderCount.toString() });
     return orderCount;
   } catch (error) {
-    console.error('[ConfidexClient] Error fetching order count:', error);
+    log.error('Error fetching order count', { error: error instanceof Error ? error.message : String(error) });
     return BigInt(0);
   }
 }
@@ -236,21 +240,21 @@ export async function buildPlaceOrderTransaction(
     eligibilityProof,
   } = params;
 
-  console.log('[ConfidexClient] Building place_order transaction...');
+  log.debug('Building place_order transaction...');
 
   // Derive PDAs
   const [exchangePda] = deriveExchangePda();
   const [pairPda] = derivePairPda(baseMint, quoteMint);
 
-  console.log('[ConfidexClient] Exchange PDA:', exchangePda.toString());
-  console.log('[ConfidexClient] Pair PDA:', pairPda.toString());
+  log.debug('[ConfidexClient] Exchange PDA:', { toString: exchangePda.toString() });
+  log.debug('[ConfidexClient] Pair PDA:', { toString: pairPda.toString() });
 
   // Fetch current order count to derive order PDA
   const orderCount = await fetchOrderCount(connection);
   const [orderPda] = deriveOrderPda(maker, orderCount);
 
-  console.log('[ConfidexClient] Order PDA:', orderPda.toString());
-  console.log('[ConfidexClient] Order count:', orderCount.toString());
+  log.debug('[ConfidexClient] Order PDA:', { toString: orderPda.toString() });
+  log.debug('[ConfidexClient] Order count:', { toString: orderCount.toString() });
 
   // Build instruction data
   const instructionData = buildPlaceOrderData(
@@ -261,7 +265,7 @@ export async function buildPlaceOrderTransaction(
     eligibilityProof
   );
 
-  console.log('[ConfidexClient] Instruction data length:', instructionData.length);
+  log.debug('[ConfidexClient] Instruction data length:', { length: instructionData.length });
 
   // Build instruction with required accounts
   // PlaceOrder accounts (from place_order.rs):
@@ -292,7 +296,7 @@ export async function buildPlaceOrderTransaction(
   transaction.recentBlockhash = blockhash;
   transaction.feePayer = maker;
 
-  console.log('[ConfidexClient] Transaction built successfully');
+  log.debug('Transaction built successfully');
 
   return transaction;
 }
@@ -369,7 +373,7 @@ export async function fetchUserBalance(
     const accountInfo = await connection.getAccountInfo(balancePda);
 
     if (!accountInfo) {
-      console.log('[ConfidexClient] No balance account found for', mint.toString());
+      log.debug('[ConfidexClient] No balance account found for', { toString: mint.toString() });
       return { balance: BigInt(0), account: null };
     }
 
@@ -380,7 +384,7 @@ export async function fetchUserBalance(
 
     return { balance, account };
   } catch (error) {
-    console.error('[ConfidexClient] Error fetching user balance:', error);
+    log.error('Error fetching user balance', { error: error instanceof Error ? error.message : String(error) });
     return { balance: BigInt(0), account: null };
   }
 }
@@ -474,15 +478,15 @@ export async function fetchTradingPair(
   try {
     const accountInfo = await connection.getAccountInfo(pairPda);
     if (!accountInfo) {
-      console.log('[ConfidexClient] Trading pair not found');
+      log.debug('Trading pair not found');
       return null;
     }
 
     const pair = parseTradingPair(accountInfo.data);
-    console.log('[ConfidexClient] Fetched trading pair:', pairPda.toString());
+    log.debug('[ConfidexClient] Fetched trading pair:', { toString: pairPda.toString() });
     return pair;
   } catch (error) {
-    console.error('[ConfidexClient] Error fetching trading pair:', error);
+    log.error('Error fetching trading pair', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -522,9 +526,9 @@ export async function buildWrapInstructions(
 ): Promise<WrapInstructionsResult> {
   const { connection, user, baseMint, quoteMint, tokenMint, amount } = params;
 
-  console.log('[ConfidexClient] Building wrap instructions...');
-  console.log('  Token mint:', tokenMint.toString());
-  console.log('  Amount:', amount.toString());
+  log.debug('Building wrap instructions...');
+  log.debug('  Token mint:', { toString: tokenMint.toString() });
+  log.debug('  Amount:', { toString: amount.toString() });
 
   // Fetch trading pair to get vault addresses
   const pair = await fetchTradingPair(connection, baseMint, quoteMint);
@@ -552,13 +556,13 @@ export async function buildWrapInstructions(
   const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
   if (isNativeSol) {
-    console.log('[ConfidexClient] Handling native SOL wrapping...');
+    log.debug('Handling native SOL wrapping...');
 
     // Check if WSOL ATA exists
     const ataInfo = await connection.getAccountInfo(userTokenAccount);
 
     if (!ataInfo) {
-      console.log('[ConfidexClient] Creating WSOL ATA...');
+      log.debug('Creating WSOL ATA...');
       instructions.push(
         createAssociatedTokenAccountInstruction(
           user,
@@ -570,7 +574,7 @@ export async function buildWrapInstructions(
     }
 
     // Transfer native SOL to WSOL ATA
-    console.log('[ConfidexClient] Adding SOL transfer to WSOL ATA...');
+    log.debug('Adding SOL transfer to WSOL ATA...');
     instructions.push(
       SystemProgram.transfer({
         fromPubkey: user,
@@ -580,7 +584,7 @@ export async function buildWrapInstructions(
     );
 
     // Sync native to update WSOL balance
-    console.log('[ConfidexClient] Adding sync native instruction...');
+    log.debug('Adding sync native instruction...');
     instructions.push(createSyncNativeInstruction(userTokenAccount));
   }
 
@@ -608,7 +612,7 @@ export async function buildWrapInstructions(
 
   instructions.push(wrapInstruction);
 
-  console.log('[ConfidexClient] Wrap instructions built:', instructions.length);
+  log.debug('[ConfidexClient] Wrap instructions built:', { length: instructions.length });
 
   return { instructions, userTokenAccount };
 }
@@ -627,9 +631,9 @@ export async function buildWrapTransaction(
 ): Promise<Transaction> {
   const { connection, user, baseMint, quoteMint, tokenMint, amount } = params;
 
-  console.log('[ConfidexClient] Building wrap_tokens transaction...');
-  console.log('  Token mint:', tokenMint.toString());
-  console.log('  Amount:', amount.toString());
+  log.debug('Building wrap_tokens transaction...');
+  log.debug('  Token mint:', { toString: tokenMint.toString() });
+  log.debug('  Amount:', { toString: amount.toString() });
 
   // Fetch trading pair to get vault addresses
   const pair = await fetchTradingPair(connection, baseMint, quoteMint);
@@ -651,13 +655,13 @@ export async function buildWrapTransaction(
   // Get user's token account
   const userTokenAccount = await getAssociatedTokenAddress(tokenMint, user);
 
-  console.log('[ConfidexClient] Accounts:');
-  console.log('  Exchange:', exchangePda.toString());
-  console.log('  Pair:', pairPda.toString());
-  console.log('  Token Mint:', tokenMint.toString());
-  console.log('  User Token Account:', userTokenAccount.toString());
-  console.log('  Vault:', vault.toString());
-  console.log('  User Balance PDA:', userBalancePda.toString());
+  log.debug('Accounts:');
+  log.debug('  Exchange:', { toString: exchangePda.toString() });
+  log.debug('  Pair:', { toString: pairPda.toString() });
+  log.debug('  Token Mint:', { toString: tokenMint.toString() });
+  log.debug('  User Token Account:', { toString: userTokenAccount.toString() });
+  log.debug('  Vault:', { toString: vault.toString() });
+  log.debug('  User Balance PDA:', { toString: userBalancePda.toString() });
 
   // Build transaction
   const transaction = new Transaction();
@@ -666,13 +670,13 @@ export async function buildWrapTransaction(
   const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
   if (isNativeSol) {
-    console.log('[ConfidexClient] Handling native SOL wrapping...');
+    log.debug('Handling native SOL wrapping...');
 
     // Check if WSOL ATA exists
     const ataInfo = await connection.getAccountInfo(userTokenAccount);
 
     if (!ataInfo) {
-      console.log('[ConfidexClient] Creating WSOL ATA...');
+      log.debug('Creating WSOL ATA...');
       // Create WSOL ATA
       transaction.add(
         createAssociatedTokenAccountInstruction(
@@ -685,7 +689,7 @@ export async function buildWrapTransaction(
     }
 
     // Transfer native SOL to WSOL ATA
-    console.log('[ConfidexClient] Adding SOL transfer to WSOL ATA...');
+    log.debug('Adding SOL transfer to WSOL ATA...');
     transaction.add(
       SystemProgram.transfer({
         fromPubkey: user,
@@ -695,7 +699,7 @@ export async function buildWrapTransaction(
     );
 
     // Sync native to update WSOL balance
-    console.log('[ConfidexClient] Adding sync native instruction...');
+    log.debug('Adding sync native instruction...');
     transaction.add(createSyncNativeInstruction(userTokenAccount));
   }
 
@@ -728,8 +732,8 @@ export async function buildWrapTransaction(
   transaction.recentBlockhash = blockhash;
   transaction.feePayer = user;
 
-  console.log('[ConfidexClient] Wrap transaction built successfully');
-  console.log('  Total instructions:', transaction.instructions.length);
+  log.debug('Wrap transaction built successfully');
+  log.debug('  Total instructions:', { length: transaction.instructions.length });
 
   return transaction;
 }
@@ -756,9 +760,9 @@ export async function buildUnwrapTransaction(
 ): Promise<Transaction> {
   const { connection, user, baseMint, quoteMint, tokenMint, amount } = params;
 
-  console.log('[ConfidexClient] Building unwrap_tokens transaction...');
-  console.log('  Token mint:', tokenMint.toString());
-  console.log('  Amount:', amount.toString());
+  log.debug('Building unwrap_tokens transaction...');
+  log.debug('  Token mint:', { toString: tokenMint.toString() });
+  log.debug('  Amount:', { toString: amount.toString() });
 
   // Fetch trading pair to get vault addresses
   const pair = await fetchTradingPair(connection, baseMint, quoteMint);
@@ -783,14 +787,14 @@ export async function buildUnwrapTransaction(
   // Check if this is native SOL (WSOL)
   const isNativeSol = tokenMint.equals(NATIVE_MINT);
 
-  console.log('[ConfidexClient] Accounts:');
-  console.log('  Exchange:', exchangePda.toString());
-  console.log('  Pair:', pairPda.toString());
-  console.log('  Token Mint:', tokenMint.toString());
-  console.log('  User Token Account:', userTokenAccount.toString());
-  console.log('  Vault:', vault.toString());
-  console.log('  User Balance PDA:', userBalancePda.toString());
-  console.log('  Is native SOL:', isNativeSol);
+  log.debug('Accounts:');
+  log.debug('  Exchange:', { toString: exchangePda.toString() });
+  log.debug('  Pair:', { toString: pairPda.toString() });
+  log.debug('  Token Mint:', { toString: tokenMint.toString() });
+  log.debug('  User Token Account:', { toString: userTokenAccount.toString() });
+  log.debug('  Vault:', { toString: vault.toString() });
+  log.debug('  User Balance PDA:', { toString: userBalancePda.toString() });
+  log.debug('  Is native SOL:', { isNativeSol: isNativeSol });
 
   // Build transaction
   const transaction = new Transaction();
@@ -799,7 +803,7 @@ export async function buildUnwrapTransaction(
   if (isNativeSol) {
     const ataInfo = await connection.getAccountInfo(userTokenAccount);
     if (!ataInfo) {
-      console.log('[ConfidexClient] Creating WSOL ATA for unwrap...');
+      log.debug('Creating WSOL ATA for unwrap...');
       transaction.add(
         createAssociatedTokenAccountInstruction(
           user,
@@ -838,7 +842,7 @@ export async function buildUnwrapTransaction(
 
   // For native SOL, close the WSOL ATA to convert WSOL back to native SOL
   if (isNativeSol) {
-    console.log('[ConfidexClient] Adding close account instruction to convert WSOL -> SOL');
+    log.debug('Adding close account instruction to convert WSOL -> SOL');
     transaction.add(
       createCloseAccountInstruction(
         userTokenAccount, // account to close
@@ -853,8 +857,8 @@ export async function buildUnwrapTransaction(
   transaction.recentBlockhash = blockhash;
   transaction.feePayer = user;
 
-  console.log('[ConfidexClient] Unwrap transaction built successfully');
-  console.log('  Total instructions:', transaction.instructions.length);
+  log.debug('Unwrap transaction built successfully');
+  log.debug('  Total instructions:', { length: transaction.instructions.length });
 
   return transaction;
 }
@@ -985,10 +989,10 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
     wrapAmount,
   } = params;
 
-  console.log('[ConfidexClient] Building auto-wrap + place_order transaction...');
+  log.debug('Building auto-wrap + place_order transaction...');
   console.log('  Side:', side === Side.Buy ? 'Buy' : 'Sell');
-  console.log('  Wrap token:', wrapTokenMint.toString());
-  console.log('  Wrap amount:', wrapAmount.toString());
+  log.debug('  Wrap token:', { toString: wrapTokenMint.toString() });
+  log.debug('  Wrap amount:', { toString: wrapAmount.toString() });
 
   const transaction = new Transaction();
 
@@ -1017,8 +1021,8 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
   const orderCount = await fetchOrderCount(connection);
   const [orderPda] = deriveOrderPda(maker, orderCount);
 
-  console.log('[ConfidexClient] Order PDA:', orderPda.toString());
-  console.log('[ConfidexClient] Order count:', orderCount.toString());
+  log.debug('[ConfidexClient] Order PDA:', { toString: orderPda.toString() });
+  log.debug('[ConfidexClient] Order count:', { toString: orderCount.toString() });
 
   // Build instruction data
   const instructionData = buildPlaceOrderData(
@@ -1045,15 +1049,15 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
 
   transaction.add(placeOrderInstruction);
 
-  console.log('[ConfidexClient] Added place_order instruction');
+  log.debug('Added place_order instruction');
 
   // Get recent blockhash
   const { blockhash } = await connection.getLatestBlockhash();
   transaction.recentBlockhash = blockhash;
   transaction.feePayer = maker;
 
-  console.log('[ConfidexClient] Auto-wrap + place_order transaction built');
-  console.log('  Total instructions:', transaction.instructions.length);
+  log.debug('Auto-wrap + place_order transaction built');
+  log.debug('  Total instructions:', { length: transaction.instructions.length });
 
   // Estimate transaction size
   const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });

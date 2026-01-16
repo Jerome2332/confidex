@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('balance');
 import {
   fetchUserBalance,
   deriveUserBalancePda,
@@ -79,7 +83,7 @@ export function useBalance(): UseBalanceReturn {
     setError(null);
 
     try {
-      console.log('[useBalance] Fetching wrapped balances for', publicKey.toString());
+      log.debug('[useBalance] Fetching wrapped balances for', { toString: publicKey.toString() });
 
       // Fetch both balances in parallel
       const [solResult, usdcResult] = await Promise.all([
@@ -96,11 +100,11 @@ export function useBalance(): UseBalanceReturn {
 
       setBalances(newBalances);
 
-      console.log('[useBalance] Balances fetched:');
-      console.log('  SOL:', newBalances.solUiAmount);
-      console.log('  USDC:', newBalances.usdcUiAmount);
+      log.debug('Balances fetched:');
+      log.debug('  SOL:', { solUiAmount: newBalances.solUiAmount });
+      log.debug('  USDC:', { usdcUiAmount: newBalances.usdcUiAmount });
     } catch (err) {
-      console.error('[useBalance] Error fetching balances:', err);
+      log.error('Error fetching balances', { error: err instanceof Error ? err.message : String(err) });
       setError(err instanceof Error ? err.message : 'Failed to fetch balances');
     } finally {
       setIsLoading(false);

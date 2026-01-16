@@ -13,6 +13,10 @@
  */
 
 import { Connection, PublicKey, Transaction, VersionedTransaction } from '@solana/web3.js';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('pnp');
 import {
   fetchMarketData,
   fetchAllMarkets,
@@ -47,7 +51,7 @@ let pnpConnection: Connection | null = null;
 function getPnpConnection(): Connection {
   if (!pnpConnection) {
     pnpConnection = new Connection(PNP_RPC_URL, 'confirmed');
-    console.log(`[PNP] Using ${PNP_NETWORK} connection: ${PNP_RPC_URL}`);
+    log.debug('Using ${PNP_NETWORK} connection: ${PNP_RPC_URL}');
   }
   return pnpConnection;
 }
@@ -158,7 +162,7 @@ function getMockMarkets(): PredictionMarket[] {
     },
   ];
 
-  console.log('[PNP] Using mock markets (API unavailable)');
+  log.debug('Using mock markets (API unavailable)');
   return mockMarkets;
 }
 
@@ -300,7 +304,7 @@ export async function buyOutcomeTokens(
 
   if (!USE_SDK) {
     // Fallback to simulated mode
-    console.warn('[PNP] SDK disabled, using simulation');
+    log.warn('SDK disabled, using simulation');
     const tokensReceived = calculateTokensReceived(amount, maxPrice);
     return {
       signature: 'simulated_' + Date.now(),
@@ -313,7 +317,7 @@ export async function buyOutcomeTokens(
 
   try {
     // Try server-side transaction building first
-    console.log('[PNP] Building transaction via server API...');
+    log.debug('Building transaction via server API...');
     const buildResponse = await fetch(BUILD_TX_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -356,7 +360,7 @@ export async function buyOutcomeTokens(
     const txBuffer = Buffer.from(buildData.transaction, 'base64');
     const transaction = VersionedTransaction.deserialize(txBuffer);
 
-    console.log('[PNP] Transaction built, requesting wallet signature...');
+    log.debug('Transaction built, requesting wallet signature...');
 
     // Sign with wallet
     const signedTx = await wallet.signTransaction(transaction);
@@ -368,7 +372,7 @@ export async function buyOutcomeTokens(
       preflightCommitment: 'confirmed',
     });
 
-    console.log('[PNP] Transaction sent:', signature);
+    log.debug('Transaction sent:', { signature });
 
     // Wait for confirmation
     const confirmation = await pnpConn.confirmTransaction(
@@ -391,10 +395,10 @@ export async function buyOutcomeTokens(
 
     const tokensReceived = calculateTokensReceived(amount, maxPrice);
 
-    console.log('[PNP] Buy transaction confirmed:', signature);
+    log.debug('Buy transaction confirmed:', { signature });
     return { signature, tokensReceived };
   } catch (error) {
-    console.error('[PNP] Buy transaction failed:', error);
+    log.error('Buy transaction failed', { error: error instanceof Error ? error.message : String(error) });
     // Add context for common errors
     if (error instanceof Error) {
       if (error.message.includes('0x1') || error.message.includes('insufficient')) {
@@ -426,7 +430,7 @@ export async function sellOutcomeTokens(
   });
 
   if (!USE_SDK) {
-    console.warn('[PNP] SDK disabled, using simulation');
+    log.warn('SDK disabled, using simulation');
     const usdcReceived = calculateUsdcReceived(tokenAmount, minPrice);
     return {
       signature: 'simulated_' + Date.now(),
@@ -439,7 +443,7 @@ export async function sellOutcomeTokens(
 
   try {
     // Try server-side transaction building
-    console.log('[PNP] Building sell transaction via server API...');
+    log.debug('Building sell transaction via server API...');
     const buildResponse = await fetch(BUILD_TX_API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -468,7 +472,7 @@ export async function sellOutcomeTokens(
     const txBuffer = Buffer.from(buildData.transaction, 'base64');
     const transaction = VersionedTransaction.deserialize(txBuffer);
 
-    console.log('[PNP] Sell transaction built, requesting wallet signature...');
+    log.debug('Sell transaction built, requesting wallet signature...');
 
     // Sign with wallet
     const signedTx = await wallet.signTransaction(transaction);
@@ -480,7 +484,7 @@ export async function sellOutcomeTokens(
       preflightCommitment: 'confirmed',
     });
 
-    console.log('[PNP] Sell transaction sent:', signature);
+    log.debug('Sell transaction sent:', { signature });
 
     // Wait for confirmation
     const confirmation = await pnpConn.confirmTransaction(
@@ -498,30 +502,113 @@ export async function sellOutcomeTokens(
 
     const usdcReceived = calculateUsdcReceived(tokenAmount, minPrice);
 
-    console.log('[PNP] Sell transaction confirmed:', signature);
+    log.debug('Sell transaction confirmed:', { signature });
     return { signature, usdcReceived };
   } catch (error) {
-    console.error('[PNP] Sell transaction failed:', error);
+    log.error('Sell transaction failed', { error: error instanceof Error ? error.message : String(error) });
     throw error;
   }
 }
 
 /**
  * Redeem winning tokens after market resolution
+ * Uses server-side transaction building + wallet signing
  */
 export async function redeemWinnings(
   connection: Connection,
   marketId: PublicKey,
   wallet: WalletAdapter
 ): Promise<{ signature: string; amount: number }> {
-  console.log('[PNP] Redeeming winnings for market:', marketId.toBase58());
+  log.debug('[PNP] Redeeming winnings for market:', { toBase58: marketId.toBase58() });
 
-  // TODO: Implement using SDK when redemption API is available
-  // For now, return simulation
-  return {
-    signature: 'simulated_' + Date.now(),
-    amount: 0,
-  };
+  if (!USE_SDK) {
+    log.warn('SDK disabled, using simulation');
+    return {
+      signature: 'simulated_' + Date.now(),
+      amount: 0,
+    };
+  }
+
+  const pnpConn = getPnpConnection();
+
+  try {
+    // Build redemption transaction via server API
+    log.debug('Building redeem transaction via server API...');
+    const buildResponse = await fetch(BUILD_TX_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'redeem',
+        marketId: marketId.toBase58(),
+        userPubkey: wallet.publicKey.toBase58(),
+      }),
+    });
+
+    const buildData: BuildTxResponse = await buildResponse.json();
+
+    if (!buildResponse.ok || !buildData.success || !buildData.transaction) {
+      // Handle specific errors
+      if (buildData.error === 'Market is not yet resolved') {
+        throw new Error('This market has not been resolved yet. Wait for the outcome to be determined.');
+      }
+      if (buildData.error === 'No winning tokens to redeem') {
+        throw new Error('You have no winning tokens to redeem in this market.');
+      }
+
+      // Fall back to simulation if server unavailable (503 errors)
+      if (buildResponse.status === 503) {
+        console.warn('[PNP] Server unavailable, using simulation:', buildData.error);
+        return {
+          signature: 'simulated_' + Date.now(),
+          amount: 0,
+        };
+      }
+
+      throw new Error(buildData.error || 'Redemption transaction build failed');
+    }
+
+    // Deserialize the transaction
+    const txBuffer = Buffer.from(buildData.transaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(txBuffer);
+
+    log.debug('Redeem transaction built, requesting wallet signature...');
+
+    // Sign with wallet
+    const signedTx = await wallet.signTransaction(transaction);
+
+    // Send to PNP network (mainnet by default)
+    const signature = await pnpConn.sendRawTransaction(signedTx.serialize(), {
+      skipPreflight: false,
+      maxRetries: 3,
+      preflightCommitment: 'confirmed',
+    });
+
+    log.debug('Redeem transaction sent:', { signature });
+
+    // Wait for confirmation
+    const confirmation = await pnpConn.confirmTransaction(
+      {
+        signature,
+        blockhash: buildData.blockhash!,
+        lastValidBlockHeight: buildData.lastValidBlockHeight!,
+      },
+      'confirmed'
+    );
+
+    if (confirmation.value.err) {
+      throw new Error(`Redemption failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
+
+    // Extract redeemed amount from transaction details if available
+    const details = buildData.details as { tokenBalance?: string } | undefined;
+    const redeemedAmount = details?.tokenBalance ? parseFloat(details.tokenBalance) : 0;
+
+    log.debug('Redemption confirmed:', { signature });
+    return { signature, amount: redeemedAmount };
+  } catch (error) {
+    log.error('Redemption failed', { error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
 }
 
 /**
@@ -563,7 +650,7 @@ export async function fetchMarket(
         resolved: data.marketDetails.resolved,
       };
     } catch (error) {
-      console.warn('[PNP] SDK fetch failed, trying REST API:', error);
+      log.warn('SDK fetch failed, trying REST API:', { error });
       // Fall through to REST API
     }
   }
@@ -609,7 +696,7 @@ export async function fetchMarket(
       resolved: data.marketDetails.resolved,
     };
   } catch (error) {
-    console.error('[PNP] Failed to fetch market:', error);
+    log.error('Failed to fetch market', { error: error instanceof Error ? error.message : String(error) });
 
     // Try to find in mock data if enabled
     if (USE_MOCK_FALLBACK) {
@@ -617,7 +704,7 @@ export async function fetchMarket(
         (m) => m.id.toBase58() === marketId.toBase58()
       );
       if (mockMarket) {
-        console.log('[PNP] Found market in mock data');
+        log.debug('Found market in mock data');
         return mockMarket;
       }
     }
@@ -636,11 +723,11 @@ export async function fetchActiveMarkets(
   // Always try internal API first (uses SDK server-side)
   // This works regardless of external API availability
   try {
-    console.log('[PNP] Fetching markets via internal API...');
+    log.debug('Fetching markets via internal API...');
     const markets = await fetchAllMarkets(limit);
 
     if (markets.length > 0) {
-      console.log(`[PNP] Got ${markets.length} markets from internal API`);
+      log.debug('Got ${markets.length} markets from internal API');
       return markets.map((m) => {
         // Calculate prices using Pythagorean bonding curve
         const yesSupply = BigInt(m.marketDetails.yesTokenSupply || '0');
@@ -673,16 +760,16 @@ export async function fetchActiveMarkets(
         };
       });
     }
-    console.log('[PNP] Internal API returned no markets');
+    log.debug('Internal API returned no markets');
   } catch (error) {
-    console.warn('[PNP] Internal API fetch failed:', error);
+    log.warn('Internal API fetch failed:', { error });
   }
 
   // External REST API fallback (only if configured to a different URL)
   const externalApiAvailable = !PNP_API_URL.includes('api.pnp.exchange');
   if (externalApiAvailable) {
     try {
-      console.log('[PNP] Trying external API fallback...');
+      log.debug('Trying external API fallback...');
       const response = await fetch(
         `${PNP_API_URL}/markets?limit=${limit}&active=true`
       );
@@ -714,13 +801,13 @@ export async function fetchActiveMarkets(
         }
       }
     } catch (error) {
-      console.error('[PNP] External API failed:', error);
+      log.error('External API failed', { error: error instanceof Error ? error.message : String(error) });
     }
   }
 
   // Mock data fallback
   if (USE_MOCK_FALLBACK) {
-    console.log('[PNP] Using mock markets as fallback');
+    log.debug('Using mock markets as fallback');
     return getMockMarkets().slice(0, limit);
   }
 
@@ -739,7 +826,7 @@ export async function getUserPositions(
       const positions = await fetchUserPositions(userPubkey);
       return positions;
     } catch (error) {
-      console.warn('[PNP] SDK fetch positions failed, trying REST API:', error);
+      log.warn('SDK fetch positions failed, trying REST API:', { error });
       // Fall through to REST API
     }
   }
@@ -764,7 +851,7 @@ export async function getUserPositions(
       avgNoCost: p.avgNoCost as number,
     }));
   } catch (error) {
-    console.error('[PNP] Failed to fetch user positions:', error);
+    log.error('Failed to fetch user positions', { error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }

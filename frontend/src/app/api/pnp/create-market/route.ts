@@ -14,6 +14,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api');
+
 const SERVER_WALLET_SECRET = process.env.PNP_SERVER_WALLET_SECRET;
 const RPC_URL = process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com';
 const PNP_API_URL = process.env.NEXT_PUBLIC_PNP_API_URL || 'https://api.pnp.exchange';
@@ -74,7 +78,7 @@ export async function POST(request: NextRequest) {
     // SDK not available due to anchor compatibility issues
     // Return simulated response for development
     if (!SDK_AVAILABLE || !SERVER_WALLET_SECRET) {
-      console.warn('[PNP API] SDK not available, returning simulated market');
+      log.warn('SDK not available, returning simulated market');
 
       // Generate deterministic but unique addresses
       const marketKeypair = Keypair.generate();
@@ -118,7 +122,7 @@ export async function POST(request: NextRequest) {
       { status: 503 }
     );
   } catch (error) {
-    console.error('[PNP API] Market creation failed:', error);
+    log.error('Market creation failed', { error: error instanceof Error ? error.message : String(error) });
 
     const errorMessage =
       error instanceof Error ? error.message : 'Failed to create market';

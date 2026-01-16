@@ -3,6 +3,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { HermesClient } from '@pythnetwork/hermes-client';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('hooks');
+
 // Pyth Price Feed IDs
 // Full list: https://pyth.network/developers/price-feed-ids
 const PRICE_FEED_IDS = {
@@ -28,10 +32,24 @@ export interface PythPriceState {
   isStreaming: boolean;
 }
 
+// Pyth SDK types (matching Zod schema from @pythnetwork/hermes-client)
+interface PythPriceComponent {
+  price: string;
+  conf: string;
+  expo: number;
+  publish_time: number;
+}
+
+interface PythPriceUpdate {
+  id: string;
+  price: PythPriceComponent;
+  ema_price?: PythPriceComponent;
+}
+
 const HERMES_ENDPOINT = 'https://hermes.pyth.network';
 
 // Parse Pyth price data into a usable format
-function parsePriceData(priceUpdate: any): PriceData | null {
+function parsePriceData(priceUpdate: PythPriceUpdate): PriceData | null {
   try {
     const price = priceUpdate.price;
     if (!price) return null;
@@ -51,7 +69,7 @@ function parsePriceData(priceUpdate: any): PriceData | null {
       emaConfidence: emaConfidenceValue,
     };
   } catch (error) {
-    console.error('[usePythPrice] Error parsing price data:', error);
+    log.error('Error parsing price data', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -104,7 +122,7 @@ export function usePythPrice(feedIds: PriceFeedId[] = ['SOL/USD']) {
           'USDC/USD': null,
         };
 
-        priceUpdates.parsed?.forEach((update: any, index: number) => {
+        priceUpdates.parsed?.forEach((update: PythPriceUpdate, index: number) => {
           const feedId = feedIds[index];
           newPrices[feedId] = parsePriceData(update);
         });
@@ -116,7 +134,7 @@ export function usePythPrice(feedIds: PriceFeedId[] = ['SOL/USD']) {
           lastUpdate: new Date(),
         }));
       } catch (error) {
-        console.error('[usePythPrice] Error fetching prices:', error);
+        log.error('Error fetching prices', { error: error instanceof Error ? error.message : String(error) });
         if (mountedRef.current) {
           setState(prev => ({
             ...prev,
@@ -156,7 +174,7 @@ export function usePythPrice(feedIds: PriceFeedId[] = ['SOL/USD']) {
             if (data.parsed) {
               const newPrices: Partial<Record<PriceFeedId, PriceData | null>> = {};
 
-              data.parsed.forEach((update: any) => {
+              data.parsed.forEach((update: PythPriceUpdate) => {
                 const feedIdHex = '0x' + update.id;
                 const matchedFeed = feedIds.find(
                   id => PRICE_FEED_IDS[id].toLowerCase() === feedIdHex.toLowerCase()
@@ -178,7 +196,7 @@ export function usePythPrice(feedIds: PriceFeedId[] = ['SOL/USD']) {
               }
             }
           } catch (parseError) {
-            console.error('[usePythPrice] Error parsing SSE message:', parseError);
+            log.error('Error parsing SSE message', { error: parseError instanceof Error ? parseError.message : String(parseError) });
           }
         };
 
@@ -196,7 +214,7 @@ export function usePythPrice(feedIds: PriceFeedId[] = ['SOL/USD']) {
           }
         };
       } catch (error) {
-        console.error('[usePythPrice] Error starting stream:', error);
+        log.error('Error starting stream', { error: error instanceof Error ? error.message : String(error) });
       }
     };
 

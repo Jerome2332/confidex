@@ -1,8 +1,7 @@
 'use client';
 
-import { FC, useState } from 'react';
-import { Maximize2, Minimize2, TrendingUp, TrendingDown } from 'lucide-react';
-import { useSolPrice } from '@/hooks/use-pyth-price';
+import { FC, useState, useEffect, useRef, memo } from 'react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 
 interface TimeframeOption {
   label: string;
@@ -18,25 +17,105 @@ const TIMEFRAMES: TimeframeOption[] = [
   { label: '1D', value: 'D' },
 ];
 
-// Pure CSS/HTML chart placeholder - no external scripts, no canvas, no iframes
+// TradingView Widget Component
+const TradingViewWidget: FC<{ interval: string }> = memo(({ interval }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // Clear previous widget
+    containerRef.current.innerHTML = '';
+
+    const script = document.createElement('script');
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
+    script.type = 'text/javascript';
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: 'PYTH:SOLUSD',
+      interval: interval,
+      timezone: 'Etc/UTC',
+      theme: 'dark',
+      style: '1',
+      locale: 'en',
+      backgroundColor: 'rgba(0, 0, 0, 1)',
+      gridColor: 'rgba(255, 255, 255, 0.06)',
+      hide_top_toolbar: false,
+      hide_legend: false,
+      allow_symbol_change: false,
+      save_image: false,
+      calendar: false,
+      hide_volume: false,
+      support_host: 'https://www.tradingview.com',
+      // Monochrome color overrides
+      overrides: {
+        'paneProperties.background': '#000000',
+        'paneProperties.backgroundType': 'solid',
+        'paneProperties.vertGridProperties.color': 'rgba(255, 255, 255, 0.06)',
+        'paneProperties.horzGridProperties.color': 'rgba(255, 255, 255, 0.06)',
+        'scalesProperties.textColor': 'rgba(255, 255, 255, 0.6)',
+        'scalesProperties.lineColor': 'rgba(255, 255, 255, 0.1)',
+        'mainSeriesProperties.candleStyle.upColor': '#ffffff',
+        'mainSeriesProperties.candleStyle.downColor': 'rgba(255, 255, 255, 0.4)',
+        'mainSeriesProperties.candleStyle.borderUpColor': '#ffffff',
+        'mainSeriesProperties.candleStyle.borderDownColor': 'rgba(255, 255, 255, 0.4)',
+        'mainSeriesProperties.candleStyle.wickUpColor': '#ffffff',
+        'mainSeriesProperties.candleStyle.wickDownColor': 'rgba(255, 255, 255, 0.4)',
+      },
+    });
+
+    containerRef.current.appendChild(script);
+
+    return () => {
+      if (containerRef.current) {
+        containerRef.current.innerHTML = '';
+      }
+    };
+  }, [interval]);
+
+  return (
+    <div className="tradingview-widget-container h-full w-full" ref={containerRef}>
+      <div className="tradingview-widget-container__widget h-full w-full" />
+    </div>
+  );
+});
+
+TradingViewWidget.displayName = 'TradingViewWidget';
+
 export const ChartArea: FC = () => {
   const [activeTimeframe, setActiveTimeframe] = useState('15');
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const { price, isStreaming } = useSolPrice();
-
-  // Use live Pyth price or fallback
-  const displayPrice = price ?? 104.52;
-  const mockChange = 2.34;
-  const isPositive = mockChange >= 0;
+  const chartContainerRef = useRef<HTMLDivElement>(null);
 
   const handleFullscreen = () => {
-    setIsFullscreen(!isFullscreen);
+    if (!chartContainerRef.current) return;
+
+    if (!isFullscreen) {
+      if (chartContainerRef.current.requestFullscreen) {
+        chartContainerRef.current.requestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
   };
 
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div ref={chartContainerRef} className="h-full flex flex-col bg-black">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-card/50 shrink-0">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-white/10 bg-black shrink-0">
         <div className="flex items-center gap-1">
           {TIMEFRAMES.map(tf => (
             <button
@@ -44,8 +123,8 @@ export const ChartArea: FC = () => {
               onClick={() => setActiveTimeframe(tf.value)}
               className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
                 activeTimeframe === tf.value
-                  ? 'bg-primary/20 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50'
+                  ? 'bg-white/10 text-white'
+                  : 'text-white/50 hover:text-white hover:bg-white/5'
               }`}
             >
               {tf.label}
@@ -53,10 +132,10 @@ export const ChartArea: FC = () => {
           ))}
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">SOL/USDC</span>
+          <span className="text-xs text-white/50">SOL/USD</span>
           <button
             onClick={handleFullscreen}
-            className="p-1.5 text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 transition-colors"
+            className="p-1.5 text-white/50 hover:text-white rounded hover:bg-white/5 transition-colors"
             title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? (
@@ -68,75 +147,9 @@ export const ChartArea: FC = () => {
         </div>
       </div>
 
-      {/* Chart placeholder - CSS-only visualization */}
-      <div className="flex-1 flex flex-col items-center justify-center p-8 relative overflow-hidden">
-        {/* Background grid pattern */}
-        <div
-          className="absolute inset-0 opacity-10"
-          style={{
-            backgroundImage: `
-              linear-gradient(to right, currentColor 1px, transparent 1px),
-              linear-gradient(to bottom, currentColor 1px, transparent 1px)
-            `,
-            backgroundSize: '40px 40px',
-          }}
-        />
-
-        {/* Mock candlestick visualization using CSS */}
-        <div className="relative z-10 flex items-end gap-1 h-32 mb-8">
-          {Array.from({ length: 20 }).map((_, i) => {
-            const isUp = Math.random() > 0.45;
-            const height = 20 + Math.random() * 60;
-            const wickHeight = height * 0.3;
-            return (
-              <div key={i} className="flex flex-col items-center">
-                <div
-                  className={`w-px ${isUp ? 'bg-white' : 'bg-white/40'}`}
-                  style={{ height: wickHeight }}
-                />
-                <div
-                  className={`w-2 rounded-sm ${isUp ? 'bg-white' : 'bg-white/40'}`}
-                  style={{ height }}
-                />
-                <div
-                  className={`w-px ${isUp ? 'bg-white' : 'bg-white/40'}`}
-                  style={{ height: wickHeight * 0.7 }}
-                />
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Price display */}
-        <div className="relative z-10 text-center">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <span className="text-3xl font-bold font-mono">
-              ${displayPrice.toFixed(2)}
-            </span>
-            <div className={`flex items-center gap-1 ${isPositive ? 'text-white' : 'text-white/60'}`}>
-              {isPositive ? <TrendingUp className="h-5 w-5" /> : <TrendingDown className="h-5 w-5" />}
-              <span className="text-sm font-medium">
-                {isPositive ? '+' : ''}{mockChange.toFixed(2)}%
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-            <span>{activeTimeframe === 'D' ? 'Daily' : activeTimeframe + ' minute'} timeframe</span>
-            {isStreaming && (
-              <span className="flex items-center gap-1 text-white">
-                <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
-                Live
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Chart info */}
-        <div className="absolute bottom-4 left-4 right-4 text-center">
-          <p className="text-xs text-muted-foreground bg-card/80 rounded-lg py-2 px-4 inline-block">
-            Interactive chart coming soon • Live price from Pyth Network
-          </p>
-        </div>
+      {/* TradingView Chart */}
+      <div className="flex-1 min-h-0">
+        <TradingViewWidget interval={activeTimeframe} />
       </div>
     </div>
   );

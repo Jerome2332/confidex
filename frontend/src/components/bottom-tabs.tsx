@@ -5,10 +5,15 @@ import { OpenOrders } from './open-orders';
 import { TradeHistory } from './trade-history';
 import { PositionRow, NoPositions } from './position-row';
 import { ChevronUp, ChevronDown, ChevronDownIcon, Filter, RefreshCw, Lock, TrendingUp, TrendingDown, X, Loader2 } from 'lucide-react';
+import { ToggleSwitch } from './ui/toggle-switch';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { usePerpetualStore, PerpPosition } from '@/stores/perpetuals-store';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api');
 
 type TabId = 'balances' | 'positions' | 'open-orders' | 'trade-history' | 'order-history';
 
@@ -111,16 +116,15 @@ export const BottomTabs: FC<BottomTabsProps> = ({ defaultHeight = 224 }) => {
             )}
           </div>
 
-          {/* Hide Small Balances Checkbox */}
-          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
-            <input
-              type="checkbox"
+          {/* Hide Small Balances Toggle */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground hidden sm:inline">Hide Small</span>
+            <ToggleSwitch
               checked={hideSmallBalances}
-              onChange={(e) => setHideSmallBalances(e.target.checked)}
-              className="w-3.5 h-3.5 rounded border-border bg-background accent-primary cursor-pointer"
+              onChange={setHideSmallBalances}
+              size="sm"
             />
-            <span className="hidden sm:inline">Hide Small</span>
-          </label>
+          </div>
 
           {/* Collapse Button */}
           <button
@@ -280,7 +284,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       await new Promise(resolve => setTimeout(resolve, 1500));
       removePosition(positionId);
     } catch (error) {
-      console.error('Failed to close position:', error);
+      log.error('Failed to close position:', { error: error instanceof Error ? error.message : String(error) });
     } finally {
       setIsClosingPosition(null);
     }

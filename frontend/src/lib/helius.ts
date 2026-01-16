@@ -12,6 +12,10 @@
 
 import { Connection, Transaction, VersionedTransaction } from '@solana/web3.js';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('helius');
+
 // Helius API configuration
 const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
 const HELIUS_RPC_URL = HELIUS_API_KEY
@@ -88,7 +92,7 @@ export async function getPriorityFeeEstimate(
 
     return 10000; // Fallback
   } catch (error) {
-    console.error('Failed to get priority fee estimate:', error);
+    log.error('Failed to get priority fee estimate:', { error: error instanceof Error ? error.message : String(error) });
     return 10000;
   }
 }
@@ -169,7 +173,7 @@ export async function parseTransaction(
 
     return null;
   } catch (error) {
-    console.error('Failed to parse transaction:', error);
+    log.error('Failed to parse transaction:', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -232,7 +236,7 @@ export async function getTokenMetadata(mint: string): Promise<TokenMetadata | nu
 
     return null;
   } catch (error) {
-    console.error('Failed to get token metadata:', error);
+    log.error('Failed to get token metadata:', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -303,7 +307,7 @@ export async function getEnrichedBalances(
 
     return balances;
   } catch (error) {
-    console.error('Failed to get enriched balances:', error);
+    log.error('Failed to get enriched balances:', { error: error instanceof Error ? error.message : String(error) });
     return [];
   }
 }

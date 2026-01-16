@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('settlement');
 import {
   settlementManager,
   type SettlementMethod,
@@ -73,14 +77,14 @@ export function useUnifiedSettlement(): UseUnifiedSettlementReturn {
 
         if (!cancelled) {
           setIsReady(settlementManager.isAnyProviderReady());
-          console.log('[useUnifiedSettlement] Initialization complete');
+          log.debug('Initialization complete');
         }
       } catch (err) {
         if (!cancelled) {
           const message =
             err instanceof Error ? err.message : 'Failed to initialize settlement';
           setError(message);
-          console.error('[useUnifiedSettlement] Initialization error:', err);
+          log.error('Initialization error', { error: err instanceof Error ? err.message : String(err) });
         }
       } finally {
         if (!cancelled) {
@@ -146,7 +150,7 @@ export function useUnifiedSettlement(): UseUnifiedSettlementReturn {
         // Try fallback to auto
         const fallback = settlementManager.getProvider('auto');
         if (fallback?.isReady()) {
-          console.log('[useUnifiedSettlement] Falling back to auto provider');
+          log.debug('Falling back to auto provider');
           return fallback.transfer({
             ...params,
             wallet: { signMessage },
@@ -155,7 +159,7 @@ export function useUnifiedSettlement(): UseUnifiedSettlementReturn {
         throw new Error('No settlement provider available');
       }
 
-      console.log('[useUnifiedSettlement] Executing transfer via', provider.capabilities.name);
+      log.debug('[useUnifiedSettlement] Executing transfer via', { name: provider.capabilities.name });
 
       return provider.transfer({
         ...params,

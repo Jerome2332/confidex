@@ -13,6 +13,10 @@ import type {
 import { shadowWireProvider } from './providers/shadowwire-provider';
 import { csplProvider } from './providers/cspl-provider';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('settlement');
+
 /**
  * Settlement manager class
  * Manages multiple settlement providers and routes requests
@@ -49,19 +53,19 @@ class SettlementManagerClass {
     // C-SPL has priority (no fees)
     const cspl = this.providers.get('cspl');
     if (cspl?.isReady() && cspl.capabilities.isAvailable) {
-      console.log('[Settlement Manager] Auto-selected: C-SPL');
+      log.debug('Auto-selected: C-SPL');
       return cspl;
     }
 
     // Fallback to ShadowWire (production-ready, 1% fee)
     const shadowWire = this.providers.get('shadowwire');
     if (shadowWire?.isReady() && shadowWire.capabilities.isAvailable) {
-      console.log('[Settlement Manager] Auto-selected: ShadowWire');
+      log.debug('Auto-selected: ShadowWire');
       return shadowWire;
     }
 
     // No provider available
-    console.warn('[Settlement Manager] No provider available');
+    log.warn('No provider available');
     return null;
   }
 
@@ -108,9 +112,9 @@ class SettlementManagerClass {
 
     try {
       await promise;
-      console.log(`[Settlement Manager] ${method} initialized`);
+      log.debug('${method} initialized');
     } catch (error) {
-      console.error(`[Settlement Manager] Failed to initialize ${method}:`, error);
+      log.error('Failed to initialize ${method}', { error: error instanceof Error ? error.message : String(error) });
       this.initializationPromises.delete(method);
       throw error;
     }
@@ -126,17 +130,14 @@ class SettlementManagerClass {
       if (provider.capabilities.isAvailable) {
         initPromises.push(
           this.initializeProvider(method).catch((err) => {
-            console.warn(
-              `[Settlement Manager] Non-critical: ${method} init failed:`,
-              err
-            );
+            log.warn('Non-critical: ${method} init failed:', { err });
           })
         );
       }
     }
 
     await Promise.all(initPromises);
-    console.log('[Settlement Manager] All available providers initialized');
+    log.debug('All available providers initialized');
   }
 
   /**

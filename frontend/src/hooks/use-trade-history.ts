@@ -2,6 +2,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('hooks');
 import {
   getTransactionsByAddress,
   getProgramTransactions,
@@ -100,7 +104,7 @@ function parseTransactionToTrade(
       status: 'success',
     };
   } catch (error) {
-    console.error('[useTradeHistory] Error parsing transaction:', error);
+    log.error('Error parsing transaction', { error: error instanceof Error ? error.message : String(error) });
     return null;
   }
 }
@@ -171,9 +175,9 @@ export function useTradeHistory(options: {
           lastSignature: newTrades.length > 0 ? newTrades[newTrades.length - 1].signature : prev.lastSignature,
         }));
 
-        console.log('[useTradeHistory] Fetched trades:', newTrades.length);
+        log.debug('[useTradeHistory] Fetched trades:', { length: newTrades.length });
       } catch (error) {
-        console.error('[useTradeHistory] Error fetching trades:', error);
+        log.error('Error fetching trades', { error: error instanceof Error ? error.message : String(error) });
         if (mountedRef.current) {
           setState(prev => ({
             ...prev,

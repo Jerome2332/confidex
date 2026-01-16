@@ -20,6 +20,10 @@ import type {
 } from '../types';
 import { CSPL_ENABLED } from '@/lib/constants';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api');
+
 /**
  * Feature flag: Flip to true when C-SPL SDK is released
  * This controls whether C-SPL shows as available in the UI
@@ -47,7 +51,7 @@ export class CSPLProvider implements ISettlementProvider {
 
   async initialize(): Promise<void> {
     if (!CSPL_SDK_AVAILABLE) {
-      console.log('[C-SPL Provider] SDK not available yet');
+      log.debug('SDK not available yet');
       return;
     }
 
@@ -59,9 +63,9 @@ export class CSPLProvider implements ISettlementProvider {
       // this.client = new cspl.CSPLClient(connection);
 
       this.initialized = true;
-      console.log('[C-SPL Provider] Initialized');
+      log.debug('Initialized');
     } catch (error) {
-      console.error('[C-SPL Provider] Initialization error:', error);
+      log.error('Initialization error', { error: error instanceof Error ? error.message : String(error) });
       throw error;
     }
   }
@@ -81,10 +85,10 @@ export class CSPLProvider implements ISettlementProvider {
       throw new Error('C-SPL not initialized');
     }
 
-    console.log('[C-SPL Provider] Executing transfer...');
-    console.log('  Token:', params.token);
-    console.log('  Amount:', params.amount);
-    console.log('  Recipient:', params.recipient);
+    log.debug('Executing transfer...');
+    log.debug('  Token:', { token: params.token });
+    log.debug('  Amount:', { amount: params.amount });
+    log.debug('  Recipient:', { recipient: params.recipient });
 
     // TODO: Implement when Arcium C-SPL SDK is released
     // Example implementation structure:

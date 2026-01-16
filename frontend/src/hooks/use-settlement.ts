@@ -4,6 +4,10 @@ import { useCallback, useState } from 'react';
 import { useShadowWire } from './use-shadowwire';
 import { useWallet } from '@solana/wallet-adapter-react';
 
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('settlement');
+
 export interface SettlementParams {
   buyerAddress: string;
   sellerAddress: string;
@@ -50,9 +54,9 @@ export function useSettlement(): UseSettlementReturn {
     const userAddress = publicKey.toBase58();
     setIsSettling(true);
 
-    console.log('[Settlement] Executing via ShadowWire...');
-    console.log('  Buyer:', params.buyerAddress);
-    console.log('  Seller:', params.sellerAddress);
+    log.debug('Executing via ShadowWire...');
+    log.debug('  Buyer:', { buyerAddress: params.buyerAddress });
+    log.debug('  Seller:', { sellerAddress: params.sellerAddress });
     console.log('  Base (SOL):', params.baseAmount, 'seller -> buyer');
     console.log('  Quote (USDC):', params.quoteAmount, 'buyer -> seller');
 
@@ -69,7 +73,7 @@ export function useSettlement(): UseSettlementReturn {
 
       // If user is buyer: send USDC to seller
       if (isBuyer) {
-        console.log('[Settlement] Executing quote transfer (buyer -> seller USDC)');
+        log.debug('Executing quote transfer (buyer -> seller USDC)');
         const quoteTransfer = await transfer({
           recipient: params.sellerAddress,
           amount: params.quoteAmount,
@@ -82,12 +86,12 @@ export function useSettlement(): UseSettlementReturn {
         }
 
         result.quoteTransferSig = quoteTransfer.tx_signature;
-        console.log('[Settlement] Quote transfer complete:', quoteTransfer.tx_signature);
+        log.debug('[Settlement] Quote transfer complete:', { tx_signature: quoteTransfer.tx_signature });
       }
 
       // If user is seller: send SOL to buyer
       if (isSeller) {
-        console.log('[Settlement] Executing base transfer (seller -> buyer SOL)');
+        log.debug('Executing base transfer (seller -> buyer SOL)');
         const baseTransfer = await transfer({
           recipient: params.buyerAddress,
           amount: params.baseAmount,
@@ -100,13 +104,13 @@ export function useSettlement(): UseSettlementReturn {
         }
 
         result.baseTransferSig = baseTransfer.tx_signature;
-        console.log('[Settlement] Base transfer complete:', baseTransfer.tx_signature);
+        log.debug('[Settlement] Base transfer complete:', { tx_signature: baseTransfer.tx_signature });
       }
 
-      console.log('[Settlement] Complete');
+      log.debug('Complete');
       return result;
     } catch (err) {
-      console.error('[Settlement] Error:', err);
+      log.error('Error', { error: err instanceof Error ? err.message : String(err) });
       return {
         success: false,
         error: err instanceof Error ? err.message : 'Settlement failed',

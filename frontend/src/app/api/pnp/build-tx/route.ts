@@ -14,6 +14,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+
+import { createLogger } from '@/lib/logger';
+
+const log = createLogger('api');
 import {
   PublicKey,
   Connection,
@@ -61,11 +65,11 @@ function loadSDK(): boolean {
     const sdk = require('pnp-sdk');
     PNPClientClass = sdk.PNPClient;
     pdasModule = sdk.pdas;
-    console.log('[PNP Build TX API] SDK loaded successfully');
+    log.debug('SDK loaded successfully');
     return true;
   } catch (error) {
     sdkLoadError = error instanceof Error ? error.message : 'Unknown error';
-    console.error('[PNP Build TX API] SDK load failed:', sdkLoadError);
+    log.error('SDK load failed', { error: sdkLoadError });
     return false;
   }
 }
@@ -99,10 +103,10 @@ function getAta(
 }
 
 interface BuildTxRequest {
-  action: 'buy' | 'sell';
+  action: 'buy' | 'sell' | 'redeem';
   marketId: string;
-  isYes: boolean;
-  amount: number; // USDC amount (will be converted to base units)
+  isYes?: boolean; // Optional for redeem (redeems both)
+  amount?: number; // USDC amount for buy/sell (will be converted to base units)
   userPubkey: string;
   minimumOut?: number; // Minimum tokens to receive (slippage protection)
 }
@@ -116,6 +120,8 @@ interface MarketData {
   marketReserves: bigint;
   yesSupply: bigint;
   noSupply: bigint;
+  resolved: boolean;
+  winningOutcome: 'YES' | 'NO' | null;
 }
 
 /**
@@ -159,6 +165,17 @@ async function fetchMarketData(
     return BigInt(0);
   };
 
+  // Determine winning outcome
+  let winningOutcome: 'YES' | 'NO' | null = null;
+  const winningTokenId = market.winning_token_id || market.winningTokenId;
+  if (winningTokenId) {
+    if (winningTokenId.Yes || winningTokenId.yes) {
+      winningOutcome = 'YES';
+    } else if (winningTokenId.No || winningTokenId.no) {
+      winningOutcome = 'NO';
+    }
+  }
+
   return {
     yesTokenMint,
     noTokenMint,
@@ -168,6 +185,8 @@ async function fetchMarketData(
     marketReserves: parseValue(market.market_reserves || market.marketReserves),
     yesSupply: parseValue(market.yes_token_supply_minted || market.yesTokenSupplyMinted),
     noSupply: parseValue(market.no_token_supply_minted || market.noTokenSupplyMinted),
+    resolved: Boolean(market.resolved),
+    winningOutcome,
   };
 }
 
@@ -225,6 +244,17 @@ function buildBurnInstructionData(
   return data;
 }
 
+/**
+ * Build redeem_winnings instruction data
+ * Layout: [discriminator(8)]
+ */
+function buildRedeemInstructionData(): Buffer {
+  // Discriminator for redeem_winnings: [149, 95, 181, 242, 94, 90, 158, 162]
+  // Calculated from: sha256("global:redeem_winnings")[0..8]
+  const discriminator = Buffer.from([149, 95, 181, 242, 94, 90, 158, 162]);
+  return discriminator;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const sdkAvailable = loadSDK();
@@ -245,9 +275,9 @@ export async function POST(request: NextRequest) {
     const { action, marketId, isYes, amount, userPubkey, minimumOut } = body;
 
     // Validate inputs
-    if (!action || !['buy', 'sell'].includes(action)) {
+    if (!action || !['buy', 'sell', 'redeem'].includes(action)) {
       return NextResponse.json(
-        { error: 'Invalid action. Must be "buy" or "sell"' },
+        { error: 'Invalid action. Must be "buy", "sell", or "redeem"' },
         { status: 400 }
       );
     }
@@ -256,12 +286,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'marketId is required' }, { status: 400 });
     }
 
-    if (typeof isYes !== 'boolean') {
-      return NextResponse.json({ error: 'isYes must be a boolean' }, { status: 400 });
-    }
+    // Buy/sell require isYes and amount, redeem doesn't
+    if (action !== 'redeem') {
+      if (typeof isYes !== 'boolean') {
+        return NextResponse.json({ error: 'isYes must be a boolean' }, { status: 400 });
+      }
 
-    if (typeof amount !== 'number' || amount <= 0) {
-      return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 });
+      if (typeof amount !== 'number' || amount <= 0) {
+        return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 });
+      }
     }
 
     if (!userPubkey) {
@@ -365,12 +398,105 @@ export async function POST(request: NextRequest) {
 
       // Warn but don't block - let the transaction attempt proceed
       if (!collateralInfo) {
-        console.warn('[PNP Build TX API] User has no collateral ATA for market collateral mint');
+        log.warn('User has no collateral ATA for market collateral mint');
       }
     }
 
-    // Build the main instruction
-    const amountBaseUnits = BigInt(Math.floor(amount * 1e6));
+    // Handle redeem action separately
+    if (action === 'redeem') {
+      // Validate market is resolved
+      if (!marketData.resolved) {
+        return NextResponse.json(
+          { error: 'Market is not yet resolved' },
+          { status: 400 }
+        );
+      }
+
+      if (!marketData.winningOutcome) {
+        return NextResponse.json(
+          { error: 'Market has no winning outcome set' },
+          { status: 400 }
+        );
+      }
+
+      // For redeem, we need the winning token ATA
+      const winningMint = marketData.winningOutcome === 'YES'
+        ? marketData.yesTokenMint
+        : marketData.noTokenMint;
+      const userWinningAta = getAta(buyerPubkey, winningMint, false, tokenProgramId);
+
+      // Check user has winning tokens
+      const winningBalance = await connection.getTokenAccountBalance(userWinningAta).catch(() => null);
+      if (!winningBalance || BigInt(winningBalance.value.amount) === BigInt(0)) {
+        return NextResponse.json(
+          {
+            error: 'No winning tokens to redeem',
+            details: {
+              winningOutcome: marketData.winningOutcome,
+              userBalance: '0',
+            }
+          },
+          { status: 400 }
+        );
+      }
+
+      // Account keys for redeem instruction
+      const redeemAccountKeys = [
+        { pubkey: buyerPubkey, isSigner: true, isWritable: true },
+        { pubkey: marketPubkey, isSigner: false, isWritable: true },
+        { pubkey: globalConfigPda, isSigner: false, isWritable: false },
+        { pubkey: winningMint, isSigner: false, isWritable: true },
+        { pubkey: userWinningAta, isSigner: false, isWritable: true },
+        { pubkey: marketReserveVault, isSigner: false, isWritable: true },
+        { pubkey: buyerCollateralAta, isSigner: false, isWritable: true },
+        { pubkey: marketData.collateralMint, isSigner: false, isWritable: false },
+        { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+        { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false },
+      ];
+
+      const redeemInstruction = {
+        programId: PNP_PROGRAM_ID,
+        keys: redeemAccountKeys,
+        data: buildRedeemInstructionData(),
+      };
+
+      // Add compute budget
+      const computeIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
+
+      // Build versioned transaction
+      const latestBlockhash = await connection.getLatestBlockhash('confirmed');
+
+      const messageV0 = new TransactionMessage({
+        payerKey: buyerPubkey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions: [computeIx, ...preInstructions, redeemInstruction],
+      }).compileToV0Message();
+
+      const transaction = new VersionedTransaction(messageV0);
+      const serializedTx = Buffer.from(transaction.serialize()).toString('base64');
+
+      console.log('[PNP Build TX API] Redeem transaction built successfully:', {
+        market: marketId,
+        winningOutcome: marketData.winningOutcome,
+        userBalance: winningBalance.value.uiAmountString,
+      });
+
+      return NextResponse.json({
+        success: true,
+        transaction: serializedTx,
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+        message: `Redeem ${marketData.winningOutcome} tokens`,
+        details: {
+          market: marketId,
+          winningOutcome: marketData.winningOutcome,
+          tokenBalance: winningBalance.value.uiAmountString,
+        },
+      });
+    }
+
+    // Build the main instruction for buy/sell
+    const amountBaseUnits = BigInt(Math.floor((amount ?? 0) * 1e6));
     const minOut = BigInt(minimumOut ?? 0); // Default to 0 (no slippage protection)
 
     // Account keys in order per IDL
@@ -396,9 +522,9 @@ export async function POST(request: NextRequest) {
 
     let instructionData: Buffer;
     if (action === 'buy') {
-      instructionData = buildMintInstructionData(amountBaseUnits, isYes, minOut);
+      instructionData = buildMintInstructionData(amountBaseUnits, isYes ?? true, minOut);
     } else {
-      instructionData = buildBurnInstructionData(amountBaseUnits, isYes);
+      instructionData = buildBurnInstructionData(amountBaseUnits, isYes ?? true);
     }
 
     // Create the main instruction
@@ -447,7 +573,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[PNP Build TX API] Error:', error);
+    log.error('Error', { error: error instanceof Error ? error.message : String(error) });
 
     return NextResponse.json(
       {
@@ -485,6 +611,6 @@ export async function GET() {
     sdkError: sdkLoadError,
     clientInfo,
     rpcUrl: RPC_URL,
-    capabilities: sdkAvailable ? ['build_buy_tx', 'build_sell_tx', 'balance_check'] : [],
+    capabilities: sdkAvailable ? ['build_buy_tx', 'build_sell_tx', 'build_redeem_tx', 'balance_check'] : [],
   });
 }
