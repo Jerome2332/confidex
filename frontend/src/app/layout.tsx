@@ -17,11 +17,35 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        {/* Inline script to prevent flash of wrong theme */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var stored = localStorage.getItem('confidex-theme');
+                  if (stored) {
+                    var parsed = JSON.parse(stored);
+                    var theme = parsed.state?.theme || 'dark';
+                    if (theme === 'system') {
+                      theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+                    }
+                    if (theme === 'light') {
+                      document.documentElement.classList.remove('dark');
+                    }
+                  }
+                } catch (e) {}
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className={inter.className}>
         <Providers>
           {children}
-          <Toaster position="bottom-right" theme="dark" />
+          <Toaster position="bottom-right" />
         </Providers>
       </body>
     </html>

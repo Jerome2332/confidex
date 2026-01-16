@@ -94,4 +94,9 @@ pub mod confidex_dex {
     pub fn update_blacklist(ctx: Context<UpdateBlacklist>, new_root: [u8; 32]) -> Result<()> {
         instructions::admin::update_blacklist_handler(ctx, new_root)
     }
+
+    /// Set vault addresses for a trading pair (admin only)
+    pub fn set_pair_vaults(ctx: Context<SetPairVaults>) -> Result<()> {
+        instructions::admin::set_pair_vaults_handler(ctx)
+    }
 }

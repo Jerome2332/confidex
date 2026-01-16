@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { WalletButton } from '@/components/wallet-button';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { useEncryption } from '@/hooks/use-encryption';
+import { PublicKey } from '@solana/web3.js';
 import {
   Shield,
   ArrowLeft,
@@ -14,21 +14,23 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
+  ExternalLink,
 } from 'lucide-react';
+import { useTokenBalance } from '@/hooks/use-token-balance';
+import { useEncryptedBalance, ENCRYPTION_VERSION } from '@/hooks/use-encrypted-balance';
+import { buildWrapTransaction, buildUnwrapTransaction } from '@/lib/confidex-client';
+import { TRADING_PAIRS } from '@/lib/constants';
 
 type TabType = 'wrap' | 'unwrap';
 
-interface TokenBalance {
-  symbol: string;
-  regular: number;
-  confidential: number;
-  decimals: number;
-}
+const SOL_MINT = new PublicKey(TRADING_PAIRS[0].baseMint);
+const USDC_MINT = new PublicKey(TRADING_PAIRS[0].quoteMint);
 
 export default function WrapPage() {
-  const { connected, publicKey } = useWallet();
+  const { connected, publicKey, sendTransaction } = useWallet();
   const { connection } = useConnection();
-  const { isInitialized, initializeEncryption, encryptValue } = useEncryption();
+  const { balances: tokenBalances, refresh: refreshTokenBalances } = useTokenBalance();
+  const { balances: wrappedBalances, refresh: refreshWrappedBalances, isEncrypted } = useEncryptedBalance();
 
   const [activeTab, setActiveTab] = useState<TabType>('wrap');
   const [selectedToken, setSelectedToken] = useState('SOL');
@@ -36,51 +38,82 @@ export default function WrapPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [txStatus, setTxStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [txMessage, setTxMessage] = useState('');
+  const [txSignature, setTxSignature] = useState<string | null>(null);
 
-  // Mock balances (would fetch from chain in production)
-  const balances: TokenBalance[] = [
-    { symbol: 'SOL', regular: 5.25, confidential: 2.0, decimals: 9 },
-    { symbol: 'USDC', regular: 1250.0, confidential: 500.0, decimals: 6 },
-  ];
+  // Check URL params for tab
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (tab === 'unwrap') {
+      setActiveTab('unwrap');
+    }
+  }, []);
 
-  const selectedBalance = balances.find((b) => b.symbol === selectedToken);
-  const maxAmount = activeTab === 'wrap'
-    ? selectedBalance?.regular || 0
-    : selectedBalance?.confidential || 0;
+  const getTokenDecimals = (symbol: string): number => {
+    return symbol === 'SOL' ? 9 : 6;
+  };
+
+  const getTokenMint = (symbol: string): PublicKey => {
+    return symbol === 'SOL' ? SOL_MINT : USDC_MINT;
+  };
+
+  // Calculate max amounts based on active tab
+  const getMaxAmount = (): string => {
+    if (activeTab === 'wrap') {
+      // Wrapping: use regular token balance
+      return selectedToken === 'SOL' ? tokenBalances.solUiAmount : tokenBalances.usdcUiAmount;
+    } else {
+      // Unwrapping: use wrapped (confidential) balance
+      return selectedToken === 'SOL' ? wrappedBalances.solUiAmount : wrappedBalances.usdcUiAmount;
+    }
+  };
 
   const handleWrap = async () => {
     if (!amount || !publicKey) return;
 
     setIsProcessing(true);
     setTxStatus('idle');
+    setTxSignature(null);
 
     try {
-      // Initialize encryption if needed
-      if (!isInitialized) {
-        await initializeEncryption();
-      }
-
-      // Convert amount to lamports/smallest unit
-      const decimals = selectedBalance?.decimals || 9;
+      const decimals = getTokenDecimals(selectedToken);
       const amountRaw = BigInt(Math.floor(parseFloat(amount) * Math.pow(10, decimals)));
 
-      // Encrypt the amount
-      const encryptedAmount = await encryptValue(amountRaw);
-
-      console.log('Wrapping tokens:', {
+      console.log('[WrapPage] Wrapping tokens:', {
         token: selectedToken,
         amount: amountRaw.toString(),
-        encryptedSize: encryptedAmount.length,
       });
 
-      // Simulate transaction delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const transaction = await buildWrapTransaction({
+        connection,
+        user: publicKey,
+        baseMint: SOL_MINT,
+        quoteMint: USDC_MINT,
+        tokenMint: getTokenMint(selectedToken),
+        amount: amountRaw,
+      });
+
+      const signature = await sendTransaction(transaction, connection);
+      console.log('[WrapPage] Transaction sent:', signature);
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error('Transaction failed');
+      }
+
+      console.log('[WrapPage] Transaction confirmed');
 
       setTxStatus('success');
       setTxMessage(`Successfully wrapped ${amount} ${selectedToken} to c${selectedToken}`);
+      setTxSignature(signature);
       setAmount('');
+
+      // Refresh balances
+      await Promise.all([refreshTokenBalances(), refreshWrappedBalances()]);
     } catch (error) {
-      console.error('Wrap failed:', error);
+      console.error('[WrapPage] Wrap failed:', error);
       setTxStatus('error');
       setTxMessage(error instanceof Error ? error.message : 'Transaction failed');
     } finally {
@@ -93,21 +126,47 @@ export default function WrapPage() {
 
     setIsProcessing(true);
     setTxStatus('idle');
+    setTxSignature(null);
 
     try {
-      console.log('Unwrapping tokens:', {
+      const decimals = getTokenDecimals(selectedToken);
+      const amountRaw = BigInt(Math.floor(parseFloat(amount) * Math.pow(10, decimals)));
+
+      console.log('[WrapPage] Unwrapping tokens:', {
         token: `c${selectedToken}`,
-        amount,
+        amount: amountRaw.toString(),
       });
 
-      // Simulate transaction delay
-      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const transaction = await buildUnwrapTransaction({
+        connection,
+        user: publicKey,
+        baseMint: SOL_MINT,
+        quoteMint: USDC_MINT,
+        tokenMint: getTokenMint(selectedToken),
+        amount: amountRaw,
+      });
+
+      const signature = await sendTransaction(transaction, connection);
+      console.log('[WrapPage] Transaction sent:', signature);
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error('Transaction failed');
+      }
+
+      console.log('[WrapPage] Transaction confirmed');
 
       setTxStatus('success');
       setTxMessage(`Successfully unwrapped ${amount} c${selectedToken} to ${selectedToken}`);
+      setTxSignature(signature);
       setAmount('');
+
+      // Refresh balances
+      await Promise.all([refreshTokenBalances(), refreshWrappedBalances()]);
     } catch (error) {
-      console.error('Unwrap failed:', error);
+      console.error('[WrapPage] Unwrap failed:', error);
       setTxStatus('error');
       setTxMessage(error instanceof Error ? error.message : 'Transaction failed');
     } finally {
@@ -124,8 +183,20 @@ export default function WrapPage() {
   };
 
   const setMaxAmount = () => {
-    setAmount(maxAmount.toString());
+    const max = getMaxAmount();
+    // For SOL, leave some for fees
+    if (selectedToken === 'SOL' && activeTab === 'wrap') {
+      const maxNum = parseFloat(max);
+      const adjusted = Math.max(0, maxNum - 0.01).toFixed(4);
+      setAmount(adjusted);
+    } else {
+      setAmount(max);
+    }
   };
+
+  const maxAmount = parseFloat(getMaxAmount()) || 0;
+  const inputAmount = parseFloat(amount) || 0;
+  const isValidAmount = inputAmount > 0 && inputAmount <= maxAmount;
 
   return (
     <main className="min-h-screen">
@@ -210,14 +281,18 @@ export default function WrapPage() {
                   <label className="block text-sm font-medium mb-2">Token</label>
                   <select
                     value={selectedToken}
-                    onChange={(e) => setSelectedToken(e.target.value)}
+                    onChange={(e) => {
+                      setSelectedToken(e.target.value);
+                      setAmount('');
+                    }}
                     className="w-full p-3 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                   >
-                    {balances.map((token) => (
-                      <option key={token.symbol} value={token.symbol}>
-                        {activeTab === 'wrap' ? token.symbol : `c${token.symbol}`}
-                      </option>
-                    ))}
+                    <option value="SOL">
+                      {activeTab === 'wrap' ? 'SOL' : 'cSOL'}
+                    </option>
+                    <option value="USDC">
+                      {activeTab === 'wrap' ? 'USDC' : 'cUSDC'}
+                    </option>
                   </select>
                 </div>
 
@@ -225,22 +300,22 @@ export default function WrapPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-3 bg-secondary/50 rounded-lg">
                     <div className="text-xs text-muted-foreground mb-1">
-                      {activeTab === 'wrap' ? 'Regular Balance' : 'Confidential Balance'}
+                      Regular Balance
                     </div>
                     <div className="font-mono font-medium">
-                      {activeTab === 'wrap'
-                        ? `${selectedBalance?.regular.toFixed(4)} ${selectedToken}`
-                        : `${selectedBalance?.confidential.toFixed(4)} c${selectedToken}`}
+                      {selectedToken === 'SOL'
+                        ? `${tokenBalances.solUiAmount} SOL`
+                        : `${tokenBalances.usdcUiAmount} USDC`}
                     </div>
                   </div>
                   <div className="p-3 bg-secondary/50 rounded-lg">
                     <div className="text-xs text-muted-foreground mb-1">
-                      {activeTab === 'wrap' ? 'Confidential Balance' : 'Regular Balance'}
+                      Confidential Balance
                     </div>
                     <div className="font-mono font-medium">
-                      {activeTab === 'wrap'
-                        ? `${selectedBalance?.confidential.toFixed(4)} c${selectedToken}`
-                        : `${selectedBalance?.regular.toFixed(4)} ${selectedToken}`}
+                      {selectedToken === 'SOL'
+                        ? `${wrappedBalances.solUiAmount} cSOL`
+                        : `${wrappedBalances.usdcUiAmount} cUSDC`}
                     </div>
                   </div>
                 </div>
@@ -262,16 +337,25 @@ export default function WrapPage() {
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       placeholder="0.00"
+                      step="any"
+                      min="0"
                       className="w-full p-3 pr-20 rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
                       {activeTab === 'wrap' ? selectedToken : `c${selectedToken}`}
                     </span>
                   </div>
+                  {amount && !isValidAmount && (
+                    <p className="text-xs text-destructive mt-1">
+                      {inputAmount > maxAmount
+                        ? 'Insufficient balance'
+                        : 'Enter a valid amount'}
+                    </p>
+                  )}
                 </div>
 
                 {/* Conversion Preview */}
-                {amount && (
+                {amount && isValidAmount && (
                   <div className="flex items-center justify-center gap-3 py-4">
                     <div className="text-center">
                       <div className="text-lg font-mono">{amount}</div>
@@ -291,9 +375,22 @@ export default function WrapPage() {
 
                 {/* Status Messages */}
                 {txStatus === 'success' && (
-                  <div className="flex items-center gap-2 p-3 bg-green-500/10 border border-green-500/50 rounded-lg text-sm text-green-500">
-                    <CheckCircle className="h-4 w-4 flex-shrink-0" />
-                    {txMessage}
+                  <div className="p-3 bg-green-500/10 border border-green-500/50 rounded-lg text-sm text-green-500">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                      {txMessage}
+                    </div>
+                    {txSignature && (
+                      <a
+                        href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 mt-2 text-xs hover:underline"
+                      >
+                        View on Explorer
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    )}
                   </div>
                 )}
 
@@ -307,7 +404,7 @@ export default function WrapPage() {
                 {/* Submit Button */}
                 <button
                   onClick={handleSubmit}
-                  disabled={!amount || parseFloat(amount) <= 0 || parseFloat(amount) > maxAmount || isProcessing}
+                  disabled={!isValidAmount || isProcessing}
                   className="w-full p-4 rounded-lg bg-primary text-primary-foreground font-medium transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isProcessing ? (
@@ -341,12 +438,36 @@ export default function WrapPage() {
           </div>
         </div>
 
+        {/* Quick Stats */}
+        {connected && (
+          <div className="mt-8 grid grid-cols-2 gap-4">
+            <div className="p-4 bg-card border border-border rounded-lg">
+              <div className="text-xs text-muted-foreground mb-1">Total Wrapped</div>
+              <div className="text-lg font-mono font-semibold">
+                {wrappedBalances.solUiAmount} <span className="text-muted-foreground text-sm">cSOL</span>
+              </div>
+              <div className="text-lg font-mono font-semibold">
+                {wrappedBalances.usdcUiAmount} <span className="text-muted-foreground text-sm">cUSDC</span>
+              </div>
+            </div>
+            <div className="p-4 bg-card border border-border rounded-lg">
+              <div className="text-xs text-muted-foreground mb-1">Available to Wrap</div>
+              <div className="text-lg font-mono font-semibold">
+                {tokenBalances.solUiAmount} <span className="text-muted-foreground text-sm">SOL</span>
+              </div>
+              <div className="text-lg font-mono font-semibold">
+                {tokenBalances.usdcUiAmount} <span className="text-muted-foreground text-sm">USDC</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Additional Info */}
         <div className="mt-8 space-y-4">
           <h3 className="font-semibold">How it works</h3>
           <div className="space-y-3 text-sm text-muted-foreground">
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
                 1
               </div>
               <div>
@@ -355,7 +476,7 @@ export default function WrapPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
                 2
               </div>
               <div>
@@ -364,7 +485,7 @@ export default function WrapPage() {
               </div>
             </div>
             <div className="flex gap-3">
-              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs font-bold">
                 3
               </div>
               <div>
@@ -374,12 +495,45 @@ export default function WrapPage() {
             </div>
           </div>
         </div>
+
+        {/* Privacy Benefits */}
+        <div className="mt-8 p-4 bg-secondary/30 border border-border rounded-lg">
+          <h3 className="font-semibold mb-3 flex items-center gap-2">
+            <Lock className="h-4 w-4 text-primary" />
+            Privacy Benefits
+          </h3>
+          <ul className="space-y-2 text-sm text-muted-foreground">
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <span>Balance amounts are encrypted on-chain</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <span>Only you can reveal your true balance</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <span>Trading activity stays private from observers</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <CheckCircle className="h-4 w-4 text-green-500 flex-shrink-0 mt-0.5" />
+              <span>Compliant with ZK eligibility proofs</span>
+            </li>
+          </ul>
+        </div>
       </div>
 
       {/* Footer */}
       <footer className="border-t border-border py-8 mt-12">
         <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <p>Confidential tokens powered by Arcium encryption</p>
+          <p>
+            Confidential tokens powered by Arcium encryption
+            {isEncrypted ? (
+              <span className="ml-2 text-primary">(C-SPL active)</span>
+            ) : ENCRYPTION_VERSION === 1 ? (
+              <span className="ml-2 text-muted-foreground/60">(C-SPL pending)</span>
+            ) : null}
+          </p>
         </div>
       </footer>
     </main>

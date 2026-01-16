@@ -1,12 +1,30 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useState, useCallback, useRef } from 'react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import { AnchorProvider } from '@coral-xyz/anchor';
+// Arcium imports - includes x25519 re-export from @noble/curves
+import {
+  RescueCipher,
+  getMXEPublicKey,
+  serializeLE,
+  deserializeLE,
+  x25519
+} from '@arcium-hq/client';
+
+// MXE Program ID (devnet - from constants)
+const MXE_PROGRAM_ID = new PublicKey(
+  process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
+  'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
+);
 
 // Encryption context for Arcium
 interface EncryptionContext {
   mxePublicKey: Uint8Array;
   sharedSecret: Uint8Array;
+  ephemeralPublicKey: Uint8Array;
+  cipher: RescueCipher;
 }
 
 interface UseEncryptionReturn {
@@ -15,47 +33,101 @@ interface UseEncryptionReturn {
   initializeEncryption: () => Promise<void>;
   encryptValue: (value: bigint) => Promise<Uint8Array>;
   decryptValue: (encrypted: Uint8Array) => Promise<bigint>;
+  getEphemeralPublicKey: () => Uint8Array | null;
 }
 
 /**
  * Hook for managing Arcium encryption context
+ * Uses X25519 key exchange and RescueCipher for encryption
  */
 export function useEncryption(): UseEncryptionReturn {
   const { publicKey, signMessage } = useWallet();
+  const { connection } = useConnection();
   const [context, setContext] = useState<EncryptionContext | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+  const nonceCounter = useRef(0);
 
   const initializeEncryption = useCallback(async () => {
-    if (!publicKey || !signMessage) {
+    if (!publicKey) {
       throw new Error('Wallet not connected');
     }
 
     try {
-      // In production, this would:
-      // 1. Fetch the MXE public key from the cluster
-      // 2. Generate ephemeral keypair
-      // 3. Compute shared secret via X25519
-      //
-      // For development, we simulate this
+      console.log('[Encryption] Initializing Arcium encryption...');
 
-      // Simulate fetching MXE public key
-      const mxePublicKey = new Uint8Array(32);
-      crypto.getRandomValues(mxePublicKey);
+      // Create a minimal provider for fetching MXE public key
+      // Note: In browser, we can't create a full AnchorProvider without a wallet
+      // So we'll try to fetch the MXE public key, or fall back to simulation
 
-      // Generate ephemeral keypair and shared secret
-      const sharedSecret = new Uint8Array(32);
-      crypto.getRandomValues(sharedSecret);
+      let mxePublicKey: Uint8Array;
+
+      try {
+        // Try to fetch MXE public key from devnet
+        // This requires an AnchorProvider which needs a wallet
+        const provider = new AnchorProvider(
+          connection,
+          {
+            publicKey,
+            signTransaction: async (tx) => tx,
+            signAllTransactions: async (txs) => txs,
+          },
+          { commitment: 'confirmed' }
+        );
+
+        const fetchedKey = await getMXEPublicKey(provider, MXE_PROGRAM_ID);
+
+        if (fetchedKey) {
+          mxePublicKey = fetchedKey;
+          console.log('[Encryption] Fetched MXE public key from devnet');
+        } else {
+          throw new Error('MXE public key not found');
+        }
+      } catch (fetchError) {
+        // Fall back to using a deterministic key for demo purposes
+        // In production, this MUST be fetched from the actual MXE
+        console.warn('[Encryption] Could not fetch MXE key, using demo mode:', fetchError);
+
+        // Use a deterministic "demo" MXE public key
+        // This is NOT secure - only for hackathon demo
+        mxePublicKey = new Uint8Array(32);
+        const demoSeed = new TextEncoder().encode('confidex-demo-mxe-key-v1');
+        const hashBuffer = await crypto.subtle.digest('SHA-256', demoSeed);
+        new Uint8Array(hashBuffer).forEach((b, i) => {
+          if (i < 32) mxePublicKey[i] = b;
+        });
+      }
+
+      // Generate ephemeral X25519 keypair
+      const ephemeralPrivateKey = x25519.utils.randomPrivateKey();
+      const ephemeralPublicKey = x25519.getPublicKey(ephemeralPrivateKey);
+
+      console.log('[Encryption] Generated ephemeral keypair');
+      console.log('[Encryption] Ephemeral public key:', Buffer.from(ephemeralPublicKey).toString('hex').slice(0, 16) + '...');
+
+      // Compute shared secret via X25519 ECDH
+      const sharedSecret = x25519.getSharedSecret(ephemeralPrivateKey, mxePublicKey);
+
+      console.log('[Encryption] Computed shared secret via X25519');
+
+      // Initialize RescueCipher with shared secret
+      const cipher = new RescueCipher(sharedSecret);
+
+      console.log('[Encryption] Initialized RescueCipher');
 
       setContext({
         mxePublicKey,
         sharedSecret,
+        ephemeralPublicKey,
+        cipher,
       });
       setIsInitialized(true);
+
+      console.log('[Encryption] Encryption context ready');
     } catch (error) {
-      console.error('Failed to initialize encryption:', error);
+      console.error('[Encryption] Failed to initialize:', error);
       throw error;
     }
-  }, [publicKey, signMessage]);
+  }, [publicKey, connection]);
 
   const encryptValue = useCallback(
     async (value: bigint): Promise<Uint8Array> => {
@@ -63,31 +135,46 @@ export function useEncryption(): UseEncryptionReturn {
         throw new Error('Encryption not initialized');
       }
 
-      // In production, use RescueCipher from @arcium-hq/client
-      // For development, simulate encryption
+      // Generate a unique nonce for this encryption
+      const nonce = new Uint8Array(16);
+      crypto.getRandomValues(nonce);
 
-      const encrypted = new Uint8Array(64);
+      // Increment counter to ensure uniqueness
+      nonceCounter.current += 1;
+      const counterBytes = new DataView(nonce.buffer);
+      counterBytes.setUint32(12, nonceCounter.current, true);
 
-      // Store nonce (16 bytes)
-      crypto.getRandomValues(encrypted.subarray(0, 16));
+      console.log('[Encryption] Encrypting value with nonce:', Buffer.from(nonce).toString('hex').slice(0, 16) + '...');
 
-      // Store value (8 bytes, little-endian)
-      const valueBytes = new Uint8Array(8);
-      let v = value;
-      for (let i = 0; i < 8; i++) {
-        valueBytes[i] = Number(v & BigInt(0xff));
-        v = v >> BigInt(8);
+      // Encrypt using RescueCipher
+      // The value is passed as an array of bigints
+      const encrypted = context.cipher.encrypt([value], nonce);
+
+      // The result is number[][] - flatten to a single Uint8Array
+      // Each encrypted block is 32 bytes, but we need 64 bytes total
+      // Format: [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey_hash (16 bytes)]
+      const result = new Uint8Array(64);
+
+      // Copy nonce (first 16 bytes)
+      result.set(nonce, 0);
+
+      // Copy ciphertext (next 32 bytes)
+      if (encrypted.length > 0 && encrypted[0].length >= 32) {
+        result.set(new Uint8Array(encrypted[0].slice(0, 32)), 16);
+      } else {
+        // Fallback: serialize the encrypted value directly
+        const ctBytes = serializeLE(BigInt(encrypted[0]?.[0] || 0), 32);
+        result.set(ctBytes, 16);
       }
 
-      // XOR with "key stream" derived from shared secret (simulated)
-      for (let i = 0; i < 8; i++) {
-        encrypted[16 + i] = valueBytes[i] ^ context.sharedSecret[i];
-      }
+      // Last 16 bytes: hash of ephemeral public key (for decryption routing)
+      const pubkeyBuffer = new Uint8Array(context.ephemeralPublicKey).buffer as ArrayBuffer;
+      const pubkeyHash = await crypto.subtle.digest('SHA-256', pubkeyBuffer);
+      result.set(new Uint8Array(pubkeyHash).slice(0, 16), 48);
 
-      // Fill rest with random padding
-      crypto.getRandomValues(encrypted.subarray(24));
+      console.log('[Encryption] Encrypted value, output length:', result.length);
 
-      return encrypted;
+      return result;
     },
     [context]
   );
@@ -102,22 +189,24 @@ export function useEncryption(): UseEncryptionReturn {
         throw new Error('Invalid encrypted value length');
       }
 
-      // Reverse the encryption (simulated)
-      const valueBytes = new Uint8Array(8);
-      for (let i = 0; i < 8; i++) {
-        valueBytes[i] = encrypted[16 + i] ^ context.sharedSecret[i];
-      }
+      // Extract nonce (first 16 bytes)
+      const nonce = encrypted.slice(0, 16);
 
-      // Convert to bigint (little-endian)
-      let value = BigInt(0);
-      for (let i = 7; i >= 0; i--) {
-        value = (value << BigInt(8)) | BigInt(valueBytes[i]);
-      }
+      // Extract ciphertext (next 32 bytes)
+      const ciphertextBytes = encrypted.slice(16, 48);
+      const ciphertext = deserializeLE(ciphertextBytes);
 
-      return value;
+      // Decrypt using RescueCipher
+      const decrypted = context.cipher.decrypt_raw([ciphertext], nonce);
+
+      return decrypted[0];
     },
     [context]
   );
+
+  const getEphemeralPublicKey = useCallback((): Uint8Array | null => {
+    return context?.ephemeralPublicKey || null;
+  }, [context]);
 
   return {
     context,
@@ -125,5 +214,6 @@ export function useEncryption(): UseEncryptionReturn {
     initializeEncryption,
     encryptValue,
     decryptValue,
+    getEphemeralPublicKey,
   };
 }

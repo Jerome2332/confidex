@@ -33,13 +33,17 @@ export const TRADING_PAIRS = [
     id: 'SOL/USDC',
     base: 'SOL',
     quote: 'USDC',
-    baseMint: '11111111111111111111111111111111', // Native SOL wrapped
-    quoteMint: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC devnet
+    baseMint: 'So11111111111111111111111111111111111111112', // Wrapped SOL (WSOL)
+    quoteMint: 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr', // Dummy USDC devnet
     minOrderSize: 0.1,
     tickSize: 0.01,
     active: true,
   },
 ];
+
+// Derived PDAs (for reference)
+export const EXCHANGE_PDA = 'AzYUvLiRgUz5juG24rvLMQBuKD7AmnJ3eh8GKp7exVWb';
+export const SOL_USDC_PAIR_PDA = '37LAjGxjZz196xNrYFX4NsCyxVY2bS3X5imypA2AX9Wx';
 
 // Fee configuration
 export const MAKER_FEE_BPS = 10; // 0.10%

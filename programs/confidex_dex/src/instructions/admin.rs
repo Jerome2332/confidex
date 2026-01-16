@@ -111,3 +111,62 @@ pub fn update_blacklist_handler(
     msg!("Blacklist merkle root updated");
     Ok(())
 }
+
+// ============================================================================
+// Set Pair Vaults
+// ============================================================================
+
+use crate::state::TradingPair;
+use anchor_spl::token::TokenAccount;
+
+#[derive(Accounts)]
+pub struct SetPairVaults<'info> {
+    #[account(
+        seeds = [ExchangeState::SEED],
+        bump = exchange.bump,
+        has_one = authority @ ConfidexError::Unauthorized
+    )]
+    pub exchange: Account<'info, ExchangeState>,
+
+    #[account(
+        mut,
+        seeds = [
+            TradingPair::SEED,
+            pair.base_mint.as_ref(),
+            pair.quote_mint.as_ref()
+        ],
+        bump = pair.bump
+    )]
+    pub pair: Account<'info, TradingPair>,
+
+    /// Base token vault (owned by pair PDA)
+    #[account(
+        constraint = base_vault.mint == pair.base_mint @ ConfidexError::InvalidTokenMint,
+        constraint = base_vault.owner == pair.key() @ ConfidexError::InvalidVault
+    )]
+    pub base_vault: Account<'info, TokenAccount>,
+
+    /// Quote token vault (owned by pair PDA)
+    #[account(
+        constraint = quote_vault.mint == pair.quote_mint @ ConfidexError::InvalidTokenMint,
+        constraint = quote_vault.owner == pair.key() @ ConfidexError::InvalidVault
+    )]
+    pub quote_vault: Account<'info, TokenAccount>,
+
+    pub authority: Signer<'info>,
+}
+
+pub fn set_pair_vaults_handler(ctx: Context<SetPairVaults>) -> Result<()> {
+    let pair = &mut ctx.accounts.pair;
+
+    pair.c_base_vault = ctx.accounts.base_vault.key();
+    pair.c_quote_vault = ctx.accounts.quote_vault.key();
+
+    msg!(
+        "Pair vaults set: base={}, quote={}",
+        pair.c_base_vault,
+        pair.c_quote_vault
+    );
+
+    Ok(())
+}

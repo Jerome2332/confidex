@@ -4,13 +4,14 @@ import { FC, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Lock, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useOrderStore } from '@/stores/order-store';
 
 interface OpenOrder {
   id: string;
   side: 'buy' | 'sell';
   pair: string;
-  amount: string; // Encrypted
-  price: string; // Encrypted
+  amount: string; // Encrypted - shows placeholder
+  price: string; // Encrypted - shows placeholder
   filled: string;
   status: 'open' | 'partial';
   createdAt: Date;
@@ -19,35 +20,26 @@ interface OpenOrder {
 export const OpenOrders: FC = () => {
   const { connected } = useWallet();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const { openOrders, removeOrder } = useOrderStore();
 
-  // Mock orders
-  const orders: OpenOrder[] = [
-    {
-      id: '1',
-      side: 'buy',
-      pair: 'SOL/USDC',
-      amount: '***',
-      price: '***',
-      filled: '0%',
-      status: 'open',
-      createdAt: new Date(Date.now() - 3600000),
-    },
-    {
-      id: '2',
-      side: 'sell',
-      pair: 'SOL/USDC',
-      amount: '***',
-      price: '***',
-      filled: '45%',
-      status: 'partial',
-      createdAt: new Date(Date.now() - 7200000),
-    },
-  ];
+  // Convert store orders to display format
+  const orders: OpenOrder[] = openOrders.map(order => ({
+    id: order.id,
+    side: order.side,
+    pair: order.pair,
+    amount: '***', // Encrypted - show placeholder
+    price: '***',  // Encrypted - show placeholder
+    filled: `${order.filledPercent}%`,
+    status: order.status === 'partial' ? 'partial' : 'open',
+    createdAt: order.createdAt,
+  }));
 
   const handleCancel = async (orderId: string) => {
     setCancellingId(orderId);
     try {
+      // TODO: Call on-chain cancel instruction when implemented
       await new Promise((r) => setTimeout(r, 1500));
+      removeOrder(orderId);
       toast.success('Order cancelled');
     } catch (error) {
       toast.error('Failed to cancel order');
