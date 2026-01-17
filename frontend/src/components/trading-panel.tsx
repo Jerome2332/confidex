@@ -4,7 +4,7 @@ import { FC, useState, useEffect, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { Lock, Loader2, Shield, AlertCircle, Eye, EyeOff, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
 import { toast } from 'sonner';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, ComputeBudgetProgram } from '@solana/web3.js';
 import { useProof } from '@/hooks/use-proof';
 import { useEncryption } from '@/hooks/use-encryption';
 import { useOrderStore } from '@/stores/order-store';
@@ -91,18 +91,32 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   // Show balances (inverse of privacy mode)
   const showBalances = !privacyMode;
 
+  // Helper to get actual wrapped balance from on-chain account
+  const getWrappedBalanceForDisplay = (account: typeof wrappedBalances.solAccount): bigint => {
+    if (!account) return BigInt(0);
+    const view = new DataView(
+      account.encryptedBalance.buffer,
+      account.encryptedBalance.byteOffset,
+      8
+    );
+    return view.getBigUint64(0, true);
+  };
+
   // Calculate available balance for display
+  // Uses actual on-chain wrapped balance (not the fallback native balance)
   const availableBalance = useMemo(() => {
     if (side === 'buy') {
       // Buying SOL with USDC
-      const total = wrappedBalances.usdc + (autoWrap ? tokenBalances.usdc : BigInt(0));
+      const wrapped = getWrappedBalanceForDisplay(wrappedBalances.usdcAccount);
+      const total = wrapped + (autoWrap ? tokenBalances.usdc : BigInt(0));
       return Number(total) / 1e6;
     } else {
       // Selling SOL for USDC
-      const total = wrappedBalances.sol + (autoWrap ? tokenBalances.sol : BigInt(0));
+      const wrapped = getWrappedBalanceForDisplay(wrappedBalances.solAccount);
+      const total = wrapped + (autoWrap ? tokenBalances.sol : BigInt(0));
       return Number(total) / 1e9;
     }
-  }, [side, wrappedBalances, tokenBalances, autoWrap]);
+  }, [side, wrappedBalances.solAccount, wrappedBalances.usdcAccount, tokenBalances, autoWrap]);
 
   // Calculate order value
   const orderValue = useMemo(() => {
@@ -156,6 +170,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   };
 
   // Calculate required amount and wrap needs
+  // NOTE: wrappedBalances.sol/.usdc from useEncryptedBalance falls back to native balances when C-SPL is empty
+  // We use solAccount/usdcAccount to detect if the wrapped balance account actually exists
   const getOrderRequirements = () => {
     if (!amount || parseFloat(amount) <= 0) {
       return { requiredAmount: BigInt(0), wrapNeeded: BigInt(0), canProceed: true, needsWrap: false };
@@ -164,7 +180,10 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     const amountLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
 
     if (side === 'sell') {
-      const currentWrapped = wrappedBalances.sol;
+      // Check if the wrapped balance account exists on-chain
+      const hasWrappedAccount = wrappedBalances.solAccount !== null;
+      // If account doesn't exist, wrapped balance is 0
+      const currentWrapped = getWrappedBalanceForDisplay(wrappedBalances.solAccount);
       const availableUnwrapped = tokenBalances.sol;
 
       if (currentWrapped >= amountLamports) {
@@ -182,7 +201,10 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     } else {
       if (orderType === 'limit' && price && parseFloat(price) > 0) {
         const totalUsdcNeeded = BigInt(Math.floor(parseFloat(amount) * parseFloat(price) * 1e6));
-        const currentWrapped = wrappedBalances.usdc;
+        // Check if the wrapped balance account exists on-chain
+        const hasWrappedAccount = wrappedBalances.usdcAccount !== null;
+        // If account doesn't exist, wrapped balance is 0
+        const currentWrapped = getWrappedBalanceForDisplay(wrappedBalances.usdcAccount);
         const availableUnwrapped = tokenBalances.usdc;
 
         if (currentWrapped >= totalUsdcNeeded) {
@@ -408,8 +430,12 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     setIsPlacingOrder(true);
 
     try {
+      console.log('[Trading] Checking exchange initialization...');
       const exchangeReady = await isExchangeInitialized(connection);
+      console.log('[Trading] Exchange initialized:', exchangeReady);
+
       if (!exchangeReady) {
+        console.log('[Trading] Exchange not initialized - entering demo mode');
         toast.info('Demo mode: Simulating order flow...', { id: 'demo-mode' });
         await simulateDemoOrder();
         return;
@@ -419,8 +445,15 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       const baseMint = new PublicKey(tradingPair.baseMint);
       const quoteMint = new PublicKey(tradingPair.quoteMint);
 
+      console.log('[Trading] Checking pair initialization...', {
+        baseMint: baseMint.toString(),
+        quoteMint: quoteMint.toString(),
+      });
       const pairReady = await isPairInitialized(connection, baseMint, quoteMint);
+      console.log('[Trading] Pair initialized:', pairReady);
+
       if (!pairReady) {
+        console.log('[Trading] Trading pair not initialized - entering demo mode');
         toast.info('Demo mode: Simulating order flow...', { id: 'demo-mode' });
         await simulateDemoOrder();
         return;
@@ -447,13 +480,29 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       const programSide = side === 'buy' ? ProgramSide.Buy : ProgramSide.Sell;
       const programOrderType = orderType === 'limit' ? ProgramOrderType.Limit : ProgramOrderType.Market;
 
+      // Re-compute wrap requirements at submission time to avoid stale state
+      // This ensures we always get the latest balance values
+      const currentWrapReqs = getOrderRequirements();
+      const shouldWrap = currentWrapReqs.needsWrap && currentWrapReqs.wrapNeeded > BigInt(0);
+
+      console.log('[Trading] Wrap requirements:', {
+        needsWrap: currentWrapReqs.needsWrap,
+        wrapNeeded: currentWrapReqs.wrapNeeded.toString(),
+        shouldWrap,
+        wrappedSol: wrappedBalances.sol.toString(),
+        wrappedUsdc: wrappedBalances.usdc.toString(),
+        autoWrap,
+      });
+
       let transaction;
 
-      if (needsWrap && wrapNeeded > BigInt(0)) {
+      if (shouldWrap) {
         toast.info('Wrapping tokens & placing order...', { id: 'tx-build' });
         const wrapTokenMint = side === 'sell'
           ? NATIVE_MINT
           : new PublicKey(TRADING_PAIRS[0].quoteMint);
+
+        console.log('[Trading] Building auto-wrap transaction for', side === 'sell' ? 'SOL' : 'USDC');
 
         transaction = await buildAutoWrapAndPlaceOrderTransaction({
           connection,
@@ -466,10 +515,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           encryptedPrice,
           eligibilityProof: proofResult.proof,
           wrapTokenMint,
-          wrapAmount: wrapNeeded,
+          wrapAmount: currentWrapReqs.wrapNeeded,
         });
       } else {
         toast.info('Building transaction...', { id: 'tx-build' });
+        console.log('[Trading] Building place-order-only transaction (no wrap needed)');
         transaction = await buildPlaceOrderTransaction({
           connection,
           maker: publicKey,
@@ -483,10 +533,49 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         });
       }
 
+      // Add compute budget instructions for ZK proof verification
+      // Groth16 verification requires ~500K compute units
+      const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({
+        units: 600_000,
+      });
+      const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
+        microLamports: 50_000, // Priority fee for faster inclusion
+      });
+
+      // Prepend compute budget instructions
+      transaction.instructions.unshift(priorityFeeIx);
+      transaction.instructions.unshift(computeBudgetIx);
+
       toast.success('Transaction built', { id: 'tx-build' });
+
+      // Simulate the transaction first to catch errors before sending
+      console.log('[Trading] Simulating transaction...');
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        console.log('[Trading] Simulation result:', {
+          err: simulation.value.err,
+          logs: simulation.value.logs,
+          unitsConsumed: simulation.value.unitsConsumed,
+        });
+
+        if (simulation.value.err) {
+          console.error('[Trading] Simulation failed:', simulation.value.err);
+          console.error('[Trading] Simulation logs:', simulation.value.logs);
+          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.join('\n')}`);
+        }
+      } catch (simError) {
+        console.error('[Trading] Simulation error:', simError);
+        if (simError instanceof Error && simError.message.includes('Simulation failed')) {
+          throw simError;
+        }
+        // If simulation itself failed, log but continue (wallet might still succeed)
+        console.warn('[Trading] Could not simulate, proceeding anyway...');
+      }
+
       toast.info('Sending transaction - please approve in wallet...', { id: 'tx-send' });
 
       const signature = await sendTransaction(transaction, connection);
+      console.log('[Trading] Transaction sent:', signature);
       toast.info('Confirming transaction...', { id: 'tx-send' });
 
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
@@ -544,11 +633,23 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       setSizePercent(0);
 
     } catch (error) {
-      log.error('Error', { error: error instanceof Error ? error.message : String(error) });
-      toast.error(
-        error instanceof Error ? error.message : 'Failed to place order',
-        { id: 'tx-send' }
-      );
+      console.error('[Trading] Order submission error:', error);
+
+      // Extract more detailed error information
+      let errorMessage = 'Failed to place order';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        // Check for wallet-specific error details
+        if ('logs' in error) {
+          console.error('[Trading] Error logs:', (error as Error & { logs?: string[] }).logs);
+        }
+        if ('error' in error) {
+          console.error('[Trading] Inner error:', (error as Error & { error?: unknown }).error);
+        }
+      }
+
+      log.error('Error', { error: errorMessage });
+      toast.error(errorMessage, { id: 'tx-send' });
     } finally {
       setIsSubmitting(false);
       setIsPlacingOrder(false);
@@ -557,12 +658,22 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
   const simulateDemoOrder = async () => {
     try {
+      console.log('[Trading] Starting demo order simulation...');
+      console.log('[Trading] Order params:', { side, orderType, amount, price, slippage });
+
       toast.info('Generating eligibility proof...', { id: 'proof-gen' });
+      console.log('[Trading] Generating eligibility proof...');
       const proofResult = await generateProof();
+      console.log('[Trading] Proof generated:', {
+        proofSize: proofResult.proof?.length || 0,
+        blacklistRootPreview: Array.from(proofResult.blacklistRoot.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('') + '...',
+      });
       toast.success('Proof generated (simulated)', { id: 'proof-gen' });
 
       if (!isInitialized) {
+        console.log('[Trading] Initializing encryption...');
         await initializeEncryption();
+        console.log('[Trading] Encryption initialized');
       }
 
       toast.info('Encrypting order...', { id: 'encrypt' });
@@ -571,13 +682,24 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         ? BigInt(Math.floor(parseFloat(price) * 1e6))
         : BigInt(0);
 
+      console.log('[Trading] Encrypting values:', {
+        amountLamports: amountLamports.toString(),
+        priceLamports: priceLamports.toString(),
+      });
+
       const encryptedAmount = await encryptValue(amountLamports);
       const encryptedPrice = await encryptValue(priceLamports);
+      console.log('[Trading] Values encrypted:', {
+        encryptedAmountSize: encryptedAmount.length,
+        encryptedPriceSize: encryptedPrice.length,
+      });
       toast.success('Order encrypted (simulated)', { id: 'encrypt' });
 
+      console.log('[Trading] Simulating MPC matching delay (1s)...');
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       const orderId = Date.now();
+      console.log('[Trading] Creating order with ID:', orderId);
       addOrder({
         id: orderId.toString(),
         maker: publicKey!,
@@ -591,6 +713,14 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         createdAt: new Date(),
         filledPercent: 0,
         slippage,
+      });
+
+      console.log('[Trading] Demo order complete:', {
+        orderId,
+        side,
+        orderType,
+        status: 'open',
+        note: 'Exchange not yet initialized on devnet. Order stored locally.',
       });
 
       if (notifications) {
@@ -610,6 +740,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       setSizePercent(0);
 
     } catch (error) {
+      console.error('[Trading] Demo order failed:', error);
       log.error('Demo error', { error: error instanceof Error ? error.message : String(error) });
       toast.error('Demo simulation failed', { id: 'demo-mode' });
     } finally {

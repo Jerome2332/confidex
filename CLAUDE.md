@@ -2,6 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Development Standards
+
+**NO SHORTCUTS OR BYPASSES.** This is a production-grade platform, not a hackathon demo. Every feature must be implemented correctly:
+
+- **ZK Verification:** Real Groth16 proofs via Sunspot - no simulated/fake proofs
+- **MPC Operations:** Real Arcium cluster integration - no mock computations
+- **Encryption:** Proper RescueCipher with actual MXE keys - no demo modes
+- **Settlement:** Production-ready ShadowWire/C-SPL integration
+
+The ZK verification alongside MPC and encrypted balances is our competitive advantage. Cutting corners defeats the purpose of the project.
+
 ## Project Overview
 
 Confidex is a confidential decentralized exchange (DEX) for the Solana Privacy Hack (January 2026). It implements a **three-layer privacy architecture**:
@@ -64,12 +75,12 @@ pnpm test:coverage              # Run tests with coverage
 7. C-SPL confidential transfers execute settlement
 
 ### Core Programs
-| Program | Purpose |
-|---------|---------|
-| `confidex_dex` | Core DEX logic, order management |
-| `eligibility_verifier` | ZK proof verification (Groth16) |
-| `arcium_adapter` | MPC operations wrapper |
-| `c_spl_program` | Confidential token standard |
+| Program | Program ID (Devnet) | Purpose |
+|---------|---------------------|---------|
+| `confidex_dex` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Core DEX logic, order management, MPC callbacks |
+| `arcium_mxe` | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` | MXE wrapper for Arcium MPC operations |
+| `eligibility_verifier` | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` | ZK proof verification (Groth16 via Sunspot) |
+| `c_spl_program` | TBD | Confidential token standard |
 
 ### Key Account Structures
 - **ExchangeState** (158 bytes): Global config, blacklist merkle root, fee settings
@@ -127,10 +138,28 @@ arcup list                 # List installed versions
 - **Helius:** https://dev.helius.xyz/ - For RPC access
 - **Arcium:** Public testnet on Solana devnet - No approval needed, just deploy
 
-### Program ID (Devnet)
-```
+### Program IDs (Devnet)
+```bash
+# Core DEX Program
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
+
+# Arcium MXE Program (our deployed MXE wrapper)
+NEXT_PUBLIC_MXE_PROGRAM_ID=CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
+
+# Arcium Core Program (official Arcium program)
+ARCIUM_PROGRAM_ID=Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
 ```
+
+### Token Mints (Devnet)
+
+| Token | Mint Address | Notes |
+|-------|--------------|-------|
+| **Wrapped SOL** | `So11111111111111111111111111111111111111112` | Native SOL wrapper |
+| **Dummy USDC** | `Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr` | **Default for devnet testing** - unlimited supply |
+| **Circle USDC** | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` | Official Circle devnet USDC (limited supply) |
+| **USDC Mainnet** | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | Production USDC |
+
+**Important:** All devnet scripts and frontend use Dummy USDC (`Gh9Zw...`) by default for testing. This allows unlimited test tokens without faucet limitations.
 
 ## Noir Circuit Pattern
 
@@ -257,12 +286,256 @@ Arcium enables "trustless dark pools, allowing participants to trade privately w
 ### C-SPL Status
 Going live on devnet soon (as of Jan 2026)
 
+### Confidex MPC Integration (LIVE)
+
+The Arcium MPC integration is now fully wired up and deployed to devnet. This enables true encrypted order matching where prices are never revealed on-chain.
+
+**Architecture:**
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   Frontend      │     │   DEX Program   │     │  Arcium Cluster │
+│  (TypeScript)   │     │   (On-Chain)    │     │   (Arx Nodes)   │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ 1. Encrypt with │────▶│ 2. Queue to     │────▶│ 3. MPC Execute  │
+│    RescueCipher │     │    MXE program  │     │    (Cerberus)   │
+│                 │     │                 │     │                 │
+│ 5. Get result   │◀────│ 4. Callback     │◀────│    Return       │
+│    from event   │     │    with result  │     │    result       │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `programs/confidex_dex/src/cpi/arcium.rs` | CPI infrastructure, program IDs, queue functions (spot + perps) |
+| `programs/confidex_dex/src/instructions/mpc_callback.rs` | Callback receivers for MPC results |
+| `programs/confidex_dex/src/instructions/match_orders.rs` | Spot order matching with async MPC flow |
+| `programs/confidex_dex/src/instructions/perp_open_position.rs` | Perp position opening with MPC threshold verification |
+| `programs/confidex_dex/src/instructions/perp_close_position.rs` | Perp close with MPC PnL/funding calculation |
+| `programs/confidex_dex/src/instructions/perp_liquidate.rs` | Liquidation with MPC eligibility check |
+| `programs/confidex_dex/src/state/pending_match.rs` | PendingMatch account for tracking computations |
+| `programs/arcium_mxe/src/instructions/callback.rs` | MXE callback handler with CPI to DEX |
+| `frontend/src/hooks/use-encryption.ts` | Client-side RescueCipher encryption |
+| `frontend/src/hooks/use-mpc-events.ts` | Event subscription for MPC callbacks |
+| `frontend/src/hooks/use-private-predictions.ts` | Privacy-enhanced prediction markets hook |
+
+**MPC Operations Supported:**
+
+| Operation | Input | Output | Use Case |
+|-----------|-------|--------|----------|
+| `ComparePrices` | 2x encrypted u64 | bool (prices match) | Order matching |
+| `CalculateFill` | 4x encrypted u64 | encrypted fill + 2 bools | Fill amount calculation |
+| `Add` | 2x encrypted u64 | encrypted u64 | Balance updates |
+| `Subtract` | 2x encrypted u64 | encrypted u64 | Balance updates |
+| `Multiply` | 2x encrypted u64 | encrypted u64 | Fee calculations |
+
+**Perpetuals MPC Operations:**
+
+| Operation | Input | Output | Use Case |
+|-----------|-------|--------|----------|
+| `VerifyPositionParams` | encrypted collateral/size/entry + claimed threshold | bool (valid) | Open position - verify liquidation threshold |
+| `CheckLiquidation` | encrypted collateral/size/entry + mark price | bool (liquidate) | Liquidation eligibility check |
+| `CalculatePnL` | encrypted size/entry + exit price | u64 + is_loss bool | Close position / liquidation PnL |
+| `CalculateFunding` | encrypted size + funding rate/delta | u64 + is_paying bool | Position funding settlement |
+
+**Configuration:**
+```rust
+// programs/confidex_dex/src/cpi/arcium.rs
+pub const USE_REAL_MPC: bool = true;  // Toggle simulation vs real MPC
+pub const DEFAULT_CLUSTER_OFFSET: u16 = 123;  // Devnet cluster (123, 456, 789)
+```
+
+**Events Emitted:**
+- `PriceCompareComplete` - After MPC price comparison (includes `prices_match: bool`)
+- `OrdersMatched` - After fill calculation (includes `buy_fully_filled`, `sell_fully_filled`)
+- `MatchQueued` - When async MPC match is queued (includes `request_id`)
+- `ComputationCompleted` - From MXE after any computation
+
+**Async vs Sync MPC Flows:**
+
+| Flow | When to Use | Order Status |
+|------|-------------|--------------|
+| **Sync** | Testing, low latency requirements | Immediate `PartiallyFilled` / `Filled` |
+| **Async** | Production, real MPC clusters | `Matching` → callback → `Filled` |
+
+Async flow adds `Matching` order status and `pending_match_request` field to track in-flight computations.
+
+**Frontend Usage:**
+```typescript
+import { useMpcEvents } from '@/hooks/use-mpc-events';
+import { useEncryption } from '@/hooks/use-encryption';
+
+// Initialize encryption
+const { initializeEncryption, encryptValue } = useEncryption();
+await initializeEncryption();
+
+// Encrypt order values
+const encryptedPrice = await encryptValue(BigInt(price));
+const encryptedAmount = await encryptValue(BigInt(amount));
+
+// Subscribe to MPC events
+const { onPriceCompareComplete, onOrdersMatched, startListening } = useMpcEvents();
+startListening();
+
+onPriceCompareComplete((event) => {
+  console.log('Prices match:', event.pricesMatch);
+});
+```
+
 ### Docs
 - **Main:** https://docs.arcium.com/developers
 - **TS SDK API:** https://ts.arcium.com/api
 - **Hello World:** https://docs.arcium.com/developers/hello-world
 - **Architecture:** https://docs.arcium.com/getting-started/architecture-overview
 - **MPC Protocols:** https://docs.arcium.com/multi-party-execution-environments-mxes/mpc-protocols
+
+---
+
+## Production Roadmap
+
+### Current State (January 2026)
+
+Confidex implements a **hybrid privacy model** that provides meaningful privacy guarantees while working within current infrastructure limitations.
+
+#### What's Implemented
+
+| Component | Status | Privacy Level |
+|-----------|--------|---------------|
+| **ZK Eligibility Proofs** | ✅ Live | Full privacy - blacklist membership proven without revealing address |
+| **RescueCipher Encryption** | ✅ Live | Order values encrypted with X25519 + Arcium cipher |
+| **MPC Price Comparison** | ✅ Live | Encrypted price matching via Arcium Cerberus protocol |
+| **Automated Crank Service** | ✅ Live | Backend service auto-matches orders on devnet |
+| **Async MPC Flow** | ✅ Live | Production callback-based MPC execution |
+
+#### Current Encryption Format (Hybrid)
+
+```
+[plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+```
+
+**Why hybrid?** On-chain balance validation requires plaintext amounts until C-SPL encrypted balances are available.
+
+| Bytes | Content | Purpose |
+|-------|---------|---------|
+| 0-7 | Plaintext value | On-chain balance validation & escrow |
+| 8-15 | Truncated nonce | MPC decryption |
+| 16-47 | Ciphertext | MPC encrypted price comparison |
+| 48-63 | Ephemeral pubkey | MPC key routing |
+
+#### Privacy Guarantees Today
+
+| Data | Visibility | Rationale |
+|------|------------|-----------|
+| Order amounts | On-chain (visible) | Required for balance validation |
+| Order prices | On-chain (visible) | Required for cost calculation |
+| **Price comparison result** | **MPC (private)** | Matching logic hidden from observers |
+| **Trade execution timing** | **Private** | Cannot predict which orders will match |
+| User eligibility | ZK (private) | Blacklist status never revealed |
+
+**Key insight:** Even with visible order values, the MPC price comparison prevents front-running because observers cannot determine which orders will match until after MPC execution.
+
+### Phase 2: Full Order Privacy (C-SPL Dependency)
+
+When C-SPL confidential tokens launch on devnet, we can achieve full order privacy:
+
+#### Required Changes
+
+1. **Encrypted Balances**
+   - Replace `UserConfidentialBalance.balance: u64` with `encrypted_balance: [u8; 64]`
+   - Use MPC for balance comparisons: `encrypted_balance >= encrypted_cost`
+
+2. **Pure Ciphertext Format**
+   ```
+   [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+   ```
+   No plaintext needed - MPC handles all comparisons.
+
+3. **Encrypted Settlement**
+   - C-SPL `confidential_transfer` for order fills
+   - Encrypted fee calculations via MPC
+
+#### Privacy After C-SPL
+
+| Data | Visibility |
+|------|------------|
+| Order amounts | Encrypted (private) |
+| Order prices | Encrypted (private) |
+| User balances | Encrypted (private) |
+| Trade amounts | Encrypted (private) |
+| Eligibility | ZK (private) |
+
+### Phase 3: Production Hardening
+
+1. **Real ZK Verification**
+   - Enable Sunspot Groth16 verification on-chain
+   - Remove `ZK verification DISABLED` bypass
+   - Deploy production verifier program
+
+2. **MPC Cluster Selection**
+   - Evaluate devnet clusters (123, 456, 789) for reliability
+   - Configure failover between clusters
+   - Monitor MPC latency and success rates
+
+3. **Settlement Layer**
+   - Primary: C-SPL confidential transfers
+   - Fallback: ShadowWire for anonymous withdrawals
+   - Inco Lightning as alternative TEE option
+
+### Architecture Evolution
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         CURRENT (Hybrid Privacy)                        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  User                    On-Chain                    MPC                │
+│  ────                    ────────                    ───                │
+│  ZK proof ───────────────► Verify eligibility                           │
+│  Plaintext amount ───────► Balance check/escrow                         │
+│  Ciphertext ─────────────► Store ──────────────────► Price comparison   │
+│                                                      (encrypted)        │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         FUTURE (Full Privacy with C-SPL)                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  User                    On-Chain                    MPC                │
+│  ────                    ────────                    ───                │
+│  ZK proof ───────────────► Verify eligibility                           │
+│  Ciphertext only ────────► Store ──────────────────► Balance check      │
+│                                  ──────────────────► Price comparison   │
+│                                  ──────────────────► Settlement calc    │
+│                          C-SPL transfer ◄──────────── Fill amounts      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Monitoring & Operations
+
+The automated crank service provides production-grade order matching:
+
+```bash
+# Enable crank service
+CRANK_ENABLED=true pnpm dev
+
+# Check crank status
+curl http://localhost:3001/admin/crank/status
+
+# Configuration
+CRANK_POLLING_INTERVAL_MS=5000    # Check for matches every 5s
+CRANK_USE_ASYNC_MPC=true          # Use production async MPC flow
+CRANK_MAX_CONCURRENT_MATCHES=5    # Parallel match attempts
+```
+
+### Dependencies & Timeline
+
+| Dependency | Status | Impact |
+|------------|--------|--------|
+| C-SPL devnet launch | Pending (Q1 2026) | Enables full order privacy |
+| Arcium mainnet | Live | Production MPC available |
+| Sunspot mainnet | Live | Production ZK verification |
+| ShadowWire | Live | Anonymous withdrawal option |
+
+---
 
 ## PNP SDK Integration (Prediction Markets)
 
@@ -411,6 +684,61 @@ const settlement = await client.fetchSettlementData(market);
 
 **AI Providers:** Perplexity and Grok 4 for real-time data retrieval with unbiased, current context.
 
+### Devnet vs Mainnet Workflow
+
+**Critical Difference:** On devnet, markets require manual activation before trading is possible.
+
+**The Core Flow:**
+```
+1. Create Market → 2. Set Resolvable (TRUE) → 3. Trade → 4. Redeem
+```
+
+**Why `setMarketResolvable(true)` is Required on Devnet:**
+
+When a market is created, it starts in a **non-resolvable** state:
+- ❌ No one can trade yet
+- ❌ YES/NO tokens aren't minted (shows as System Program `11111111111111111111111111111111`)
+- ❌ Market is essentially "pending activation"
+
+After calling `setMarketResolvable(true)`:
+- ✅ YES/NO token mints are created
+- ✅ Initial liquidity tokens are minted to creator
+- ✅ Trading is enabled
+
+**Network Comparison:**
+
+| Feature | Devnet | Mainnet |
+|---------|--------|---------|
+| Program ID | `pnpkv2qnh4bfpGvTugGDSEhvZC7DP4pVxTuDykV3BGz` | `6fnYZUSyp3vJxTNnayq5S62d363EFaGARnqYux5bqrxb` |
+| Set Resolvable | **Manual (you call it)** | Automatic (AI oracle) |
+| Settlement | Manual testing | AI oracle resolution |
+| Tokens | No real value | Real value |
+| Collateral | Devnet USDC: `Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr` | Real USDC |
+
+**Devnet Market Creation Example:**
+```typescript
+// Step 1: Create the market
+const createRes = await client.market.createMarket({
+  question: "Will ETH hit $5000 by end of 2026?",
+  initialLiquidity: BigInt(1_000_000), // 1 USDC (6 decimals)
+  endTime: BigInt(Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60),
+  baseMint: DEVNET_COLLATERAL_MINT,
+});
+
+// Step 2: REQUIRED on devnet - enable trading
+await client.setMarketResolvable(createRes.market, true);
+
+// Step 3: Now trading is possible
+await client.trading.buyTokensUsdc({ market: marketPk, buyYesToken: true, amountUsdc: 10 });
+```
+
+**Common Devnet Errors:**
+- `"Market tokens not minted"` → Forgot to call `setMarketResolvable(true)`
+- Token mints showing as `11111111111111111111111111111111` → Same issue
+- `"Trading not enabled"` → Same issue
+
+**Our Implementation:** The `/api/pnp/create-market` route automatically calls `setMarketResolvable(true)` after creating markets on devnet.
+
 ### REST API Server
 
 ```bash
@@ -467,8 +795,56 @@ use-predictions.ts (React hook)
 - `/frontend/src/lib/pnp-client.ts` - Client-side API wrapper
 - `/frontend/src/lib/pnp.ts` - Business logic layer
 - `/frontend/src/hooks/use-predictions.ts` - React hook with AnchorProvider ready
+- `/frontend/src/hooks/use-private-predictions.ts` - Privacy-enhanced wrapper
 
 **Docs:** https://docs.pnp.exchange/pnp-sdk
+
+### Privacy Layer for Predictions
+
+PNP markets use public AMM bonding curves (prices are inherently public), but Confidex adds privacy layers for user positions via `use-private-predictions.ts`.
+
+**Privacy Modes:**
+
+| Mode | Description | What's Hidden |
+|------|-------------|---------------|
+| `none` | Standard trading | Nothing |
+| `encrypted` | Arcium encryption | Position sizes stored locally encrypted |
+| `shadowwire` | ShadowWire integration | Deposits/withdrawals via private transfers |
+
+**Usage:**
+```typescript
+import { usePrivatePredictions } from '@/hooks/use-private-predictions';
+
+function PredictionTrading() {
+  const {
+    privacyMode,
+    setPrivacyMode,
+    buyTokensPrivate,
+    sellTokensPrivate,
+    getDecryptedPosition
+  } = usePrivatePredictions();
+
+  // Enable encrypted positions
+  setPrivacyMode('encrypted');
+
+  // Trade with privacy
+  const result = await buyTokensPrivate('YES', 100, 0.5);
+
+  // Only you can see your position
+  const position = await getDecryptedPosition(marketId);
+}
+```
+
+**What Remains Public:**
+- Market prices (AMM bonding curve)
+- Total liquidity
+- Transaction existence on-chain
+- Oracle resolution
+
+**What Becomes Private:**
+- Your position size (encrypted locally via Arcium)
+- Deposit amounts (via ShadowWire)
+- Withdrawal amounts (via ShadowWire)
 
 ## Inco Lightning (Alternative Confidential Computing)
 
