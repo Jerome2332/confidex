@@ -1,6 +1,9 @@
 use anchor_lang::prelude::*;
 
-use crate::cpi::arcium::{calculate_encrypted_fill, compare_encrypted_prices};
+use crate::cpi::arcium::{
+    calculate_encrypted_fill, compare_encrypted_prices, add_encrypted,
+    queue_compare_prices, queue_calculate_fill, MxeCpiAccounts, USE_REAL_MPC,
+};
 use crate::error::ConfidexError;
 use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, Side, TradingPair};
 
@@ -56,9 +59,29 @@ pub struct MatchOrders<'info> {
     /// Will be validated when CPI integration is complete
     pub arcium_program: AccountInfo<'info>,
 
+    /// CHECK: MXE config account (for async MPC)
+    #[account(mut)]
+    pub mxe_config: Option<AccountInfo<'info>>,
+
+    /// CHECK: MPC request account (for async MPC, will be initialized)
+    #[account(mut)]
+    pub mpc_request: Option<AccountInfo<'info>>,
+
+    pub system_program: Program<'info, System>,
+
     /// Crank operator (can be anyone)
+    #[account(mut)]
     pub crank: Signer<'info>,
 }
+
+/// Discriminator for finalize_match callback (sha256("global:finalize_match")[0..8])
+/// Production flow: MXE calls finalize_match with orders passed directly
+pub const FINALIZE_MATCH_CALLBACK: [u8; 8] = [0x76, 0x52, 0x2a, 0x69, 0x60, 0xdd, 0xbc, 0xdd];
+
+/// Discriminator for price comparison callback (legacy flow)
+pub const PRICE_COMPARE_CALLBACK: [u8; 8] = [0x40, 0xfc, 0x33, 0x4b, 0xcd, 0x2e, 0x11, 0xcb];
+/// Discriminator for fill calculation callback (legacy flow)
+pub const FILL_CALC_CALLBACK: [u8; 8] = [0xef, 0x75, 0x28, 0x16, 0xfa, 0xba, 0xda, 0x57];
 
 pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
     let pair = &mut ctx.accounts.pair;
@@ -73,6 +96,61 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
         ConfidexError::OrdersNotMatchable
     );
 
+    // Check if we should use async MPC flow
+    let use_async_mpc = USE_REAL_MPC
+        && ctx.accounts.mxe_config.is_some()
+        && ctx.accounts.mpc_request.is_some();
+
+    if use_async_mpc {
+        // === ASYNC MPC FLOW (Production) ===
+        // Queue price comparison - result comes back via finalize_match callback
+        // MXE stores callback_account_1 (buy_order) and callback_account_2 (sell_order)
+        // and passes them to the DEX callback for direct order updates
+        let mxe_accounts = MxeCpiAccounts {
+            mxe_config: ctx.accounts.mxe_config.as_ref().unwrap(),
+            request_account: ctx.accounts.mpc_request.as_ref().unwrap(),
+            requester: &ctx.accounts.crank.to_account_info(),
+            system_program: &ctx.accounts.system_program.to_account_info(),
+            mxe_program: &ctx.accounts.arcium_program,
+        };
+
+        let buy_order_key = buy_order.key();
+        let sell_order_key = sell_order.key();
+
+        let queued = queue_compare_prices(
+            Some(mxe_accounts),
+            &buy_order.encrypted_price,
+            &sell_order.encrypted_price,
+            &crate::ID,  // callback to this program
+            FINALIZE_MATCH_CALLBACK,  // Use production finalize_match callback
+            &buy_order_key,   // callback_account_1: buy_order pubkey
+            &sell_order_key,  // callback_account_2: sell_order pubkey
+        )?;
+
+        // Store pending match state for callback validation
+        buy_order.pending_match_request = queued.request_id;
+        sell_order.pending_match_request = queued.request_id;
+        buy_order.status = OrderStatus::Matching;
+        sell_order.status = OrderStatus::Matching;
+
+        emit!(MatchQueued {
+            buy_order_id: buy_order.order_id,
+            sell_order_id: sell_order.order_id,
+            request_id: queued.request_id,
+            timestamp: clock.unix_timestamp,
+        });
+
+        msg!(
+            "Match queued via async MPC: buy={} sell={} request_id={:?}",
+            buy_order.order_id,
+            sell_order.order_id,
+            &queued.request_id[0..8]
+        );
+
+        return Ok(());
+    }
+
+    // === SYNC MPC FLOW (legacy/simulation) ===
     // Compare encrypted prices via Arcium MPC
     // buy_price >= sell_price means match is possible
     let prices_match = compare_encrypted_prices(
@@ -95,12 +173,12 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
     )?;
 
     // Update filled amounts by adding the fill to current filled
-    let new_buy_filled = crate::cpi::arcium::add_encrypted(
+    let new_buy_filled = add_encrypted(
         &ctx.accounts.arcium_program,
         &buy_order.encrypted_filled,
         &fill_amount,
     )?;
-    let new_sell_filled = crate::cpi::arcium::add_encrypted(
+    let new_sell_filled = add_encrypted(
         &ctx.accounts.arcium_program,
         &sell_order.encrypted_filled,
         &fill_amount,
@@ -151,4 +229,12 @@ pub struct TradeExecuted {
     pub pair: Pubkey,
     pub timestamp: i64,
     // Note: No amounts or prices for privacy
+}
+
+#[event]
+pub struct MatchQueued {
+    pub buy_order_id: u64,
+    pub sell_order_id: u64,
+    pub request_id: [u8; 32],
+    pub timestamp: i64,
 }

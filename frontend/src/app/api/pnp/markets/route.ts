@@ -14,13 +14,18 @@ import { createLogger } from '@/lib/logger';
 
 const log = createLogger('api:pnp:markets');
 
-// PNP uses mainnet by default (has 862+ markets with real USDC)
-// Set NEXT_PUBLIC_PNP_NETWORK=devnet to use devnet instead
-const PNP_NETWORK = process.env.NEXT_PUBLIC_PNP_NETWORK || 'mainnet';
+// PNP Network Configuration
+// Set NEXT_PUBLIC_PNP_NETWORK=devnet for testing, mainnet for production
+const PNP_NETWORK = process.env.NEXT_PUBLIC_PNP_NETWORK || 'devnet';
 const RPC_URL =
   PNP_NETWORK === 'mainnet'
     ? process.env.NEXT_PUBLIC_PNP_MAINNET_RPC || 'https://api.mainnet-beta.solana.com'
-    : process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com';
+    : process.env.NEXT_PUBLIC_PNP_DEVNET_RPC || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.devnet.solana.com';
+
+// Devnet USDC for PNP markets
+const DEVNET_COLLATERAL_MINT = process.env.NEXT_PUBLIC_PNP_DEVNET_COLLATERAL || 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+
+log.info(`PNP Network: ${PNP_NETWORK}, RPC: ${RPC_URL.slice(0, 50)}...`);
 
 // SDK loading state
 let sdkLoadAttempted = false;
@@ -50,6 +55,7 @@ function loadSDK(): boolean {
 
 // GET /api/pnp/markets - List all markets
 // GET /api/pnp/markets?id=<pubkey> - Get specific market
+// GET /api/pnp/markets?search=<query> - Search markets by question text
 export async function GET(request: NextRequest) {
   try {
     const sdkAvailable = loadSDK();
@@ -68,10 +74,11 @@ export async function GET(request: NextRequest) {
     // Create read-only client
     const client = new PNPClientClass(RPC_URL);
 
-    // Check for specific market ID
+    // Check for query parameters
     const { searchParams } = new URL(request.url);
     const marketId = searchParams.get('id');
-    const limit = parseInt(searchParams.get('limit') || '20', 10);
+    const searchQuery = searchParams.get('search')?.toLowerCase().trim();
+    const limit = parseInt(searchParams.get('limit') || '50', 10); // Increased default for search
 
     if (marketId) {
       // Fetch specific market
@@ -118,9 +125,21 @@ export async function GET(request: NextRequest) {
         return typeof endTime === 'number' && endTime > now;
       });
 
+      // Apply search filter if provided
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let filteredMarkets = activeMarkets;
+      if (searchQuery) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        filteredMarkets = activeMarkets.filter((item: any) => {
+          const question = item.account?.question || '';
+          return question.toLowerCase().includes(searchQuery);
+        });
+        log.debug('Search filter applied', { query: searchQuery, matches: filteredMarkets.length, total: activeMarkets.length });
+      }
+
       // Sort by end time (soonest first)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      activeMarkets.sort((a: any, b: any) => {
+      filteredMarkets.sort((a: any, b: any) => {
         let aTime = a.account.end_time;
         let bTime = b.account.end_time;
         if (aTime && typeof aTime.toNumber === 'function') aTime = aTime.toNumber();
@@ -128,12 +147,13 @@ export async function GET(request: NextRequest) {
         return aTime - bTime;
       });
 
-      const limitedMarkets = activeMarkets.slice(0, limit);
+      const limitedMarkets = filteredMarkets.slice(0, limit);
 
       return NextResponse.json({
         success: true,
         count: limitedMarkets.length,
         totalCount: activeMarkets.length,
+        searchQuery: searchQuery || null,
         markets: limitedMarkets.map(serializeMarket),
       });
     } catch (error) {

@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Router as RouterType } from 'express';
 import { z } from 'zod';
 import { PublicKey } from '@solana/web3.js';
 import nacl from 'tweetnacl';
@@ -6,7 +6,7 @@ import bs58 from 'bs58';
 import { generateEligibilityProof } from '../lib/prover.js';
 import { fetchBlacklistRoot, getMerkleProof } from '../lib/blacklist.js';
 
-export const proveRouter = Router();
+export const proveRouter: RouterType = Router();
 
 // Request validation schema
 const ProveRequestSchema = z.object({

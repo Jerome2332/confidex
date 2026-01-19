@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState, useEffect, useRef } from 'react';
-import { TrendingUp, TrendingDown, Activity, Clock, Wifi, WifiOff, ChevronDown, Star, Copy, ExternalLink } from 'lucide-react';
+import { Pulse, Copy, Clock, WifiHigh, WifiSlash, Star, ArrowSquareOut, CaretDown, TrendUp, TrendDown } from '@phosphor-icons/react';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { toast } from 'sonner';
 
@@ -108,7 +108,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               onClick={() => setIsFavorite(!isFavorite)}
               className={`p-1 transition-colors ${isFavorite ? 'text-yellow-500' : 'text-muted-foreground hover:text-yellow-500'}`}
             >
-              <Star className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />
+              <Star size={16} weight={isFavorite ? 'fill' : 'regular'} />
             </button>
             <button className="flex items-center gap-2 hover:bg-secondary/50 rounded-lg px-2 py-1 transition-colors">
               <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-[10px] font-bold">
@@ -116,7 +116,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               </div>
               <span className="font-semibold">{marketData.pair}</span>
               <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">Spot</span>
-              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              <CaretDown size={16} className="text-muted-foreground" />
             </button>
           </div>
 
@@ -141,9 +141,9 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
                 }`}
               >
                 {isPositive ? (
-                  <TrendingUp className="h-3 w-3" />
+                  <TrendUp size={12} />
                 ) : (
-                  <TrendingDown className="h-3 w-3" />
+                  <TrendDown size={12} />
                 )}
                 <span className="text-xs font-mono">
                   {isPositive ? '+' : ''}{priceChangeAbs} / {isPositive ? '+' : ''}{marketData.change24h.toFixed(2)}%
@@ -182,7 +182,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
                 className="flex items-center gap-1 text-primary hover:underline font-mono"
               >
                 {PROGRAM_ID}
-                <Copy className="h-3 w-3" />
+                <Copy size={12} />
               </button>
               <a
                 href={`https://explorer.solana.com/address/${FULL_PROGRAM_ID}?cluster=devnet`}
@@ -190,13 +190,13 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
                 rel="noopener noreferrer"
                 className="text-muted-foreground hover:text-foreground"
               >
-                <ExternalLink className="h-3 w-3" />
+                <ArrowSquareOut size={12} />
               </a>
             </div>
 
             {/* Status indicator */}
             <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-white' : 'text-muted-foreground'}`}>
-              {isStreaming ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              {isStreaming ? <WifiHigh size={12} /> : <WifiSlash size={12} />}
             </div>
             <div className="text-[10px] bg-purple-500/10 text-purple-500 px-1.5 py-0.5 rounded font-medium">
               PYTH
@@ -217,7 +217,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
             onClick={() => setIsFavorite(!isFavorite)}
             className={`p-1 transition-colors ${isFavorite ? 'text-yellow-500' : 'text-muted-foreground hover:text-yellow-500'}`}
           >
-            <Star className={`h-4 w-4 ${isFavorite ? 'fill-current' : ''}`} />
+            <Star size={16} weight={isFavorite ? 'fill' : 'regular'} />
           </button>
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
             SOL
@@ -231,12 +231,12 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
           <div className={`flex items-center gap-1 text-xs ${isStreaming ? 'text-white' : 'text-muted-foreground'}`}>
             {isStreaming ? (
               <>
-                <Wifi className="h-3 w-3" />
+                <WifiHigh size={12} />
                 <span>Live</span>
               </>
             ) : (
               <>
-                <WifiOff className="h-3 w-3" />
+                <WifiSlash size={12} />
                 <span>Polling</span>
               </>
             )}
@@ -276,9 +276,9 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               }`}
             >
               {isPositive ? (
-                <TrendingUp className="h-4 w-4" />
+                <TrendUp size={16} />
               ) : (
-                <TrendingDown className="h-4 w-4" />
+                <TrendDown size={16} />
               )}
               <span>
                 {isPositive ? '+' : ''}{marketData.change24h.toFixed(2)}%
@@ -315,7 +315,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
         <div className="p-2 bg-secondary/50 rounded">
           <div className="text-xs text-muted-foreground">Updated</div>
           <div className="text-xs flex items-center gap-1">
-            <Clock className="h-3 w-3" />
+            <Clock size={12} />
             {marketData.lastUpdate.toLocaleTimeString()}
           </div>
         </div>
@@ -331,7 +331,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               className="flex items-center gap-1 text-primary hover:underline font-mono"
             >
               {PROGRAM_ID}
-              <Copy className="h-3 w-3" />
+              <Copy size={12} />
             </button>
             <a
               href={`https://explorer.solana.com/address/${FULL_PROGRAM_ID}?cluster=devnet`}
@@ -339,7 +339,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               rel="noopener noreferrer"
               className="text-muted-foreground hover:text-foreground"
             >
-              <ExternalLink className="h-3 w-3" />
+              <ArrowSquareOut size={12} />
             </a>
           </div>
         </div>
@@ -349,7 +349,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
       <div className="mt-3 pt-3 border-t border-border flex justify-between text-xs text-muted-foreground">
         <span>Market: Confidential</span>
         <span className="text-primary flex items-center gap-1">
-          <Activity className="h-3 w-3" />
+          <Pulse size={12} />
           Privacy Enabled
         </span>
       </div>

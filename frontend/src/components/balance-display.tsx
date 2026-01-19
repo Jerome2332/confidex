@@ -2,7 +2,7 @@
 
 import { FC, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Lock, Eye, EyeOff, RefreshCw, AlertCircle } from 'lucide-react';
+import { Lock, Eye, EyeSlash, WarningCircle, ArrowsClockwise } from '@phosphor-icons/react';
 import { useBalance } from '@/hooks/use-balance';
 import { useBalanceStore } from '@/stores/balance-store';
 import { useSettingsStore } from '@/stores/settings-store';
@@ -98,9 +98,9 @@ export const BalanceDisplay: FC<BalanceDisplayProps> = ({ variant = 'default' })
             title={showBalances ? 'Hide balances' : 'Reveal balances'}
           >
             {showBalances ? (
-              <EyeOff className="h-4 w-4" />
+              <EyeSlash size={16} />
             ) : (
-              <Eye className="h-4 w-4" />
+              <Eye size={16} />
             )}
           </button>
           <button
@@ -108,8 +108,9 @@ export const BalanceDisplay: FC<BalanceDisplayProps> = ({ variant = 'default' })
             className="p-2 text-muted-foreground hover:text-foreground transition-colors"
             disabled={isLoading}
           >
-            <RefreshCw
-              className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`}
+            <ArrowsClockwise
+              size={16}
+              className={isLoading ? 'animate-spin' : ''}
             />
           </button>
         </div>
@@ -117,14 +118,14 @@ export const BalanceDisplay: FC<BalanceDisplayProps> = ({ variant = 'default' })
 
       {error && (
         <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg flex items-center gap-2 text-sm text-destructive">
-          <AlertCircle className="h-4 w-4" />
+          <WarningCircle size={16} />
           {error}
         </div>
       )}
 
       {hasZeroBalance && !isLoading && (
         <div className="mb-4 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-400">
-          <AlertCircle className="h-4 w-4" />
+          <WarningCircle size={16} />
           No wrapped tokens. Wrap tokens to start trading.
         </div>
       )}
@@ -154,7 +155,7 @@ export const BalanceDisplay: FC<BalanceDisplayProps> = ({ variant = 'default' })
             <div className="text-right">
               <div className="flex items-center gap-2">
                 {balance.isEncrypted && !showBalances && (
-                  <Lock className="h-3 w-3 text-muted-foreground" />
+                  <Lock size={12} className="text-muted-foreground" />
                 )}
                 <span className={`font-mono ${isCompact ? 'text-sm' : ''}`}>
                   {isLoading ? (

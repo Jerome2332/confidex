@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState } from 'react';
-import { Lock, TrendingUp, TrendingDown, AlertTriangle, X, Plus, Minus, Loader2 } from 'lucide-react';
+import { Lock, Warning, X, Plus, Minus, SpinnerGap, TrendUp, TrendDown } from '@phosphor-icons/react';
 import { PerpPosition, usePerpetualStore } from '@/stores/perpetuals-store';
 
 interface PositionRowProps {
@@ -59,15 +59,15 @@ export const PositionRow: FC<PositionRowProps> = ({
         <div className="flex items-center gap-3">
           {/* Encrypted size indicator */}
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Lock className="h-3 w-3" />
+            <Lock size={12} />
             <span>Size</span>
           </div>
           {/* Encrypted PnL indicator */}
           <div className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Lock className="h-3 w-3" />
+            <Lock size={12} />
             <span>PnL</span>
           </div>
-          {isAtRisk && <AlertTriangle className={`h-3 w-3 ${isHighRisk ? 'text-rose-400/80' : 'text-white/80'}`} />}
+          {isAtRisk && <Warning size={12} className={isHighRisk ? 'text-rose-400/80' : 'text-white/80'} />}
         </div>
       </div>
     );
@@ -81,9 +81,9 @@ export const PositionRow: FC<PositionRowProps> = ({
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           {isLong ? (
-            <TrendingUp className="h-4 w-4 text-emerald-400/80" />
+            <TrendUp size={16} className="text-emerald-400/80" />
           ) : (
-            <TrendingDown className="h-4 w-4 text-rose-400/80" />
+            <TrendDown size={16} className="text-rose-400/80" />
           )}
           <span className="font-medium">{position.marketSymbol}</span>
           <span className={`text-xs px-1.5 py-0.5 rounded ${
@@ -103,9 +103,9 @@ export const PositionRow: FC<PositionRowProps> = ({
                 title="Add Margin"
               >
                 {isAddingMargin === position.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <SpinnerGap size={16} className="animate-spin" />
                 ) : (
-                  <Plus className="h-4 w-4" />
+                  <Plus size={16} />
                 )}
               </button>
             )}
@@ -117,9 +117,9 @@ export const PositionRow: FC<PositionRowProps> = ({
                 title="Remove Margin"
               >
                 {isRemovingMargin === position.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <SpinnerGap size={16} className="animate-spin" />
                 ) : (
-                  <Minus className="h-4 w-4" />
+                  <Minus size={16} />
                 )}
               </button>
             )}
@@ -131,9 +131,9 @@ export const PositionRow: FC<PositionRowProps> = ({
                 title="Close Position"
               >
                 {isClosing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <SpinnerGap size={16} className="animate-spin" />
                 ) : (
-                  <X className="h-4 w-4" />
+                  <X size={16} />
                 )}
               </button>
             )}
@@ -147,7 +147,7 @@ export const PositionRow: FC<PositionRowProps> = ({
         <div className="flex justify-between">
           <span className="text-muted-foreground">Size</span>
           <div className="flex items-center gap-1 text-foreground">
-            <Lock className="h-3 w-3 text-primary" />
+            <Lock size={12} className="text-primary" />
             <span className="font-mono">••••••</span>
           </div>
         </div>
@@ -156,7 +156,7 @@ export const PositionRow: FC<PositionRowProps> = ({
         <div className="flex justify-between">
           <span className="text-muted-foreground">Entry</span>
           <div className="flex items-center gap-1 text-foreground">
-            <Lock className="h-3 w-3 text-primary" />
+            <Lock size={12} className="text-primary" />
             <span className="font-mono">••••••</span>
           </div>
         </div>
@@ -165,7 +165,7 @@ export const PositionRow: FC<PositionRowProps> = ({
         <div className="flex justify-between">
           <span className="text-muted-foreground">Collateral</span>
           <div className="flex items-center gap-1 text-foreground">
-            <Lock className="h-3 w-3 text-primary" />
+            <Lock size={12} className="text-primary" />
             <span className="font-mono">••••••</span>
           </div>
         </div>
@@ -174,7 +174,7 @@ export const PositionRow: FC<PositionRowProps> = ({
         <div className="flex justify-between">
           <span className="text-muted-foreground">Unrealized PnL</span>
           <div className="flex items-center gap-1 text-foreground">
-            <Lock className="h-3 w-3 text-primary" />
+            <Lock size={12} className="text-primary" />
             <span className="font-mono">••••••</span>
           </div>
         </div>
@@ -203,7 +203,7 @@ export const PositionRow: FC<PositionRowProps> = ({
             ? 'bg-rose-500/20 border border-rose-500/30 text-rose-400/80'
             : 'bg-white/10 border border-white/30 text-white/80'
         }`}>
-          <AlertTriangle className="h-3 w-3 shrink-0" />
+          <Warning size={12} className="shrink-0" />
           <span>
             {isHighRisk
               ? `Position at high risk! ${distanceToLiquidation?.toFixed(1)}% from liquidation.`
@@ -217,7 +217,7 @@ export const PositionRow: FC<PositionRowProps> = ({
         <div className="mt-2 flex justify-between text-xs text-muted-foreground">
           <span>Pending Funding</span>
           <div className="flex items-center gap-1">
-            <Lock className="h-3 w-3 text-primary" />
+            <Lock size={12} className="text-primary" />
             <span className="font-mono">••••••</span>
           </div>
         </div>
@@ -226,7 +226,7 @@ export const PositionRow: FC<PositionRowProps> = ({
       {/* Threshold Verification Status */}
       {!position.thresholdVerified && (
         <div className="mt-2 p-2 bg-white/5 border border-white/20 rounded text-xs text-white/80 flex items-center gap-2">
-          <Loader2 className="h-3 w-3 animate-spin" />
+          <SpinnerGap size={12} className="animate-spin" />
           <span>Verifying position parameters via MPC...</span>
         </div>
       )}
@@ -239,7 +239,7 @@ export const NoPositions: FC<{ message?: string }> = ({ message = 'No open posit
   return (
     <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
       <div className="w-12 h-12 rounded-full bg-secondary flex items-center justify-center mb-3">
-        <Lock className="h-5 w-5" />
+        <Lock size={20} />
       </div>
       <p className="text-sm">{message}</p>
       <p className="text-xs mt-1">Open a perpetual position to get started</p>

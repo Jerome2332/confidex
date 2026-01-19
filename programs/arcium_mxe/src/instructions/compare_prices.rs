@@ -34,6 +34,8 @@ pub fn handler(
     sell_price_encrypted: [u8; 64],
     callback_program: Pubkey,
     callback_discriminator: [u8; 8],
+    callback_account_1: Pubkey, // buy_order for order matching
+    callback_account_2: Pubkey, // sell_order for order matching
 ) -> Result<()> {
     let config = &mut ctx.accounts.config;
     let request = &mut ctx.accounts.request;
@@ -59,6 +61,8 @@ pub fn handler(
     request.created_at = clock.unix_timestamp;
     request.completed_at = 0;
     request.result = Vec::new();
+    request.callback_account_1 = callback_account_1;
+    request.callback_account_2 = callback_account_2;
     request.bump = ctx.bumps.request;
 
     config.computation_count = config.computation_count.saturating_add(1);
@@ -67,6 +71,8 @@ pub fn handler(
         request_id,
         computation_type: ComputationType::ComparePrices,
         requester: ctx.accounts.requester.key(),
+        callback_account_1,
+        callback_account_2,
         timestamp: clock.unix_timestamp,
     });
 
@@ -80,5 +86,7 @@ pub struct ComputationQueued {
     pub request_id: [u8; 32],
     pub computation_type: ComputationType,
     pub requester: Pubkey,
+    pub callback_account_1: Pubkey,
+    pub callback_account_2: Pubkey,
     pub timestamp: i64,
 }

@@ -15,6 +15,19 @@ import {
 // Program ID for Confidex DEX
 const CONFIDEX_PROGRAM_ID = process.env.NEXT_PUBLIC_PROGRAM_ID || '';
 
+// Settlement status for privacy layers
+export type SettlementStatus =
+  | 'pending'      // Order placed, awaiting match
+  | 'mpc_queued'   // MPC computation queued
+  | 'mpc_matching' // MPC price comparison in progress
+  | 'mpc_matched'  // MPC found a match
+  | 'settling'     // Settlement in progress (ShadowWire/C-SPL)
+  | 'settled'      // Fully settled
+  | 'failed';      // Settlement failed
+
+// Privacy layer used for settlement
+export type SettlementLayer = 'shadowwire' | 'cspl' | 'public' | 'unknown';
+
 export interface Trade {
   id: string;
   signature: string;
@@ -29,6 +42,11 @@ export interface Trade {
   description: string;
   fee: number;
   status: 'success' | 'failed';
+  // Settlement tracking
+  settlementStatus?: SettlementStatus;
+  settlementLayer?: SettlementLayer;
+  mpcRequestId?: string;
+  settlementSignature?: string;
 }
 
 export interface TradeHistoryState {
@@ -88,6 +106,27 @@ function parseTransactionToTrade(
       // For now, default to SOL/USDC
     }
 
+    // Determine settlement status from transaction type/description
+    let settlementStatus: SettlementStatus = 'pending';
+    let settlementLayer: SettlementLayer = 'unknown';
+
+    if (isConfidexTx) {
+      // Parse Confidex-specific transaction types
+      const desc = tx.description?.toLowerCase() || '';
+      if (desc.includes('settle') || desc.includes('fill')) {
+        settlementStatus = 'settled';
+        settlementLayer = desc.includes('shadowwire') ? 'shadowwire' : 'cspl';
+      } else if (desc.includes('match') || desc.includes('mpc')) {
+        settlementStatus = 'mpc_matched';
+      } else if (desc.includes('order') || desc.includes('place')) {
+        settlementStatus = 'pending';
+      }
+    } else {
+      // Non-Confidex trades are public and settled immediately
+      settlementStatus = 'settled';
+      settlementLayer = 'public';
+    }
+
     return {
       id: tx.signature,
       signature: tx.signature,
@@ -102,6 +141,8 @@ function parseTransactionToTrade(
       description: tx.description || '',
       fee: tx.fee / 1e9, // Convert lamports to SOL
       status: 'success',
+      settlementStatus,
+      settlementLayer,
     };
   } catch (error) {
     log.error('Error parsing transaction', { error: error instanceof Error ? error.message : String(error) });

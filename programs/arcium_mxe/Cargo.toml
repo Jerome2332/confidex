@@ -1,5 +1,5 @@
 [package]
-name = "arcium-mxe"
+name = "arcium_mxe"
 version = "0.1.0"
 description = "Arcium MXE program for Confidex encrypted order matching"
 edition = "2021"

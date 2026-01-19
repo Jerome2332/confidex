@@ -43,8 +43,12 @@ const PNP_API_URL =
 // Feature flag: Use SDK vs REST API fallback
 const USE_SDK = process.env.NEXT_PUBLIC_PNP_USE_SDK !== 'false';
 
-// Feature flag: Use mock data when API unavailable (for development/demo)
-const USE_MOCK_FALLBACK = process.env.NEXT_PUBLIC_PNP_USE_MOCK !== 'false';
+// Feature flag: Use mock data when API unavailable
+// IMPORTANT: Disabled in production to prevent showing fake markets to users
+// Set NEXT_PUBLIC_PNP_USE_MOCK=true explicitly to enable in development
+const USE_MOCK_FALLBACK =
+  process.env.NODE_ENV === 'development' &&
+  process.env.NEXT_PUBLIC_PNP_USE_MOCK !== 'false';
 
 // PNP-specific connection (mainnet by default for prediction markets)
 let pnpConnection: Connection | null = null;
@@ -96,6 +100,7 @@ function getMockMarkets(): PredictionMarket[] {
       totalLiquidity: BigInt(100000 * 1e6),
       endTime: new Date('2026-12-31T23:59:59Z'),
       resolved: false,
+      resolvable: true,
     },
     {
       id: new PublicKey('22222222222222222222222222222222'),
@@ -117,6 +122,7 @@ function getMockMarkets(): PredictionMarket[] {
       totalLiquidity: BigInt(50000 * 1e6),
       endTime: new Date('2026-03-31T23:59:59Z'),
       resolved: false,
+      resolvable: true,
     },
     {
       id: new PublicKey('33333333333333333333333333333333'),
@@ -138,6 +144,7 @@ function getMockMarkets(): PredictionMarket[] {
       totalLiquidity: BigInt(200000 * 1e6),
       endTime: new Date('2026-12-31T23:59:59Z'),
       resolved: false,
+      resolvable: true,
     },
     {
       id: new PublicKey('44444444444444444444444444444444'),
@@ -159,6 +166,7 @@ function getMockMarkets(): PredictionMarket[] {
       totalLiquidity: BigInt(80000 * 1e6),
       endTime: new Date('2026-12-31T23:59:59Z'),
       resolved: false,
+      resolvable: true,
     },
   ];
 
@@ -189,6 +197,7 @@ export interface PredictionMarket {
   totalLiquidity: bigint;
   endTime: Date;
   resolved: boolean;
+  resolvable: boolean; // Whether market is activated for trading
   outcome?: 'YES' | 'NO';
 }
 
@@ -257,28 +266,37 @@ export async function createMarket(
 
   const data: CreateMarketResponse = await response.json();
 
+  // Use a placeholder mint if not provided (will be resolved on next market fetch)
+  const placeholderMint = new PublicKey('11111111111111111111111111111111');
+  const yesTokenMint = data.yesTokenMint ? new PublicKey(data.yesTokenMint) : placeholderMint;
+  const noTokenMint = data.noTokenMint ? new PublicKey(data.noTokenMint) : placeholderMint;
+
+  // Use the collateral mint from response if available
+  const collateralMint = data.collateralMint
+    ? new PublicKey(data.collateralMint)
+    : new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
+
   return {
     id: new PublicKey(data.market),
     question: data.marketDetails.question,
     creator: new PublicKey(data.marketDetails.creator),
     yesToken: {
-      mint: new PublicKey(data.yesTokenMint),
+      mint: yesTokenMint,
       symbol: 'YES',
-      supply: BigInt(data.marketDetails.yesTokenSupply),
+      supply: BigInt(data.marketDetails.yesTokenSupply || data.marketDetails.initialLiquidity || '0'),
       price: 0.5,
     },
     noToken: {
-      mint: new PublicKey(data.noTokenMint),
+      mint: noTokenMint,
       symbol: 'NO',
-      supply: BigInt(data.marketDetails.noTokenSupply),
+      supply: BigInt(data.marketDetails.noTokenSupply || data.marketDetails.initialLiquidity || '0'),
       price: 0.5,
     },
-    collateralMint: new PublicKey(
-      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
-    ),
+    collateralMint,
     totalLiquidity: BigInt(data.marketDetails.initialLiquidity),
     endTime: new Date(parseEndTime(data.marketDetails.endTime) * 1000),
     resolved: data.marketDetails.resolved,
+    resolvable: data.marketDetails.resolvable ?? true,
   };
 }
 
@@ -366,31 +384,56 @@ export async function buyOutcomeTokens(
     const signedTx = await wallet.signTransaction(transaction);
 
     // Send to PNP network (mainnet by default)
-    const signature = await pnpConn.sendRawTransaction(signedTx.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-      preflightCommitment: 'confirmed',
-    });
+    // Use skipPreflight: true to avoid double simulation (we trust server-side build)
+    let signature: string;
+    try {
+      signature = await pnpConn.sendRawTransaction(signedTx.serialize(), {
+        skipPreflight: true,
+        maxRetries: 3,
+        preflightCommitment: 'confirmed',
+      });
+    } catch (sendError) {
+      // "Already been processed" at send level means tx succeeded previously
+      if (sendError instanceof Error &&
+          sendError.message.includes('already been processed')) {
+        log.info('Transaction already processed during send - treating as success');
+        const tokensReceived = calculateTokensReceived(amount, maxPrice);
+        return { signature: 'already_processed_send_' + Date.now(), tokensReceived };
+      }
+      throw sendError;
+    }
 
     log.debug('Transaction sent:', { signature });
 
-    // Wait for confirmation
-    const confirmation = await pnpConn.confirmTransaction(
-      {
-        signature,
-        blockhash: buildData.blockhash!,
-        lastValidBlockHeight: buildData.lastValidBlockHeight!,
-      },
-      'confirmed'
-    );
+    // Wait for confirmation with error handling for "already processed"
+    try {
+      const confirmation = await pnpConn.confirmTransaction(
+        {
+          signature,
+          blockhash: buildData.blockhash!,
+          lastValidBlockHeight: buildData.lastValidBlockHeight!,
+        },
+        'confirmed'
+      );
 
-    if (confirmation.value.err) {
-      // Parse common on-chain errors
-      const errStr = JSON.stringify(confirmation.value.err);
-      if (errStr.includes('InsufficientFunds') || errStr.includes('0x1')) {
-        throw new Error('Insufficient USDC balance. You need mainnet USDC to trade on PNP markets.');
+      if (confirmation.value.err) {
+        // Parse common on-chain errors
+        const errStr = JSON.stringify(confirmation.value.err);
+        if (errStr.includes('InsufficientFunds') || errStr.includes('0x1')) {
+          const network = PNP_NETWORK === 'devnet' ? 'devnet' : 'mainnet';
+          throw new Error(`Insufficient USDC balance. You need ${network} USDC to trade on PNP markets.`);
+        }
+        throw new Error(`Transaction failed: ${errStr}`);
       }
-      throw new Error(`Transaction failed: ${errStr}`);
+    } catch (confirmError) {
+      // "Already been processed" means the transaction succeeded - treat as success
+      if (confirmError instanceof Error &&
+          confirmError.message.includes('already been processed')) {
+        log.debug('Transaction already confirmed (processed):', { signature });
+        // Continue to return success
+      } else {
+        throw confirmError;
+      }
     }
 
     const tokensReceived = calculateTokensReceived(amount, maxPrice);
@@ -401,8 +444,25 @@ export async function buyOutcomeTokens(
     log.error('Buy transaction failed', { error: error instanceof Error ? error.message : String(error) });
     // Add context for common errors
     if (error instanceof Error) {
+      // "Already processed" at the outer level also means success
+      if (error.message.includes('already been processed')) {
+        log.info('Transaction was already processed - treating as success');
+        const tokensReceived = calculateTokensReceived(amount, maxPrice);
+        return { signature: 'already_processed_' + Date.now(), tokensReceived };
+      }
       if (error.message.includes('0x1') || error.message.includes('insufficient')) {
-        throw new Error('Insufficient USDC. PNP markets use mainnet USDC as collateral.');
+        const network = PNP_NETWORK === 'devnet' ? 'devnet' : 'mainnet';
+        const collateral = PNP_NETWORK === 'devnet'
+          ? 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr'
+          : 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+        throw new Error(`Insufficient ${network} USDC (${collateral.slice(0, 8)}...). Get tokens from a faucet.`);
+      }
+      // Handle token program mismatch - usually means market tokens aren't properly initialized
+      if (error.message.includes('IncorrectProgramId') || error.message.includes('incorrect program id')) {
+        throw new Error(
+          'This market is not fully initialized for trading. ' +
+          'Try selecting a different market or creating a new one.'
+        );
       }
     }
     throw error;
@@ -648,6 +708,7 @@ export async function fetchMarket(
         totalLiquidity: BigInt(data.marketDetails.initialLiquidity),
         endTime: new Date(parseEndTime(data.marketDetails.endTime) * 1000),
         resolved: data.marketDetails.resolved,
+        resolvable: data.marketDetails.resolvable ?? true,
       };
     } catch (error) {
       log.warn('SDK fetch failed, trying REST API:', { error });
@@ -694,6 +755,7 @@ export async function fetchMarket(
       totalLiquidity: BigInt(data.marketDetails.initialLiquidity),
       endTime: new Date(parseEndTime(data.marketDetails.endTime) * 1000),
       resolved: data.marketDetails.resolved,
+      resolvable: data.marketDetails.resolvable ?? true,
     };
   } catch (error) {
     log.error('Failed to fetch market', { error: error instanceof Error ? error.message : String(error) });
@@ -718,47 +780,56 @@ export async function fetchMarket(
  */
 export async function fetchActiveMarkets(
   connection: Connection,
-  limit: number = 10
+  limit: number = 50,
+  search?: string
 ): Promise<PredictionMarket[]> {
   // Always try internal API first (uses SDK server-side)
   // This works regardless of external API availability
   try {
-    log.debug('Fetching markets via internal API...');
-    const markets = await fetchAllMarkets(limit);
+    log.debug('Fetching markets via internal API...', { limit, search });
+    const markets = await fetchAllMarkets(limit, search);
 
     if (markets.length > 0) {
-      log.debug('Got ${markets.length} markets from internal API');
-      return markets.map((m) => {
-        // Calculate prices using Pythagorean bonding curve
-        const yesSupply = BigInt(m.marketDetails.yesTokenSupply || '0');
-        const noSupply = BigInt(m.marketDetails.noTokenSupply || '0');
-        const { yesPrice, noPrice } = calculatePythagoreanPrices(yesSupply, noSupply);
+      log.debug(`Got ${markets.length} markets from internal API`);
 
-        // Parse endTime - handles hex strings from API
-        const endTimeSeconds = parseEndTime(m.marketDetails.endTime);
+      // Filter to only resolvable markets (can trade) and transform
+      const tradeableMarkets = markets
+        .filter((m) => m.marketDetails.resolvable === true)
+        .map((m) => {
+          // Calculate prices using Pythagorean bonding curve
+          const yesSupply = BigInt(m.marketDetails.yesTokenSupply || '0');
+          const noSupply = BigInt(m.marketDetails.noTokenSupply || '0');
+          const { yesPrice, noPrice } = calculatePythagoreanPrices(yesSupply, noSupply);
 
-        return {
-          id: m.market,
-          question: m.marketDetails.question,
-          creator: new PublicKey(m.marketDetails.creator || '11111111111111111111111111111111'),
-          yesToken: {
-            mint: m.yesTokenMint,
-            symbol: 'YES' as const,
-            supply: yesSupply,
-            price: yesPrice,
-          },
-          noToken: {
-            mint: m.noTokenMint,
-            symbol: 'NO' as const,
-            supply: noSupply,
-            price: noPrice,
-          },
-          collateralMint: m.collateralMint,
-          totalLiquidity: BigInt(m.marketDetails.initialLiquidity || '0'),
-          endTime: new Date((endTimeSeconds || 0) * 1000),
-          resolved: m.marketDetails.resolved,
-        };
-      });
+          // Parse endTime - handles hex strings from API
+          const endTimeSeconds = parseEndTime(m.marketDetails.endTime);
+
+          return {
+            id: m.market,
+            question: m.marketDetails.question,
+            creator: new PublicKey(m.marketDetails.creator || '11111111111111111111111111111111'),
+            yesToken: {
+              mint: m.yesTokenMint,
+              symbol: 'YES' as const,
+              supply: yesSupply,
+              price: yesPrice,
+            },
+            noToken: {
+              mint: m.noTokenMint,
+              symbol: 'NO' as const,
+              supply: noSupply,
+              price: noPrice,
+            },
+            collateralMint: m.collateralMint,
+            totalLiquidity: BigInt(m.marketDetails.initialLiquidity || '0'),
+            endTime: new Date((endTimeSeconds || 0) * 1000),
+            resolved: m.marketDetails.resolved,
+            resolvable: true, // Only resolvable markets pass the filter
+          };
+        });
+
+      log.debug(`Filtered to ${tradeableMarkets.length} tradeable markets`);
+      return tradeableMarkets;
     }
     log.debug('Internal API returned no markets');
   } catch (error) {
@@ -797,6 +868,7 @@ export async function fetchActiveMarkets(
             totalLiquidity: BigInt(m.liquidity as string),
             endTime: new Date(m.endTime as number),
             resolved: false,
+            resolvable: true, // External API only returns active/tradeable markets
           }));
         }
       }
@@ -913,6 +985,7 @@ export async function createConfidentialMarket(
     totalLiquidity: BigInt(0), // Hidden
     endTime,
     resolved: false,
+    resolvable: true,
   };
 }
 

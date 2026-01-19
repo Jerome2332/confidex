@@ -31,6 +31,7 @@ export interface PNPMarketDetails {
   noTokenSupply: string;
   endTime: number | string; // Can be unix timestamp (number) or hex string
   resolved: boolean;
+  resolvable?: boolean; // Whether market is activated for trading (devnet: requires setMarketResolvable)
   outcome?: 'YES' | 'NO';
 }
 
@@ -49,10 +50,14 @@ export interface CreateMarketRequest {
  */
 export interface CreateMarketResponse {
   success: boolean;
+  simulated?: boolean;
   market: string;
-  yesTokenMint: string;
-  noTokenMint: string;
+  yesTokenMint?: string | null;
+  noTokenMint?: string | null;
+  signature?: string;
   marketDetails: PNPMarketDetails;
+  network?: string;
+  collateralMint?: string;
 }
 
 /**

@@ -1,0 +1,8 @@
+[package]
+name = "solvency"
+type = "bin"
+authors = ["Confidex"]
+compiler_version = ">=0.30.0"
+
+[dependencies]
+shared = { path = "../shared" }

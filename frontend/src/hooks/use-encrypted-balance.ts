@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { getAssociatedTokenAddress, getAccount } from '@solana/spl-token';
 
 import { createLogger } from '@/lib/logger';
 
@@ -182,7 +183,47 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
   );
 
   /**
+   * Fetch native wallet balances (fallback when C-SPL not initialized)
+   */
+  const fetchNativeBalances = useCallback(async (): Promise<{
+    sol: bigint;
+    usdc: bigint;
+  }> => {
+    if (!publicKey) {
+      console.log('[Balance] No publicKey for native balance fetch');
+      return { sol: BigInt(0), usdc: BigInt(0) };
+    }
+
+    try {
+      console.log('[Balance] Fetching native SOL balance for', publicKey.toString());
+      // Fetch native SOL balance
+      const solBalance = await connection.getBalance(publicKey);
+      const solBigInt = BigInt(solBalance);
+      console.log('[Balance] Native SOL balance:', solBalance, 'lamports');
+
+      // Fetch USDC token account balance
+      let usdcBigInt = BigInt(0);
+      try {
+        const usdcAta = await getAssociatedTokenAddress(USDC_MINT, publicKey);
+        console.log('[Balance] USDC ATA:', usdcAta.toString(), 'for mint:', USDC_MINT.toString());
+        const usdcAccount = await getAccount(connection, usdcAta);
+        usdcBigInt = usdcAccount.amount;
+        console.log('[Balance] USDC token balance:', usdcBigInt.toString());
+      } catch (e) {
+        // No USDC account exists - that's fine
+        console.log('[Balance] No USDC token account found (this is OK if you have no USDC)');
+      }
+
+      return { sol: solBigInt, usdc: usdcBigInt };
+    } catch (err) {
+      console.error('[Balance] Error fetching native balances:', err);
+      return { sol: BigInt(0), usdc: BigInt(0) };
+    }
+  }, [publicKey, connection]);
+
+  /**
    * Fetch balances from on-chain accounts
+   * Falls back to native wallet balances when C-SPL accounts don't exist
    */
   const refresh = useCallback(async () => {
     if (!publicKey) {
@@ -205,21 +246,55 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
     try {
       log.debug('[useEncryptedBalance] Fetching encrypted balances for', { toString: publicKey.toString() });
 
-      // Fetch both balances in parallel
+      // Fetch both C-SPL balances in parallel
       const [solResult, usdcResult] = await Promise.all([
         fetchUserBalance(connection, publicKey, SOL_MINT),
         fetchUserBalance(connection, publicKey, USDC_MINT),
       ]);
 
-      // Get encrypted balance arrays
-      const solEncrypted = solResult.account?.encryptedBalance || new Uint8Array(64);
-      const usdcEncrypted = usdcResult.account?.encryptedBalance || new Uint8Array(64);
+      // Check if C-SPL accounts exist AND have non-zero balances
+      const hasCsplAccounts = solResult.account !== null || usdcResult.account !== null;
+      const csplSolBalance = solResult.balance;
+      const csplUsdcBalance = usdcResult.balance;
+      const hasCsplBalances = csplSolBalance > BigInt(0) || csplUsdcBalance > BigInt(0);
 
-      // Decrypt balances
-      const [solDecrypted, usdcDecrypted] = await Promise.all([
-        decryptBalance(solEncrypted),
-        decryptBalance(usdcEncrypted),
-      ]);
+      console.log('[Balance] C-SPL check:', {
+        accountsExist: hasCsplAccounts,
+        solAccount: !!solResult.account,
+        usdcAccount: !!usdcResult.account,
+        csplSolBalance: csplSolBalance.toString(),
+        csplUsdcBalance: csplUsdcBalance.toString(),
+        hasNonZeroBalance: hasCsplBalances
+      });
+
+      let solDecrypted: bigint;
+      let usdcDecrypted: bigint;
+      let solEncrypted: Uint8Array;
+      let usdcEncrypted: Uint8Array;
+
+      // Only use C-SPL if accounts have non-zero balances
+      // Otherwise fall back to native wallet balances for devnet testing
+      if (hasCsplAccounts && hasCsplBalances) {
+        // Use C-SPL encrypted balances
+        solEncrypted = solResult.account?.encryptedBalance || new Uint8Array(64);
+        usdcEncrypted = usdcResult.account?.encryptedBalance || new Uint8Array(64);
+
+        // Decrypt balances
+        [solDecrypted, usdcDecrypted] = await Promise.all([
+          decryptBalance(solEncrypted),
+          decryptBalance(usdcEncrypted),
+        ]);
+        console.log('[Balance] Using C-SPL encrypted balances');
+      } else {
+        // Fall back to native wallet balances (devnet testing mode)
+        console.log('[Balance] Falling back to native wallet balances (C-SPL empty or not initialized)...');
+        const nativeBalances = await fetchNativeBalances();
+        console.log('[Balance] Native balances fetched:', { sol: nativeBalances.sol.toString(), usdc: nativeBalances.usdc.toString() });
+        solDecrypted = nativeBalances.sol;
+        usdcDecrypted = nativeBalances.usdc;
+        solEncrypted = new Uint8Array(64);
+        usdcEncrypted = new Uint8Array(64);
+      }
 
       const newBalances: EncryptedBalanceState = {
         solEncrypted,
@@ -235,15 +310,15 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
       setBalances(newBalances);
 
       log.debug('Balances fetched:');
-      console.log('  SOL:', newBalances.solUiAmount, '(encrypted:', detectEncryptionMode(solEncrypted), ')');
-      console.log('  USDC:', newBalances.usdcUiAmount, '(encrypted:', detectEncryptionMode(usdcEncrypted), ')');
+      console.log('  SOL:', newBalances.solUiAmount, '(encrypted:', hasCsplAccounts && detectEncryptionMode(solEncrypted), ')');
+      console.log('  USDC:', newBalances.usdcUiAmount, '(encrypted:', hasCsplAccounts && detectEncryptionMode(usdcEncrypted), ')');
     } catch (err) {
       log.error('Error fetching balances', { error: err instanceof Error ? err.message : String(err) });
       setError(err instanceof Error ? err.message : 'Failed to fetch balances');
     } finally {
       setIsLoading(false);
     }
-  }, [publicKey, connection, formatBalance, decryptBalance, detectEncryptionMode]);
+  }, [publicKey, connection, formatBalance, decryptBalance, detectEncryptionMode, fetchNativeBalances]);
 
   // Determine if any balances are truly encrypted
   const isEncrypted = useMemo(() => {

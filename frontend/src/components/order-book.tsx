@@ -1,7 +1,8 @@
 'use client';
 
 import { FC, useState, useEffect, useMemo } from 'react';
-import { Lock, TrendingUp, TrendingDown, Activity } from 'lucide-react';
+import { TrendUp, TrendDown, Lock, Pulse } from '@phosphor-icons/react';
+import { PrecisionSelector, PrecisionOption } from './precision-selector';
 import { useOrderStore } from '@/stores/order-store';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 
@@ -13,7 +14,6 @@ interface OrderBookEntry {
 }
 
 type ViewMode = 'book' | 'trades';
-type PrecisionOption = '0.01' | '0.1' | '1';
 
 interface OrderBookProps {
   variant?: 'default' | 'compact';
@@ -118,7 +118,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
         {/* Encrypted depth indicator */}
         <span className="relative z-10 text-right text-muted-foreground font-mono">
           <span className="flex items-center justify-end gap-1">
-            <Lock className="h-2.5 w-2.5 opacity-40" />
+            <Lock size={10} className="opacity-40" />
             <span className="opacity-60 text-[10px]">
               {'█'.repeat(Math.ceil(entry.depthIndicator / 25))}
             </span>
@@ -156,15 +156,10 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
           </button>
         </div>
         {viewMode === 'book' && (
-          <select
+          <PrecisionSelector
             value={precision}
-            onChange={(e) => setPrecision(e.target.value as PrecisionOption)}
-            className="text-[10px] bg-transparent border-none text-muted-foreground cursor-pointer focus:outline-none"
-          >
-            <option value="0.01">0.01</option>
-            <option value="0.1">0.1</option>
-            <option value="1">1</option>
-          </select>
+            onChange={setPrecision}
+          />
         )}
       </div>
 
@@ -194,8 +189,8 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                 }`}>
                   ${midPrice.toFixed(2)}
                 </span>
-                {priceChange === 'up' && <TrendingUp className="h-3 w-3 text-white" />}
-                {priceChange === 'down' && <TrendingDown className="h-3 w-3 text-white/60" />}
+                {priceChange === 'up' && <TrendUp size={12} className="text-white" />}
+                {priceChange === 'down' && <TrendDown size={12} className="text-white/60" />}
               </div>
               <span className="text-[10px] text-muted-foreground font-mono">
                 Spread: ${spread.toFixed(2)} ({spreadPercent}%)
@@ -220,7 +215,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                 </span>
               </div>
               <div className="flex items-center gap-1 text-muted-foreground">
-                <Lock className="h-2.5 w-2.5" />
+                <Lock size={10} />
                 <span>Encrypted</span>
               </div>
             </div>
@@ -261,7 +256,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{recentTrades.length} recent trades</span>
               <div className="flex items-center gap-1">
-                <Activity className="h-2.5 w-2.5 text-white/60" />
+                <Pulse size={10} className="text-white/60" />
                 <span>Live</span>
               </div>
             </div>

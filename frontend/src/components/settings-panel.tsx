@@ -2,20 +2,20 @@
 
 import { FC } from 'react';
 import {
-  Settings,
-  Sliders,
+  GearSix,
+  SlidersHorizontal,
   Bell,
   Shield,
   Moon,
   Sun,
-  Monitor,
-  ChevronRight,
+  Desktop,
+  CaretRight,
   Info,
   X,
-  Zap,
+  Lightning,
   Check,
   Clock,
-} from 'lucide-react';
+} from '@phosphor-icons/react';
 import { useThemeStore, Theme } from '@/stores/theme-store';
 import { useSettingsStore } from '@/stores/settings-store';
 import { useSettlementSelector } from '@/hooks/use-unified-settlement';
@@ -96,14 +96,14 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card">
           <div className="flex items-center gap-2">
-            <Settings className="h-5 w-5 text-primary" />
+            <GearSix size={20} className="text-primary" />
             <h3 className="font-semibold">Settings</h3>
           </div>
           <button
             onClick={onClose}
             className="p-1 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X size={20} />
           </button>
         </div>
 
@@ -115,7 +115,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
             <div className="p-3 bg-secondary/50 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
-                  <Sliders className="h-4 w-4 text-muted-foreground" />
+                  <SlidersHorizontal size={16} className="text-muted-foreground" />
                   <span className="text-sm font-medium">Slippage Tolerance</span>
                 </div>
                 <div className="text-sm text-primary font-mono">{slippage}%</div>
@@ -166,7 +166,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
           <SettingsSection title="Settlement">
             <div className="p-3 bg-secondary/50 rounded-lg">
               <div className="flex items-center gap-2 mb-3">
-                <Zap className="h-4 w-4 text-primary" />
+                <Lightning size={16} className="text-primary" />
                 <span className="text-sm font-medium">Settlement Method</span>
               </div>
               <div className="space-y-2">
@@ -184,7 +184,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                       <div className="text-sm font-medium flex items-center gap-2">
                         Auto
                         {currentMethod === 'auto' && (
-                          <Check className="h-3 w-3 text-primary" />
+                          <Check size={12} className="text-primary" />
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -220,7 +220,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                           <div className="text-sm font-medium flex items-center gap-2">
                             {method.name}
                             {currentMethod === method.id && (
-                              <Check className="h-3 w-3 text-primary" />
+                              <Check size={12} className="text-primary" />
                             )}
                           </div>
                           <div className="text-xs text-muted-foreground">
@@ -242,12 +242,12 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                           >
                             {method.isAvailable ? (
                               <>
-                                <Check className="h-3 w-3" />
+                                <Check size={12} />
                                 Available
                               </>
                             ) : (
                               <>
-                                <Clock className="h-3 w-3" />
+                                <Clock size={12} />
                                 Coming Soon
                               </>
                             )}
@@ -279,7 +279,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
 
             <div className="p-3 bg-secondary/50 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
-                <Shield className="h-4 w-4 text-primary" />
+                <Shield size={16} className="text-primary" />
                 <span className="text-sm font-medium">Encryption Status</span>
               </div>
               <div className="text-xs text-muted-foreground space-y-1">
@@ -312,7 +312,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                       : 'bg-background hover:bg-secondary'
                   }`}
                 >
-                  <Moon className="h-4 w-4" />
+                  <Moon size={16} />
                   <span className="text-xs">Dark</span>
                 </button>
                 <button
@@ -323,7 +323,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                       : 'bg-background hover:bg-secondary'
                   }`}
                 >
-                  <Sun className="h-4 w-4" />
+                  <Sun size={16} />
                   <span className="text-xs">Light</span>
                 </button>
                 <button
@@ -334,7 +334,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
                       : 'bg-background hover:bg-secondary'
                   }`}
                 >
-                  <Monitor className="h-4 w-4" />
+                  <Desktop size={16} />
                   <span className="text-xs">System</span>
                 </button>
               </div>
@@ -354,7 +354,7 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
           {/* Info */}
           <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
             <div className="flex items-start gap-2">
-              <Info className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+              <Info size={16} className="text-primary flex-shrink-0 mt-0.5" />
               <div className="text-xs text-muted-foreground">
                 <p className="font-medium text-foreground mb-1">
                   Confidex v0.1.0 (Devnet)

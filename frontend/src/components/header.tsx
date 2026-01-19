@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState } from 'react';
-import { Shield, Settings, ExternalLink, TrendingUp, ArrowLeftRight } from 'lucide-react';
+import { Shield, ArrowsLeftRight, GearSix, TrendUp } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletButton } from '@/components/wallet-button';
@@ -16,13 +16,13 @@ interface HeaderProps {
 const tradeDropdownItems = [
   {
     href: '/trade/perpetuals',
-    icon: TrendingUp,
+    icon: TrendUp,
     title: 'Perpetuals',
     description: 'Trade perp markets with up to 20x leverage',
   },
   {
     href: '/trade',
-    icon: ArrowLeftRight,
+    icon: ArrowsLeftRight,
     title: 'Spot',
     description: 'Trade assets',
   },
@@ -30,7 +30,6 @@ const tradeDropdownItems = [
 
 const navLinks = [
   { href: '/predict', label: 'Predict' },
-  { href: '/wrap', label: 'Wrap/Unwrap' },
 ];
 
 export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
@@ -43,7 +42,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Shield className="h-7 w-7 text-white" />
+            <Shield size={28} className="text-white" />
             <span className="text-xl font-bold text-white">Confidex</span>
             <span className="text-[10px] bg-white/10 text-white/80 px-1.5 py-0.5 rounded font-medium border border-white/20">
               DEVNET
@@ -76,15 +75,16 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
               ))}
 
               {/* Docs Link */}
-              <a
-                href="https://docs.arcium.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm px-3 py-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors flex items-center gap-1"
+              <Link
+                href="/docs"
+                className={`text-sm px-3 py-1.5 rounded-lg transition-colors ${
+                  pathname === '/docs'
+                    ? 'font-medium bg-white/10 text-white'
+                    : 'text-white/60 hover:text-white hover:bg-white/10'
+                }`}
               >
                 Docs
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              </Link>
             </nav>
 
             {/* Settings Button */}
@@ -93,7 +93,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
               className="p-2 text-white/60 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
               title="Settings"
             >
-              <Settings className="h-5 w-5" />
+              <GearSix size={20} />
             </button>
 
             {/* Wallet Button */}

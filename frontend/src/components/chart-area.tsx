@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState, useEffect, useRef, memo } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowsOutSimple, ArrowsInSimple } from '@phosphor-icons/react';
 
 interface TimeframeOption {
   label: string;
@@ -139,9 +139,9 @@ export const ChartArea: FC = () => {
             title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? (
-              <Minimize2 className="h-4 w-4" />
+              <ArrowsInSimple size={16} />
             ) : (
-              <Maximize2 className="h-4 w-4" />
+              <ArrowsOutSimple size={16} />
             )}
           </button>
         </div>

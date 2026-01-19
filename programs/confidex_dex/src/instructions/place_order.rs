@@ -2,9 +2,10 @@ use anchor_lang::prelude::*;
 
 use crate::cpi::verifier::{verify_eligibility_proof, GROTH16_PROOF_SIZE};
 use crate::error::ConfidexError;
-use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, OrderType, Side, TradingPair};
+use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, OrderType, Side, TradingPair, UserConfidentialBalance};
 
 #[derive(Accounts)]
+#[instruction(side: Side)]
 pub struct PlaceOrder<'info> {
     #[account(
         mut,
@@ -39,6 +40,21 @@ pub struct PlaceOrder<'info> {
     )]
     pub order: Account<'info, ConfidentialOrder>,
 
+    /// User's confidential balance for the token being sold
+    /// For buy orders: quote token (USDC) balance
+    /// For sell orders: base token (SOL) balance
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            maker.key().as_ref(),
+            get_order_token_mint(&pair, side).as_ref()
+        ],
+        bump = user_balance.bump,
+        constraint = user_balance.owner == maker.key() @ ConfidexError::Unauthorized
+    )]
+    pub user_balance: Account<'info, UserConfidentialBalance>,
+
     /// CHECK: Sunspot ZK verifier program for eligibility proofs
     /// Will be validated when CPI integration is complete
     pub verifier_program: AccountInfo<'info>,
@@ -47,6 +63,15 @@ pub struct PlaceOrder<'info> {
     pub maker: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+/// Helper to get the token mint for the order side
+/// Buy orders spend quote (USDC), sell orders spend base (SOL)
+fn get_order_token_mint(pair: &TradingPair, side: Side) -> Pubkey {
+    match side {
+        Side::Buy => pair.quote_mint,
+        Side::Sell => pair.base_mint,
+    }
 }
 
 pub fn handler(
@@ -60,6 +85,7 @@ pub fn handler(
     let exchange = &mut ctx.accounts.exchange;
     let pair = &mut ctx.accounts.pair;
     let order = &mut ctx.accounts.order;
+    let user_balance = &mut ctx.accounts.user_balance;
     let clock = Clock::get()?;
 
     // Verify eligibility proof using Sunspot verifier CPI
@@ -72,6 +98,51 @@ pub fn handler(
 
     require!(proof_valid, ConfidexError::EligibilityProofFailed);
 
+    // Extract order amount from encrypted_amount
+    // Development: First 8 bytes contain plaintext amount
+    // Production: Would use MPC to compare encrypted values
+    let order_amount = u64::from_le_bytes(
+        encrypted_amount[0..8].try_into().map_err(|_| ConfidexError::InvalidAmount)?
+    );
+
+    // For buy orders with limit price, calculate total cost
+    // For sell orders, the amount is the base token amount
+    let required_balance = match side {
+        Side::Buy => {
+            // Extract price from encrypted_price (first 8 bytes, USDC with 6 decimals)
+            let price = u64::from_le_bytes(
+                encrypted_price[0..8].try_into().map_err(|_| ConfidexError::InvalidAmount)?
+            );
+            // Calculate: amount (in base decimals) * price (in quote decimals) / base_decimals
+            // SOL has 9 decimals, USDC has 6, price is in USDC per SOL
+            // total_usdc = (sol_amount * price_usdc) / 1e9
+            order_amount
+                .checked_mul(price)
+                .ok_or(ConfidexError::ArithmeticOverflow)?
+                .checked_div(1_000_000_000) // Divide by SOL decimals
+                .ok_or(ConfidexError::ArithmeticOverflow)?
+        }
+        Side::Sell => order_amount,
+    };
+
+    // Check user has sufficient balance
+    let current_balance = user_balance.get_balance();
+    msg!("Order requires {} tokens, user has {} in balance", required_balance, current_balance);
+
+    require!(
+        current_balance >= required_balance,
+        ConfidexError::InsufficientBalance
+    );
+
+    // Debit user's balance (escrow for order)
+    let new_balance = current_balance
+        .checked_sub(required_balance)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+    user_balance.set_balance(new_balance);
+
+    msg!("Escrowed {} tokens, new balance: {}", required_balance, new_balance);
+
+    // Set up order
     order.maker = ctx.accounts.maker.key();
     order.pair = pair.key();
     order.side = side;

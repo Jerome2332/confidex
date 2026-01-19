@@ -1,0 +1,753 @@
+'use client';
+
+import { FC, useState } from 'react';
+import { Header } from '@/components/header';
+import { DataFlowDiagram } from '@/components/data-flow-diagram';
+import {
+  Shield,
+  Stack as StackIcon,
+  FingerprintSimple as FingerprintIcon,
+  Cpu as CpuIcon,
+  HardDrives as HardDrivesIcon,
+  GitBranch as GitBranchIcon,
+  ShieldChevron as ShieldChevronIcon,
+  Code as CodeIcon,
+  Eye,
+  EyeSlash,
+  CheckCircle,
+  ArrowSquareOut,
+  CaretDown,
+  CaretRight,
+  Lightning,
+} from '@phosphor-icons/react';
+
+type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'programs';
+
+interface NavItem {
+  id: SectionId;
+  label: string;
+  icon: React.ReactNode;
+}
+
+const NAV_ITEMS: NavItem[] = [
+  { id: 'overview', label: 'Overview', icon: <Shield size={16} /> },
+  { id: 'architecture', label: 'Three-Layer Privacy', icon: <StackIcon size={16} /> },
+  { id: 'zk-layer', label: 'ZK Compliance', icon: <FingerprintIcon size={16} /> },
+  { id: 'mpc-layer', label: 'MPC Execution', icon: <CpuIcon size={16} /> },
+  { id: 'settlement', label: 'Settlement', icon: <HardDrivesIcon size={16} /> },
+  { id: 'flow', label: 'Data Flow', icon: <GitBranchIcon size={16} /> },
+  { id: 'security', label: 'Security Model', icon: <ShieldChevronIcon size={16} /> },
+  { id: 'programs', label: 'Programs & IDs', icon: <CodeIcon size={16} /> },
+];
+
+const CodeBlock: FC<{ children: string }> = ({ children }) => (
+  <pre className="bg-black border border-white/10 rounded-lg p-4 overflow-x-auto text-sm">
+    <code className="text-white/80 font-mono">{children}</code>
+  </pre>
+);
+
+const ExpandableSection: FC<{ title: string; children: React.ReactNode; defaultOpen?: boolean }> = ({
+  title,
+  children,
+  defaultOpen = false,
+}) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-white/10 rounded-lg overflow-hidden">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between p-4 bg-white/5 hover:bg-white/10 transition-colors"
+      >
+        <span className="font-medium text-white">{title}</span>
+        {isOpen ? <CaretDown size={20} className="text-white/60" /> : <CaretRight size={20} className="text-white/60" />}
+      </button>
+      {isOpen && <div className="p-4 border-t border-white/10">{children}</div>}
+    </div>
+  );
+};
+
+export default function DocsPage() {
+  const [activeSection, setActiveSection] = useState<SectionId>('overview');
+
+  const scrollToSection = (id: SectionId) => {
+    setActiveSection(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  return (
+    <main className="min-h-screen bg-black">
+      <Header />
+
+      <div className="flex">
+        {/* Sidebar Navigation */}
+        <aside className="hidden lg:block w-64 border-r border-white/10 sticky top-[61px] h-[calc(100vh-61px)] overflow-y-auto">
+          <nav className="p-4 space-y-1">
+            {NAV_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => scrollToSection(item.id)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  activeSection === item.id
+                    ? 'bg-white/10 text-white'
+                    : 'text-white/60 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="p-4 border-t border-white/10">
+            <div className="text-xs text-white/40 mb-2">External Resources</div>
+            <div className="space-y-1">
+              <a
+                href="https://docs.arcium.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              >
+                Arcium Docs
+                <ArrowSquareOut size={12} />
+              </a>
+              <a
+                href="https://noir-lang.org/docs"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              >
+                Noir Docs
+                <ArrowSquareOut size={12} />
+              </a>
+              <a
+                href="https://github.com/Radrdotfun/ShadowWire"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              >
+                ShadowWire
+                <ArrowSquareOut size={12} />
+              </a>
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <div className="flex-1 max-w-4xl mx-auto px-6 py-12">
+          {/* Overview Section */}
+          <section id="overview" className="mb-16">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 bg-white/10 rounded-lg">
+                <Shield className="h-6 w-6 text-white" />
+              </div>
+              <h1 className="text-3xl font-light text-white">Confidex Technical Documentation</h1>
+            </div>
+
+            <p className="text-lg text-white/70 mb-8 leading-relaxed">
+              Confidex is a confidential decentralized exchange implementing a novel <strong className="text-white">three-layer privacy architecture</strong> that
+              combines zero-knowledge proofs, multi-party computation, and encrypted tokens. This architecture enables private trading
+              with hidden order amounts, prices, and balances while maintaining regulatory compliance.
+            </p>
+
+            {/* Key Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { label: 'ZK Proof Size', value: '~388 bytes' },
+                { label: 'MPC Latency', value: '~500ms' },
+                { label: 'Full Match', value: '1-2 sec' },
+                { label: 'Verification', value: '~200K CU' },
+              ].map((stat) => (
+                <div key={stat.label} className="bg-white/5 border border-white/10 rounded-lg p-4">
+                  <div className="text-2xl font-mono text-white mb-1">{stat.value}</div>
+                  <div className="text-xs text-white/50">{stat.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Prize Alignment */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6">
+              <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <Lightning size={20} />
+                Hackathon Prize Alignment
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Arcium</div>
+                    <div className="text-white/50">MPC order matching with Cerberus protocol</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Aztec/Noir</div>
+                    <div className="text-white/50">Real ZK compliance verification</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">ShadowWire</div>
+                    <div className="text-white/50">Bulletproof settlement integration</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Open Track</div>
+                    <div className="text-white/50">Novel three-layer privacy model</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Architecture Section */}
+          <section id="architecture" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <StackIcon size={36} />
+              Three-Layer Privacy Architecture
+            </h2>
+
+            <p className="text-white/70 mb-8">
+              Most privacy projects use EITHER zero-knowledge proofs OR multi-party computation. Confidex uniquely combines both
+              with encrypted tokens to address different privacy needs at each stage of a trade.
+            </p>
+
+            {/* Layer Cards */}
+            <div className="space-y-6">
+              {/* Layer 1 */}
+              <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+                <div className="bg-white/5 px-6 py-4 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-mono text-white">
+                      1
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-medium text-white">Compliance Layer (Noir ZK Proofs)</h3>
+                      <p className="text-sm text-white/50">Prove eligibility without revealing identity</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <div className="text-white/50 mb-1">Proof System</div>
+                      <div className="text-white font-mono">Groth16 via Sunspot</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Hash Function</div>
+                      <div className="text-white font-mono">Poseidon2</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Merkle Depth</div>
+                      <div className="text-white font-mono">20 levels (~1M addresses)</div>
+                    </div>
+                  </div>
+                  <p className="text-white/60 mt-4 text-sm">
+                    Uses Sparse Merkle Tree non-membership proofs - proves you&apos;re NOT on the blacklist without revealing who IS blacklisted.
+                  </p>
+                </div>
+              </div>
+
+              {/* Layer 2 */}
+              <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+                <div className="bg-white/5 px-6 py-4 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-mono text-white">
+                      2
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-medium text-white">Execution Layer (Arcium MPC)</h3>
+                      <p className="text-sm text-white/50">Encrypted order matching preventing MEV</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <div className="text-white/50 mb-1">Protocol</div>
+                      <div className="text-white font-mono">Cerberus (Dishonest Majority)</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Encryption</div>
+                      <div className="text-white font-mono">RescueCipher + X25519</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Security</div>
+                      <div className="text-white font-mono">1-of-N honest guarantee</div>
+                    </div>
+                  </div>
+                  <p className="text-white/60 mt-4 text-sm">
+                    Order prices are encrypted before submission. MPC nodes compare encrypted prices without ever decrypting them - only the boolean match result is revealed.
+                  </p>
+                </div>
+              </div>
+
+              {/* Layer 3 */}
+              <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+                <div className="bg-white/5 px-6 py-4 border-b border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-sm font-mono text-white">
+                      3
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-medium text-white">Settlement Layer (ShadowWire / C-SPL)</h3>
+                      <p className="text-sm text-white/50">Private token transfers and encrypted balances</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                    <div>
+                      <div className="text-white/50 mb-1">Primary</div>
+                      <div className="text-white font-mono">ShadowWire (Bulletproofs)</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Future</div>
+                      <div className="text-white font-mono">C-SPL (ElGamal)</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Fallback</div>
+                      <div className="text-white font-mono">Standard SPL</div>
+                    </div>
+                  </div>
+                  <p className="text-white/60 mt-4 text-sm">
+                    ShadowWire enables private transfers where amounts are hidden via Bulletproof range proofs. C-SPL will provide fully encrypted on-chain balances.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ZK Layer Section */}
+          <section id="zk-layer" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <FingerprintIcon size={36} />
+              ZK Compliance Layer
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              The eligibility circuit proves blacklist non-membership without revealing the user&apos;s address. This enables
+              regulatory compliance (KYC/AML screening) while preserving user privacy.
+            </p>
+
+            <ExpandableSection title="Circuit Specification" defaultOpen>
+              <CodeBlock>{`// circuits/eligibility/src/main.nr
+fn main(
+    // Public input - stored on-chain
+    blacklist_root: pub Field,
+
+    // Private inputs - never revealed
+    address: Field,
+    merkle_path: [Field; 20],
+    path_indices: [Field; 20]
+) {
+    // Verify non-membership in blacklist SMT
+    let computed_root = compute_smt_root(
+        address,
+        merkle_path,
+        path_indices
+    );
+
+    assert(computed_root == blacklist_root);
+    // Proof passes = address NOT on blacklist
+}`}</CodeBlock>
+            </ExpandableSection>
+
+            <div className="mt-6">
+              <ExpandableSection title="Proof Generation Flow">
+                <ol className="space-y-3 text-sm text-white/70">
+                  <li className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-white flex-shrink-0">1</span>
+                    <span>Frontend signs message proving wallet ownership</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-white flex-shrink-0">2</span>
+                    <span>Backend verifies signature and fetches blacklist root from on-chain</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-white flex-shrink-0">3</span>
+                    <span>Backend queries merkle proof from blacklist indexer</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-white flex-shrink-0">4</span>
+                    <span>Backend runs Sunspot CLI to generate Groth16 proof (~388 bytes)</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <span className="w-6 h-6 rounded-full bg-white/10 flex items-center justify-center text-xs text-white flex-shrink-0">5</span>
+                    <span>On-chain verifier validates proof during order placement</span>
+                  </li>
+                </ol>
+              </ExpandableSection>
+            </div>
+          </section>
+
+          {/* MPC Layer Section */}
+          <section id="mpc-layer" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <CpuIcon size={36} />
+              MPC Execution Layer
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              Arcium&apos;s Multi-Party Computation enables encrypted order matching. Prices and amounts are encrypted before submission -
+              the MPC cluster compares them without ever decrypting, preventing front-running and MEV extraction.
+            </p>
+
+            {/* MPC Operations Table */}
+            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+                <h3 className="font-medium text-white">Supported MPC Operations</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Operation</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Inputs</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Output</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Use Case</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-white/70">
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">ComparePrices</td>
+                      <td className="px-6 py-3">2x encrypted u64</td>
+                      <td className="px-6 py-3">bool</td>
+                      <td className="px-6 py-3">Determine if orders match</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">CalculateFill</td>
+                      <td className="px-6 py-3">4x encrypted amounts</td>
+                      <td className="px-6 py-3">encrypted + 2 bools</td>
+                      <td className="px-6 py-3">Calculate fill amount</td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">VerifyPositionParams</td>
+                      <td className="px-6 py-3">encrypted collateral/size</td>
+                      <td className="px-6 py-3">bool</td>
+                      <td className="px-6 py-3">Perps position opening</td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-3 font-mono text-white">CalculatePnL</td>
+                      <td className="px-6 py-3">encrypted size/entry + price</td>
+                      <td className="px-6 py-3">u64 + is_loss bool</td>
+                      <td className="px-6 py-3">Close position / liquidation</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <ExpandableSection title="Encryption Implementation">
+              <CodeBlock>{`// Frontend encryption using Arcium SDK
+import { RescueCipher } from '@arcium-hq/client';
+import { x25519 } from '@noble/curves/ed25519';
+
+// Generate ephemeral keypair for this session
+const privateKey = x25519.utils.randomSecretKey();
+const publicKey = x25519.getPublicKey(privateKey);
+
+// ECDH with MXE public key
+const sharedSecret = x25519.getSharedSecret(
+  privateKey,
+  mxePublicKey
+);
+
+// Encrypt order values
+const cipher = new RescueCipher(sharedSecret);
+const encryptedPrice = cipher.encrypt(
+  priceBytes,
+  nonce++
+);
+const encryptedAmount = cipher.encrypt(
+  amountBytes,
+  nonce++
+);`}</CodeBlock>
+            </ExpandableSection>
+
+            <div className="mt-6">
+              <ExpandableSection title="Cerberus Security Model">
+                <div className="space-y-4 text-sm text-white/70">
+                  <p>
+                    <strong className="text-white">Dishonest Majority Model:</strong> Privacy is guaranteed if at least 1 of N Arx nodes is honest.
+                    Even if N-1 nodes collude, they cannot learn the encrypted values.
+                  </p>
+                  <p>
+                    <strong className="text-white">MAC Authentication:</strong> Cryptographic message authentication codes verify computation integrity.
+                    Malicious nodes are cryptographically detected.
+                  </p>
+                  <p>
+                    <strong className="text-white">Constant-Time Operations:</strong> All MPC operations execute in constant time, preventing
+                    timing-based side-channel attacks.
+                  </p>
+                  <p>
+                    <strong className="text-white">Slashing Penalties:</strong> Misbehaving nodes face automatic stake reduction,
+                    creating strong economic incentives for honest behavior.
+                  </p>
+                </div>
+              </ExpandableSection>
+            </div>
+          </section>
+
+          {/* Settlement Section */}
+          <section id="settlement" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <HardDrivesIcon size={36} />
+              Settlement Layer
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              Settlement executes the final token transfers after MPC matching completes. We support multiple settlement
+              providers with automatic fallback for maximum reliability.
+            </p>
+
+            {/* Settlement Providers */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                  <h4 className="font-medium text-white">ShadowWire</h4>
+                </div>
+                <div className="text-xs text-white/50 mb-2">Primary - Live</div>
+                <p className="text-sm text-white/60">
+                  Bulletproof ZK proofs hide transfer amounts. 1% relayer fee. Supports 17+ tokens.
+                </p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
+                  <h4 className="font-medium text-white">C-SPL</h4>
+                </div>
+                <div className="text-xs text-white/50 mb-2">Future - Q1 2026</div>
+                <p className="text-sm text-white/60">
+                  Twisted ElGamal encryption for fully encrypted on-chain balances with optional auditor access.
+                </p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-white/40"></div>
+                  <h4 className="font-medium text-white">Standard SPL</h4>
+                </div>
+                <div className="text-xs text-white/50 mb-2">Fallback</div>
+                <p className="text-sm text-white/60">
+                  Token-2022 transfers when privacy providers unavailable. Amounts visible on-chain.
+                </p>
+              </div>
+            </div>
+
+            <ExpandableSection title="Hybrid Encryption Format (Current)">
+              <p className="text-sm text-white/70 mb-4">
+                Until C-SPL launches, we use a hybrid format that enables MPC operations while supporting on-chain balance validation:
+              </p>
+              <CodeBlock>{`// 64-byte hybrid encrypted value format
+[plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pk (16 bytes)]
+
+Bytes 0-7:   Plaintext value    → On-chain balance validation
+Bytes 8-15:  Truncated nonce    → MPC decryption key material
+Bytes 16-47: Ciphertext         → MPC encrypted price comparison
+Bytes 48-63: Ephemeral pubkey   → MPC key routing`}</CodeBlock>
+              <p className="text-sm text-white/50 mt-4">
+                Even with visible amounts for balance checking, the MPC price comparison prevents front-running
+                because observers cannot predict which orders will match.
+              </p>
+            </ExpandableSection>
+          </section>
+
+          {/* Data Flow Section */}
+          <section id="flow" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <GitBranchIcon size={36} />
+              Complete Data Flow
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              From order placement to settlement, here&apos;s how data flows through the three privacy layers:
+            </p>
+
+            {/* Interactive Flow Diagram */}
+            <DataFlowDiagram />
+          </section>
+
+          {/* Security Section */}
+          <section id="security" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <ShieldChevronIcon size={36} />
+              Security Model & Privacy Guarantees
+            </h2>
+
+            {/* Privacy Matrix */}
+            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+                <h3 className="font-medium text-white">Privacy Guarantees Matrix</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Data</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Visibility</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Mechanism</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-white/70">
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">User Identity</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
+                      <td className="px-6 py-3">ZK eligibility proof</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Price Comparison</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
+                      <td className="px-6 py-3">MPC Cerberus protocol</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Match Result</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
+                      <td className="px-6 py-3">Cannot predict matches</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Order Amount*</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><Eye size={14} className="text-yellow-400" /> Visible</td>
+                      <td className="px-6 py-3">Required for balance check</td>
+                      <td className="px-6 py-3"><span className="text-yellow-400">Partial</span></td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-3">Settlement</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
+                      <td className="px-6 py-3">ShadowWire Bulletproofs</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div className="px-6 py-3 bg-white/5 text-xs text-white/50">
+                *Order amounts visible until C-SPL launch enables encrypted balances (Q1 2026)
+              </div>
+            </div>
+
+            {/* Threat Mitigations */}
+            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+                <h3 className="font-medium text-white">Threat Mitigations</h3>
+              </div>
+              <div className="p-4 space-y-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Front-running Prevention</div>
+                    <div className="text-white/50">Order prices encrypted via MPC - validators cannot see prices in mempool</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">MEV Extraction Prevention</div>
+                    <div className="text-white/50">Match results unpredictable until MPC computation completes</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Wallet Tracking Prevention</div>
+                    <div className="text-white/50">User address never revealed - only ZK proof of eligibility</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">MPC Collusion Prevention</div>
+                    <div className="text-white/50">Cerberus 1-of-N honest model - privacy guaranteed if any single node is honest</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Programs Section */}
+          <section id="programs" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <CodeIcon size={36} />
+              Program IDs & Accounts
+            </h2>
+
+            {/* Program IDs */}
+            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+                <h3 className="font-medium text-white">Devnet Program IDs</h3>
+              </div>
+              <div className="divide-y divide-white/5">
+                {[
+                  { name: 'Confidex DEX', id: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB', desc: 'Core DEX logic, order management' },
+                  { name: 'Arcium MXE', id: 'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE', desc: 'MXE wrapper for MPC operations' },
+                  { name: 'Eligibility Verifier', id: '9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W', desc: 'Groth16 proof verification' },
+                  { name: 'Arcium Core', id: 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ', desc: 'Official Arcium program' },
+                ].map((program) => (
+                  <div key={program.id} className="px-6 py-4">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-white font-medium">{program.name}</span>
+                      <span className="text-xs text-white/40">{program.desc}</span>
+                    </div>
+                    <code className="text-sm font-mono text-white/60 break-all">{program.id}</code>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Account Structures */}
+            <ExpandableSection title="Key Account Structures">
+              <div className="space-y-4">
+                <div>
+                  <div className="text-white font-medium mb-2">ConfidentialOrder (317 bytes)</div>
+                  <CodeBlock>{`pub struct ConfidentialOrder {
+    pub maker: Pubkey,              // Order creator
+    pub pair: Pubkey,               // Trading pair
+    pub side: Side,                 // Buy or Sell
+    pub encrypted_amount: [u8; 64], // Arcium encrypted
+    pub encrypted_price: [u8; 64],  // Arcium encrypted
+    pub encrypted_filled: [u8; 64], // Fill tracking
+    pub status: OrderStatus,        // Open|Matching|Filled
+    pub eligibility_proof_verified: bool,
+    pub pending_match_request: [u8; 32],
+}`}</CodeBlock>
+                </div>
+                <div>
+                  <div className="text-white font-medium mb-2">PendingMatch (213 bytes)</div>
+                  <CodeBlock>{`pub struct PendingMatch {
+    pub request_id: [u8; 32],       // Arcium computation ID
+    pub buy_order: Pubkey,
+    pub sell_order: Pubkey,
+    pub compare_result: Option<bool>,
+    pub fill_result: Option<[u8; 64]>,
+    pub status: PendingMatchStatus, // AwaitingCompare|Matched
+}`}</CodeBlock>
+                </div>
+              </div>
+            </ExpandableSection>
+          </section>
+
+          {/* Footer */}
+          <footer className="border-t border-white/10 pt-8 mt-16">
+            <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="text-sm text-white/40">
+                Built for Solana Privacy Hack 2026
+              </div>
+              <div className="flex items-center gap-2 text-xs text-white/40">
+                <span>Powered by</span>
+                <span className="bg-white/10 px-2 py-0.5 rounded">Arcium MPC</span>
+                <span className="bg-white/10 px-2 py-0.5 rounded">Noir ZK</span>
+                <span className="bg-white/10 px-2 py-0.5 rounded">ShadowWire</span>
+              </div>
+            </div>
+          </footer>
+        </div>
+      </div>
+    </main>
+  );
+}

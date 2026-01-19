@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState, useRef, useCallback } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { CaretDown } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -53,8 +53,9 @@ export const NavDropdown: FC<NavDropdownProps> = ({ label, items, basePath }) =>
         }`}
       >
         {label}
-        <ChevronDown
-          className={`h-3 w-3 transition-transform duration-200 ${
+        <CaretDown
+          size={12}
+          className={`transition-transform duration-200 ${
             isOpen ? 'rotate-180' : ''
           }`}
         />

@@ -70,11 +70,18 @@ pub struct PerpetualMarket {
     /// Insurance fund for socialized losses
     pub insurance_fund: Pubkey,
 
+    /// Target balance for insurance fund (in quote token units)
+    /// ADL triggers when balance falls below adl_trigger_threshold_bps% of this
+    pub insurance_fund_target: u64,
+
     /// Fee recipient account
     pub fee_recipient: Pubkey,
 
     /// Confidential quote token mint (C-SPL USDC)
     pub c_quote_mint: Pubkey,
+
+    /// Arcium MPC cluster for encrypted computations
+    pub arcium_cluster: Pubkey,
 
     /// Whether the market is active for trading
     pub active: bool,
@@ -106,11 +113,13 @@ impl PerpetualMarket {
         32 +  // oracle_price_feed
         32 +  // collateral_vault
         32 +  // insurance_fund
+        8 +   // insurance_fund_target
         32 +  // fee_recipient
         32 +  // c_quote_mint
+        32 +  // arcium_cluster
         1 +   // active
         1;    // bump
-    // Total: 350 bytes
+    // Total: 390 bytes
 
     pub const SEED: &'static [u8] = b"perp_market";
 

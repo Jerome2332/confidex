@@ -3,17 +3,18 @@
 import { Header } from '@/components/header';
 import { ScrollTextReveal } from '@/components/scroll-text-reveal';
 import { CircleAnimation } from '@/components/circle-animations';
+import { ConicBorderAnimation } from '@/components/conic-border-animation';
 import {
-  Shield,
   Lock,
-  Zap,
-  ExternalLink,
-  Github,
-  BookOpen,
+  Fingerprint,
+  EyeClosed,
+  ShieldCheck,
   ArrowRight,
-  EyeOff,
-  ChevronRight,
-} from 'lucide-react';
+  ArrowSquareOut,
+  CaretRight,
+  GithubLogo,
+  BookOpen,
+} from '@phosphor-icons/react';
 import Link from 'next/link';
 
 export default function LandingPage() {
@@ -26,19 +27,19 @@ export default function LandingPage() {
       tech: 'Arcium MPC',
     },
     {
-      icon: Shield,
+      icon: Fingerprint,
       title: 'ZK Compliance',
       description: 'Prove regulatory compliance without revealing your identity using zero-knowledge proofs.',
       tech: 'Noir ZK Proofs',
     },
     {
-      icon: Zap,
+      icon: EyeClosed,
       title: 'Private Settlement',
       description: 'Trades settle using confidential tokens. Your balances remain private on-chain.',
       tech: 'C-SPL Tokens',
     },
     {
-      icon: EyeOff,
+      icon: ShieldCheck,
       title: 'MEV Protection',
       description: 'Encrypted orders prevent front-running and sandwich attacks. Trade without information leakage.',
       tech: 'Dark Pool',
@@ -99,7 +100,7 @@ export default function LandingPage() {
               className="group inline-flex items-center gap-2 bg-white text-black px-8 py-4 rounded-lg font-medium text-lg hover:bg-white/90 transition-all shadow-lg shadow-white/10 hover:shadow-xl hover:shadow-white/20"
             >
               Start Trading
-              <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </Link>
             <a
               href="https://docs.arcium.com"
@@ -108,7 +109,7 @@ export default function LandingPage() {
               className="inline-flex items-center gap-2 bg-white/10 text-white px-8 py-4 rounded-lg font-medium text-lg hover:bg-white/20 transition-colors border border-white/20"
             >
               Read Documentation
-              <ExternalLink className="h-4 w-4" />
+              <ArrowSquareOut size={16} />
             </a>
           </div>
 
@@ -149,23 +150,28 @@ export default function LandingPage() {
 
           <div className="grid md:grid-cols-2 gap-6 max-w-5xl mx-auto">
             {features.map((feature, i) => (
-              <div
+              <ConicBorderAnimation
                 key={i}
-                className="group p-6 bg-white/5 border border-white/10 rounded-xl hover:border-white/30 transition-colors"
+                borderRadius={12}
+                borderWidth={1}
+                duration={6}
+                className="w-full"
               >
-                <div className="flex items-start gap-4">
-                  <div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 group-hover:bg-white/20 transition-colors">
-                    <feature.icon className="h-6 w-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-normal mb-2 text-white">{feature.title}</h3>
-                    <p className="text-white/60 text-sm font-light mb-3">{feature.description}</p>
-                    <span className="inline-flex items-center text-xs bg-white/10 text-white/80 px-2 py-1 rounded font-light">
-                      {feature.tech}
-                    </span>
+                <div className="group p-6 h-full">
+                  <div className="flex items-start gap-4">
+                    <div className="w-12 h-12 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0 group-hover:bg-white/20 transition-colors">
+                      <feature.icon className="h-6 w-6 text-white" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-normal mb-2 text-white">{feature.title}</h3>
+                      <p className="text-white/60 text-sm font-light mb-3">{feature.description}</p>
+                      <span className="inline-flex items-center text-xs bg-white/10 text-white/80 px-2 py-1 rounded font-light">
+                        {feature.tech}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </ConicBorderAnimation>
             ))}
           </div>
         </div>
@@ -176,7 +182,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-2 text-xs font-light bg-white/10 text-white px-4 py-1.5 rounded-full mb-4 border border-white/20">
-              <Shield className="h-3 w-3" />
+              <Fingerprint size={12} className="text-white" />
               Responsible Privacy
             </div>
             <h2 className="text-3xl md:text-4xl font-light mb-4 text-white">
@@ -195,7 +201,7 @@ export default function LandingPage() {
                   Layer 1: Compliance
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
-                  <Shield className="h-8 w-8 text-white" />
+                  <Fingerprint size={32} className="text-white" />
                 </div>
                 <h3 className="font-normal mb-2 text-white">Noir ZK Proofs</h3>
                 <p className="text-sm text-white/60 font-light">
@@ -211,7 +217,7 @@ export default function LandingPage() {
                   Layer 2: Execution
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
-                  <Lock className="h-8 w-8 text-white" />
+                  <Lock size={32} className="text-white" />
                 </div>
                 <h3 className="font-normal mb-2 text-white">Arcium MPC</h3>
                 <p className="text-sm text-white/60 font-light">
@@ -227,7 +233,7 @@ export default function LandingPage() {
                   Layer 3: Settlement
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
-                  <Zap className="h-8 w-8 text-white" />
+                  <EyeClosed size={32} className="text-white" />
                 </div>
                 <h3 className="font-normal mb-2 text-white">Confidential Tokens</h3>
                 <p className="text-sm text-white/60 font-light">
@@ -242,9 +248,9 @@ export default function LandingPage() {
             {/* Flow Arrow */}
             <div className="hidden md:flex justify-center items-center gap-4 text-white/50 text-sm font-light">
               <span>Prove Eligibility</span>
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight size={16} />
               <span>Encrypt & Match</span>
-              <ArrowRight className="h-4 w-4" />
+              <ArrowRight size={16} />
               <span>Settle Privately</span>
             </div>
           </div>
@@ -255,7 +261,7 @@ export default function LandingPage() {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <EyeOff className="h-5 w-5 text-white" />
+                  <ShieldCheck size={20} className="text-white" />
                 </div>
                 <div>
                   <h4 className="font-normal mb-1 text-white">MEV Protection</h4>
@@ -266,7 +272,7 @@ export default function LandingPage() {
               </div>
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <Shield className="h-5 w-5 text-white" />
+                  <Fingerprint size={20} className="text-white" />
                 </div>
                 <div>
                   <h4 className="font-normal mb-1 text-white">Regulatory Ready</h4>
@@ -277,7 +283,7 @@ export default function LandingPage() {
               </div>
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <Lock className="h-5 w-5 text-white" />
+                  <Lock size={20} className="text-white" />
                 </div>
                 <div>
                   <h4 className="font-normal mb-1 text-white">Institutional Grade</h4>
@@ -288,7 +294,7 @@ export default function LandingPage() {
               </div>
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <Zap className="h-5 w-5 text-white" />
+                  <EyeClosed size={20} className="text-white" />
                 </div>
                 <div>
                   <h4 className="font-normal mb-1 text-white">Composable Privacy</h4>
@@ -340,7 +346,7 @@ export default function LandingPage() {
             className="group inline-flex items-center gap-2 bg-white text-black px-8 py-4 rounded-lg font-medium text-lg hover:bg-white/90 transition-all shadow-lg shadow-white/10"
           >
             Launch App
-            <ChevronRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+            <CaretRight size={20} className="group-hover:translate-x-1 transition-transform" />
           </Link>
         </div>
       </section>
@@ -350,7 +356,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <Shield className="h-6 w-6 text-white" />
+              <ShieldCheck size={24} className="text-white" />
               <span className="font-normal text-white">Confidex</span>
               <span className="text-xs text-white/50 font-light">
                 Built for Solana Privacy Hack 2026
@@ -364,7 +370,7 @@ export default function LandingPage() {
                 rel="noopener noreferrer"
                 className="text-white/50 hover:text-white transition-colors"
               >
-                <Github className="h-5 w-5" />
+                <GithubLogo size={20} />
               </a>
               <a
                 href="https://docs.arcium.com"
@@ -372,7 +378,7 @@ export default function LandingPage() {
                 rel="noopener noreferrer"
                 className="text-white/50 hover:text-white transition-colors"
               >
-                <BookOpen className="h-5 w-5" />
+                <BookOpen size={20} />
               </a>
             </div>
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState, useEffect, useMemo } from 'react';
-import { Clock, TrendingUp, TrendingDown, Info } from 'lucide-react';
+import { Clock, Info, TrendUp, TrendDown } from '@phosphor-icons/react';
 import { FundingRateInfo } from '@/stores/perpetuals-store';
 
 interface FundingDisplayProps {
@@ -92,7 +92,7 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
     return (
       <div className="flex items-center justify-between p-2 bg-secondary rounded text-xs">
         <div className="flex items-center gap-2">
-          <Clock className="h-3 w-3 text-muted-foreground" />
+          <Clock size={12} className="text-muted-foreground" />
           <span className="text-muted-foreground">Next Funding</span>
         </div>
         <div className="flex items-center gap-3">
@@ -117,14 +117,14 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
             className="text-muted-foreground hover:text-foreground transition-colors"
             title="Funding rate determines payments between long and short positions. Positive = longs pay shorts. Negative = shorts pay longs."
           >
-            <Info className="h-3 w-3" />
+            <Info size={12} />
           </button>
         </div>
         <div className="flex items-center gap-1.5">
           {isPositive ? (
-            <TrendingUp className="h-3 w-3 text-emerald-400/80" />
+            <TrendUp size={12} className="text-emerald-400/80" />
           ) : isNegative ? (
-            <TrendingDown className="h-3 w-3 text-rose-400/80" />
+            <TrendDown size={12} className="text-rose-400/80" />
           ) : null}
           <span className={`text-sm font-mono font-medium ${
             isPositive ? 'text-emerald-400/80' : isNegative ? 'text-rose-400/80' : 'text-foreground'
@@ -138,7 +138,7 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
       {showCountdown && (
         <div className="flex items-center justify-between p-2 bg-secondary rounded">
           <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-muted-foreground" />
+            <Clock size={16} className="text-muted-foreground" />
             <span className="text-xs text-muted-foreground">Next Funding</span>
           </div>
           <span className="text-sm font-mono font-medium">{countdown}</span>
@@ -176,9 +176,9 @@ export const FundingDisplay: FC<FundingDisplayProps> = ({
           : 'bg-secondary text-muted-foreground'
       }`}>
         {isPositive ? (
-          <TrendingUp className="h-3 w-3" />
+          <TrendUp size={12} />
         ) : isNegative ? (
-          <TrendingDown className="h-3 w-3" />
+          <TrendDown size={12} />
         ) : null}
         <span>
           {isPositive

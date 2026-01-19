@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState, useCallback } from 'react';
-import { AlertTriangle } from 'lucide-react';
+import { Warning } from '@phosphor-icons/react';
 
 const LEVERAGE_PRESETS = [1, 2, 5, 10, 20];
 
@@ -174,7 +174,7 @@ export const LeverageSelector: FC<LeverageSelectorProps> = ({
             ? 'bg-rose-500/20 border border-rose-500/30 text-rose-400/80'
             : 'bg-white/10 border border-white/30 text-white/80'
         }`}>
-          <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+          <Warning size={12} className="mt-0.5 shrink-0" />
           <span>
             {isVeryHighLeverage
               ? 'Extreme leverage. Position can be liquidated with small price movements.'

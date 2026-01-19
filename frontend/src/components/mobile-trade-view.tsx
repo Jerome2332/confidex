@@ -6,7 +6,7 @@ import { OrderBook } from './order-book';
 import { TradingPanel } from './trading-panel';
 import { OpenOrders } from './open-orders';
 import { BalanceDisplay } from './balance-display';
-import { BarChart3, BookOpen, ListOrdered, X, ChevronUp } from 'lucide-react';
+import { ChartBar, BookOpen, ListBullets, X } from '@phosphor-icons/react';
 
 type MobileTab = 'chart' | 'book' | 'orders';
 
@@ -17,13 +17,13 @@ interface MobileTradeViewProps {
 interface Tab {
   id: MobileTab;
   label: string;
-  icon: typeof BarChart3;
+  icon: typeof ChartBar;
 }
 
 const tabs: Tab[] = [
-  { id: 'chart', label: 'Chart', icon: BarChart3 },
+  { id: 'chart', label: 'Chart', icon: ChartBar },
   { id: 'book', label: 'Book', icon: BookOpen },
-  { id: 'orders', label: 'Orders', icon: ListOrdered },
+  { id: 'orders', label: 'Orders', icon: ListBullets },
 ];
 
 export const MobileTradeView: FC<MobileTradeViewProps> = ({ className = '' }) => {
@@ -93,7 +93,7 @@ export const MobileTradeView: FC<MobileTradeViewProps> = ({ className = '' }) =>
                   : 'text-muted-foreground hover:text-foreground'
               }`}
             >
-              <Icon className="h-4 w-4" />
+              <Icon size={16} />
               {tab.label}
             </button>
           );
@@ -162,7 +162,7 @@ export const MobileTradeView: FC<MobileTradeViewProps> = ({ className = '' }) =>
             onClick={() => setIsSheetOpen(false)}
             className="p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-secondary/50 transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X size={20} />
           </button>
         </div>
 

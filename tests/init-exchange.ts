@@ -26,7 +26,7 @@ const PROGRAM_ID = new PublicKey('63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB')
 
 // Token mints for SOL/USDC pair
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112'); // Wrapped SOL
-const USDC_MINT = new PublicKey('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU'); // USDC devnet
+const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr'); // Dummy USDC devnet (for testing)
 
 // PDA seeds
 const EXCHANGE_SEED = Buffer.from('exchange');

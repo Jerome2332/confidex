@@ -18,15 +18,19 @@ pub mod instructions;
 
 use instructions::*;
 
-declare_id!("CKRX2k2Fsa3t2yYUxtr8Gy5D9poW2ut3wKCyLUc51SgX");
+declare_id!("CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE");
 
 #[program]
 pub mod arcium_mxe {
     use super::*;
 
     /// Initialize the MXE with cluster configuration
-    pub fn initialize(ctx: Context<InitializeMxe>, cluster_id: Pubkey) -> Result<()> {
-        instructions::initialize::handler(ctx, cluster_id)
+    pub fn initialize(
+        ctx: Context<InitializeMxe>,
+        cluster_id: Pubkey,
+        cluster_offset: u16,
+    ) -> Result<()> {
+        instructions::initialize::handler(ctx, cluster_id, cluster_offset)
     }
 
     /// Queue a price comparison computation
@@ -37,6 +41,8 @@ pub mod arcium_mxe {
         sell_price_encrypted: [u8; 64],
         callback_program: Pubkey,
         callback_discriminator: [u8; 8],
+        callback_account_1: Pubkey, // buy_order
+        callback_account_2: Pubkey, // sell_order
     ) -> Result<()> {
         instructions::compare_prices::handler(
             ctx,
@@ -44,6 +50,8 @@ pub mod arcium_mxe {
             sell_price_encrypted,
             callback_program,
             callback_discriminator,
+            callback_account_1,
+            callback_account_2,
         )
     }
 

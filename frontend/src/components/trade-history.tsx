@@ -7,15 +7,17 @@ import {
   Clock,
   ArrowUpRight,
   ArrowDownRight,
-  ExternalLink,
-  History,
-  RefreshCw,
-  Loader2,
-  AlertCircle,
-  Wifi,
-  WifiOff,
-} from 'lucide-react';
-import { useTradeHistory, Trade } from '@/hooks/use-trade-history';
+  ArrowSquareOut,
+  ClockCounterClockwise,
+  ArrowsClockwise,
+  SpinnerGap,
+  WarningCircle,
+  WifiHigh,
+  WifiSlash,
+  Check,
+  Lightning,
+} from '@phosphor-icons/react';
+import { useTradeHistory, Trade, SettlementStatus, SettlementLayer } from '@/hooks/use-trade-history';
 import { useOrderStore } from '@/stores/order-store';
 
 type FilterType = 'all' | 'mine' | 'buys' | 'sells';
@@ -23,6 +25,41 @@ type FilterType = 'all' | 'mine' | 'buys' | 'sells';
 interface TradeHistoryProps {
   variant?: 'default' | 'table';
 }
+
+// Settlement status indicator component
+const SettlementIndicator: FC<{
+  status?: SettlementStatus;
+  layer?: SettlementLayer;
+}> = ({ status = 'pending', layer = 'unknown' }) => {
+  const config: Record<SettlementStatus, { icon: typeof Check; label: string; color: string; animate?: boolean }> = {
+    pending: { icon: Clock, label: 'Pending', color: 'text-white/40' },
+    mpc_queued: { icon: Clock, label: 'MPC Queue', color: 'text-white/60' },
+    mpc_matching: { icon: SpinnerGap, label: 'Matching', color: 'text-white', animate: true },
+    mpc_matched: { icon: Lightning, label: 'Matched', color: 'text-white' },
+    settling: { icon: SpinnerGap, label: 'Settling', color: 'text-white', animate: true },
+    settled: { icon: Check, label: 'Settled', color: 'text-emerald-400' },
+    failed: { icon: WarningCircle, label: 'Failed', color: 'text-rose-400' },
+  };
+
+  const { icon: Icon, label, color, animate } = config[status];
+
+  // Layer badge
+  const layerBadge = layer !== 'unknown' && layer !== 'public' && (
+    <span className={`text-[9px] px-1 rounded ${
+      layer === 'shadowwire' ? 'bg-purple-500/20 text-purple-400' : 'bg-blue-500/20 text-blue-400'
+    }`}>
+      {layer === 'shadowwire' ? 'SW' : 'C-SPL'}
+    </span>
+  );
+
+  return (
+    <div className="flex items-center gap-1">
+      <Icon size={12} className={`${color} ${animate ? 'animate-spin' : ''}`} />
+      <span className={`text-[10px] ${color}`}>{label}</span>
+      {layerBadge}
+    </div>
+  );
+};
 
 export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => {
   const isTable = variant === 'table';
@@ -51,21 +88,37 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
   // Combine real trades with local order history
   const allTrades = useMemo(() => {
     // Convert local order history to Trade format
-    const localTrades: Trade[] = orderHistory.map(order => ({
-      id: order.id,
-      signature: order.id, // Local orders don't have signatures
-      side: order.side,
-      pair: order.pair,
-      price: null, // Encrypted
-      amount: '***', // Encrypted
-      timestamp: order.createdAt,
-      txSignature: '',
-      isMine: true,
-      type: 'ORDER',
-      description: `${order.side.toUpperCase()} order (local)`,
-      fee: 0,
-      status: order.status === 'cancelled' ? 'failed' : 'success',
-    }));
+    const localTrades: Trade[] = orderHistory.map(order => {
+      // Map order status to settlement status
+      let settlementStatus: SettlementStatus = 'pending';
+      if (order.status === 'cancelled') {
+        settlementStatus = 'failed';
+      } else if (order.status === 'filled') {
+        settlementStatus = 'settled';
+      } else if (order.status === 'partial') {
+        settlementStatus = 'settling';
+      } else if (order.status === 'open') {
+        settlementStatus = 'mpc_queued';
+      }
+
+      return {
+        id: order.id,
+        signature: order.id, // Local orders don't have signatures
+        side: order.side,
+        pair: order.pair,
+        price: null, // Encrypted
+        amount: '***', // Encrypted
+        timestamp: order.createdAt,
+        txSignature: '',
+        isMine: true,
+        type: 'ORDER',
+        description: `${order.side.toUpperCase()} order (local)`,
+        fee: 0,
+        status: order.status === 'cancelled' ? 'failed' : 'success',
+        settlementStatus,
+        settlementLayer: 'unknown' as SettlementLayer,
+      };
+    });
 
     // Merge and sort by timestamp (newest first)
     const combined = [...localTrades, ...realTrades];
@@ -140,14 +193,14 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
           </div>
           <div className="flex items-center gap-2">
             <div className={`flex items-center gap-1 text-xs ${hasRealData ? 'text-white' : 'text-muted-foreground'}`}>
-              {hasRealData ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+              {hasRealData ? <WifiHigh size={12} /> : <WifiSlash size={12} />}
             </div>
             <button
               onClick={refresh}
               disabled={isLoading}
               className="p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+              <ArrowsClockwise size={12} className={isLoading ? 'animate-spin' : ''} />
             </button>
           </div>
         </div>
@@ -155,7 +208,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
         {/* Table */}
         {isLoading && filteredTrades.length === 0 ? (
           <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <SpinnerGap size={24} className="animate-spin text-muted-foreground" />
           </div>
         ) : filteredTrades.length === 0 ? (
           <div className="py-8 text-center text-muted-foreground text-sm">
@@ -169,6 +222,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                   <th className="text-left py-2 px-3">Side</th>
                   <th className="text-right py-2 px-3">Price</th>
                   <th className="text-right py-2 px-3">Amount</th>
+                  <th className="text-center py-2 px-3">Settlement</th>
                   <th className="text-right py-2 px-3">Time</th>
                 </tr>
               </thead>
@@ -179,12 +233,12 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                       <div className="flex items-center gap-1">
                         {trade.side === 'buy' ? (
                           <>
-                            <ArrowUpRight className="h-3 w-3 text-emerald-400/80" />
+                            <ArrowUpRight size={12} className="text-emerald-400/80" />
                             <span className="text-emerald-400/80 text-xs font-medium">BUY</span>
                           </>
                         ) : (
                           <>
-                            <ArrowDownRight className="h-3 w-3 text-rose-400/80" />
+                            <ArrowDownRight size={12} className="text-rose-400/80" />
                             <span className="text-rose-400/80 text-xs font-medium">SELL</span>
                           </>
                         )}
@@ -200,16 +254,22 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                     }`}>
                       {trade.price !== null ? `$${trade.price.toFixed(2)}` : (
                         <span className="flex items-center justify-end gap-1">
-                          <Lock className="h-3 w-3 opacity-50" />***
+                          <Lock size={12} className="opacity-50" />***
                         </span>
                       )}
                     </td>
                     <td className="py-2 px-3 text-right font-mono text-muted-foreground">
                       {trade.amount === '***' ? (
                         <span className="flex items-center justify-end gap-1">
-                          <Lock className="h-3 w-3 opacity-50" />***
+                          <Lock size={12} className="opacity-50" />***
                         </span>
                       ) : trade.amount}
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <SettlementIndicator
+                        status={trade.settlementStatus}
+                        layer={trade.settlementLayer}
+                      />
                     </td>
                     <td className="py-2 px-3 text-right text-xs text-muted-foreground">
                       {formatTime(trade.timestamp)}
@@ -231,7 +291,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold flex items-center gap-2">
-            <History className="h-4 w-4 text-primary" />
+            <ClockCounterClockwise size={16} className="text-primary" />
             Recent Trades
           </h3>
           <div className="flex items-center gap-2">
@@ -239,12 +299,12 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
             <div className={`flex items-center gap-1 text-xs ${hasRealData ? 'text-white' : 'text-muted-foreground'}`}>
               {hasRealData ? (
                 <>
-                  <Wifi className="h-3 w-3" />
+                  <WifiHigh size={12} />
                   <span>Live</span>
                 </>
               ) : (
                 <>
-                  <WifiOff className="h-3 w-3" />
+                  <WifiSlash size={12} />
                   <span>Local</span>
                 </>
               )}
@@ -256,7 +316,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
               className="p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
               title="Refresh"
             >
-              <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
+              <ArrowsClockwise size={12} className={isLoading ? 'animate-spin' : ''} />
             </button>
             <span className="text-xs text-muted-foreground">
               {filteredTrades.length} trades
@@ -295,17 +355,18 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
       {error && (
         <div className="px-4 py-2 bg-rose-500/20 border-b border-rose-500/30">
           <div className="flex items-center gap-2 text-xs text-rose-400/80">
-            <AlertCircle className="h-3 w-3" />
+            <WarningCircle size={12} />
             <span>{error}</span>
           </div>
         </div>
       )}
 
       {/* Column Headers */}
-      <div className="grid grid-cols-4 text-xs text-muted-foreground px-4 py-2 border-b border-border/50">
+      <div className="grid grid-cols-5 text-xs text-muted-foreground px-4 py-2 border-b border-border/50">
         <span>Side</span>
         <span className="text-right">Price</span>
         <span className="text-right">Amount</span>
+        <span className="text-center">Settlement</span>
         <span className="text-right">Time</span>
       </div>
 
@@ -313,7 +374,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
       <div className="max-h-[400px] overflow-y-auto">
         {isLoading && filteredTrades.length === 0 ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            <SpinnerGap size={24} className="animate-spin text-muted-foreground" />
           </div>
         ) : filteredTrades.length === 0 ? (
           <div className="py-8 text-center text-muted-foreground text-sm">
@@ -332,7 +393,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
             {filteredTrades.map((trade) => (
               <div
                 key={trade.id}
-                className={`grid grid-cols-4 text-sm px-4 py-2 hover:bg-secondary/30 transition-colors ${
+                className={`grid grid-cols-5 text-sm px-4 py-2 hover:bg-secondary/30 transition-colors ${
                   trade.isMine ? 'bg-primary/5' : ''
                 }`}
               >
@@ -340,12 +401,12 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                 <div className="flex items-center gap-1">
                   {trade.side === 'buy' ? (
                     <>
-                      <ArrowUpRight className="h-3 w-3 text-emerald-400/80" />
+                      <ArrowUpRight size={12} className="text-emerald-400/80" />
                       <span className="text-emerald-400/80 text-xs font-medium">BUY</span>
                     </>
                   ) : (
                     <>
-                      <ArrowDownRight className="h-3 w-3 text-rose-400/80" />
+                      <ArrowDownRight size={12} className="text-rose-400/80" />
                       <span className="text-rose-400/80 text-xs font-medium">SELL</span>
                     </>
                   )}
@@ -370,7 +431,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                     `$${trade.price.toFixed(2)}`
                   ) : (
                     <span className="flex items-center justify-end gap-1">
-                      <Lock className="h-3 w-3 opacity-50" />
+                      <Lock size={12} className="opacity-50" />
                       <span>***</span>
                     </span>
                   )}
@@ -380,7 +441,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                 <span className="text-right font-mono text-muted-foreground">
                   {trade.amount === '***' ? (
                     <span className="flex items-center justify-end gap-1">
-                      <Lock className="h-3 w-3 opacity-50" />
+                      <Lock size={12} className="opacity-50" />
                       <span>***</span>
                     </span>
                   ) : (
@@ -388,10 +449,18 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                   )}
                 </span>
 
+                {/* Settlement */}
+                <div className="flex justify-center">
+                  <SettlementIndicator
+                    status={trade.settlementStatus}
+                    layer={trade.settlementLayer}
+                  />
+                </div>
+
                 {/* Time */}
                 <div className="text-right text-xs text-muted-foreground">
                   <div className="flex items-center justify-end gap-1">
-                    <Clock className="h-3 w-3" />
+                    <Clock size={12} />
                     <span>{formatTime(trade.timestamp)}</span>
                   </div>
                   {trade.txSignature && (
@@ -401,7 +470,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-0.5 text-primary hover:underline mt-0.5"
                     >
-                      <ExternalLink className="h-2.5 w-2.5" />
+                      <ArrowSquareOut size={10} />
                       <span className="text-[10px]">tx</span>
                     </a>
                   )}
@@ -441,7 +510,7 @@ export const TradeHistory: FC<TradeHistoryProps> = ({ variant = 'default' }) => 
             )}
           </div>
           <div className="flex items-center gap-1">
-            <Lock className="h-3 w-3" />
+            <Lock size={12} />
             <span>Amounts encrypted</span>
           </div>
         </div>

@@ -12,6 +12,7 @@ import {
 } from '@solana/wallet-adapter-wallets';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from './theme-provider';
+import { Toaster } from 'sonner';
 
 // Import wallet adapter styles
 import '@solana/wallet-adapter-react-ui/styles.css';
@@ -50,7 +51,19 @@ export const Providers: FC<ProvidersProps> = ({ children }) => {
       <ThemeProvider>
         <ConnectionProvider endpoint={endpoint}>
           <WalletProvider wallets={wallets} autoConnect>
-            <WalletModalProvider>{children}</WalletModalProvider>
+            <WalletModalProvider>
+              {children}
+              <Toaster
+                position="bottom-right"
+                toastOptions={{
+                  style: {
+                    background: 'rgba(0, 0, 0, 0.9)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: 'white',
+                  },
+                }}
+              />
+            </WalletModalProvider>
           </WalletProvider>
         </ConnectionProvider>
       </ThemeProvider>

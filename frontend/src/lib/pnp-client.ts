@@ -85,30 +85,44 @@ function mapMarketResponse(data: Record<string, unknown>): PNPMarketData {
       noTokenSupply: String(data.noTokenSupply || '0'),
       endTime: Number(data.endTime) || 0,
       resolved: Boolean(data.resolved),
+      resolvable: Boolean(data.resolvable),
     },
   };
 }
 
 /**
  * Fetch all active markets using internal API (which uses SDK server-side)
+ * @param limit - Maximum number of markets to return
+ * @param search - Optional search query to filter by question text
  */
 export async function fetchAllMarkets(
-  limit: number = 20
+  limit: number = 50,
+  search?: string
 ): Promise<PNPMarketData[]> {
   try {
+    // Build query params
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (search?.trim()) {
+      params.set('search', search.trim());
+    }
+
     // Try internal API first (uses SDK server-side)
-    const response = await fetch(`${INTERNAL_API_BASE}/markets?limit=${limit}`);
+    const response = await fetch(`${INTERNAL_API_BASE}/markets?${params}`);
 
     if (response.ok) {
       const data = await response.json();
       if (data.success && data.markets) {
-        logger.pnp.info('Fetched markets via SDK', { count: data.count, total: data.totalCount });
+        logger.pnp.info('Fetched markets via SDK', {
+          count: data.count,
+          total: data.totalCount,
+          search: data.searchQuery || null,
+        });
         return data.markets.map(mapMarketResponse);
       }
     }
 
-    // Fall back to external API if available
-    if (EXTERNAL_API_AVAILABLE) {
+    // Fall back to external API if available (no search support)
+    if (EXTERNAL_API_AVAILABLE && !search) {
       const extResponse = await fetch(`${API_URL}/markets?limit=${limit}&active=true`);
       if (extResponse.ok) {
         const data = await extResponse.json();

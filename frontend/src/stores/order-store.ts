@@ -8,8 +8,11 @@ export type ProofStatus = 'idle' | 'generating' | 'ready' | 'failed';
 
 export interface Order {
   id: string;
+  onChainOrderId?: bigint; // The on-chain order ID from exchange.order_count
   maker: PublicKey;
   pair: string;
+  baseMint?: string; // Base token mint address
+  quoteMint?: string; // Quote token mint address
   side: OrderSide;
   type: OrderType;
   encryptedAmount: Uint8Array;

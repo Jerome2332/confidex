@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+use crate::cpi::arcium::{add_encrypted, calculate_funding_sync, sub_encrypted};
 use crate::error::ConfidexError;
 use crate::state::{ConfidentialPosition, FundingRateState, PerpetualMarket, PositionSide};
 
@@ -42,6 +43,9 @@ pub struct SettleFunding<'info> {
     )]
     pub collateral_vault: AccountInfo<'info>,
 
+    /// CHECK: Arcium program for MPC computations
+    pub arcium_program: AccountInfo<'info>,
+
     /// Anyone can settle funding for any position (keeper crank)
     pub keeper: Signer<'info>,
 }
@@ -67,20 +71,37 @@ pub fn handler(ctx: Context<SettleFunding>) -> Result<()> {
         return Ok(());
     }
 
-    // TODO: Submit MPC computation to calculate and apply funding payment
-    // The MPC will:
-    // 1. Calculate: funding_payment = encrypted_size * funding_delta / SCALE
-    // 2. Update: encrypted_collateral = encrypted_collateral - funding_payment (for longs when rate > 0)
-    //    or: encrypted_collateral = encrypted_collateral + funding_payment (for shorts when rate > 0)
-    // 3. Recalculate liquidation threshold based on new collateral
+    // Calculate funding payment via MPC
+    // funding_payment = encrypted_size * funding_delta / SCALE
+    let is_long = matches!(position.side, PositionSide::Long);
+    let (encrypted_funding, is_receiving) = calculate_funding_sync(
+        &ctx.accounts.arcium_program,
+        &position.encrypted_size,
+        funding_delta as i64,
+        is_long,
+    )?;
 
-    // Determine funding direction based on current rate and position side
+    // Update encrypted collateral based on funding direction
+    // is_receiving = true: position receives funding (add to collateral)
+    // is_receiving = false: position pays funding (subtract from collateral)
+    if is_receiving {
+        position.encrypted_collateral = add_encrypted(
+            &ctx.accounts.arcium_program,
+            &position.encrypted_collateral,
+            &encrypted_funding,
+        )?;
+    } else {
+        position.encrypted_collateral = sub_encrypted(
+            &ctx.accounts.arcium_program,
+            &position.encrypted_collateral,
+            &encrypted_funding,
+        )?;
+    }
+
+    // Determine funding direction for logging
     // Positive rate = longs pay shorts
     // Negative rate = shorts pay longs
-    let is_paying = match position.side {
-        PositionSide::Long => funding_delta > 0,
-        PositionSide::Short => funding_delta < 0,
-    };
+    let is_paying = !is_receiving;
 
     // Update position's entry cumulative funding to current
     // This marks the funding as "settled" for this position

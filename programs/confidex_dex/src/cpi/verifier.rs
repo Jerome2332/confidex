@@ -7,21 +7,32 @@
 //! - User's address is NOT in the blacklist (SMT non-membership)
 //! - Proof is generated off-chain and verified on-chain
 //!
-//! Reference: https://github.com/reilabs/sunspot
+//! Reference: https://github.com/solana-foundation/noir-examples
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::Instruction;
+use anchor_lang::solana_program::program::invoke;
 
 /// Sunspot Verifier Program ID (devnet)
-/// This will be set after deploying the eligibility verifier circuit
+/// Deployed verifier for the eligibility circuit
+/// Rebuilt Jan 17 2026 with current verification key
+/// Address: 9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W
 pub const SUNSPOT_VERIFIER_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+    // Base58: 9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W
+    0x82, 0xdb, 0x6f, 0x8a, 0x7a, 0x8c, 0x1d, 0x85,
+    0xb3, 0xfa, 0xfb, 0xf9, 0xfc, 0x10, 0xa1, 0x21,
+    0x26, 0x36, 0x4d, 0x3c, 0x12, 0xa8, 0x34, 0x1c,
+    0x94, 0xf4, 0x6d, 0x15, 0x0d, 0xe6, 0x6a, 0x01,
 ]);
 
-/// Groth16 proof size (compressed)
-/// π = (A, B, C) where A, C are G1 points (64 bytes each) and B is G2 (128 bytes)
-/// Plus some overhead for the proof format
-pub const GROTH16_PROOF_SIZE: usize = 388;
+/// Feature flag to enable/disable actual ZK verification
+/// Set to true for production, false for development testing
+pub const ZK_VERIFICATION_ENABLED: bool = true; // Production: Real ZK verification via Sunspot
+
+/// Groth16 proof size for Sunspot/gnark format
+/// Layout: A(64) + B(128) + C(64) + num_commitments(4) + commitment_pok(64) = 324 bytes
+/// Note: proofs with Pedersen commitments are 324 + N*64 bytes
+pub const GROTH16_PROOF_SIZE: usize = 324;
 
 /// Public inputs for the eligibility circuit
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -57,24 +68,11 @@ pub enum VerificationResult {
 /// * `Ok(false)` if proof is invalid
 /// * `Err(_)` if verification fails
 pub fn verify_eligibility_proof(
-    _verifier_program: &AccountInfo,
+    verifier_program: &AccountInfo,
     proof: &[u8; GROTH16_PROOF_SIZE],
     blacklist_root: &[u8; 32],
     _address: &Pubkey,
 ) -> Result<bool> {
-    // TODO: Implement actual CPI to Sunspot verifier
-    //
-    // The flow will be:
-    // 1. Format public inputs (blacklist_root)
-    // 2. CPI to Sunspot verifier with proof and public inputs
-    // 3. Sunspot performs Groth16 verification on-chain
-    // 4. Return result
-    //
-    // CPI instruction format (estimated):
-    // - instruction discriminator: [u8; 8]
-    // - proof: [u8; 388]
-    // - public_inputs: Vec<[u8; 32]>
-
     msg!("Sunspot CPI: verify_eligibility_proof");
     msg!("  Blacklist root: {:?}", &blacklist_root[0..8]);
     msg!("  Proof length: {} bytes", proof.len());
@@ -85,36 +83,80 @@ pub fn verify_eligibility_proof(
         return Ok(false);
     }
 
-    // For development, accept all proofs
-    // This MUST be replaced with actual verification before production
-    //
-    // In production:
-    // let ix = sunspot::verify_proof(proof, public_inputs);
-    // invoke(&ix, &[verifier_program.clone()])?;
-    // Parse result from account data
+    // Check if ZK verification is enabled
+    if !ZK_VERIFICATION_ENABLED {
+        msg!("ZK verification DISABLED - accepting proof without verification");
+        return Ok(true);
+    }
 
-    msg!("Proof verification: ACCEPTED (development mode)");
+    // Build CPI instruction data: [proof_bytes || witness_bytes]
+    // Sunspot/gnark witness format:
+    // - num_inputs (u32 BE): 1
+    // - padding (4 bytes): 0
+    // - num_field_elements (u32 BE): 1
+    // - blacklist_root (32 bytes)
+    // Total witness: 44 bytes
+    let mut verifier_data = Vec::with_capacity(GROTH16_PROOF_SIZE + 44);
+    verifier_data.extend_from_slice(proof);
+    // Build witness in gnark format
+    verifier_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]); // num_inputs = 1 (BE)
+    verifier_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // padding
+    verifier_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x01]); // num_field_elements = 1 (BE)
+    verifier_data.extend_from_slice(blacklist_root);
 
-    Ok(true)
+    // Build the CPI instruction
+    // Sunspot verifiers take zero accounts - all data is in instruction
+    let verify_ix = Instruction {
+        program_id: verifier_program.key(),
+        accounts: vec![],
+        data: verifier_data,
+    };
+
+    msg!("Invoking Sunspot verifier at: {}", verifier_program.key());
+
+    // Invoke the verifier program
+    // If the proof is invalid, this will return an error
+    match invoke(&verify_ix, &[]) {
+        Ok(_) => {
+            msg!("ZK proof verification: VALID");
+            Ok(true)
+        }
+        Err(e) => {
+            msg!("ZK proof verification FAILED: {:?}", e);
+            Ok(false)
+        }
+    }
 }
 
 /// Verify a generic Groth16 proof with custom public inputs
 ///
 /// This is a more flexible version that can be used for other circuits
-/// beyond just eligibility proofs.
+/// beyond just eligibility proofs (e.g., range proofs, solvency proofs).
+///
+/// # Arguments
+/// * `verifier_program` - The Sunspot verifier program account for this specific circuit
+/// * `_verification_key_account` - Reserved for future use (some verifiers may store VK on-chain)
+/// * `proof` - The Groth16 proof (324 bytes standard, may be larger with commitments)
+/// * `public_inputs` - Array of 32-byte field elements as public inputs
+///
+/// # Returns
+/// * `VerificationResult::Valid` - Proof verified successfully
+/// * `VerificationResult::Invalid` - Proof verification failed
+/// * `VerificationResult::Failed` - Error during verification
 pub fn verify_groth16_proof(
-    _verifier_program: &AccountInfo,
+    verifier_program: &AccountInfo,
     _verification_key_account: &AccountInfo,
     proof: &[u8],
     public_inputs: &[[u8; 32]],
 ) -> Result<VerificationResult> {
     msg!("Sunspot CPI: verify_groth16_proof");
+    msg!("  Verifier program: {}", verifier_program.key());
     msg!("  Proof length: {} bytes", proof.len());
     msg!("  Public inputs count: {}", public_inputs.len());
 
-    // Validate inputs
-    if proof.len() != GROTH16_PROOF_SIZE {
-        msg!("Invalid proof length");
+    // Validate proof length (must be at least standard size)
+    if proof.len() < GROTH16_PROOF_SIZE {
+        msg!("Invalid proof length: {} < {}", proof.len(), GROTH16_PROOF_SIZE);
         return Ok(VerificationResult::Invalid);
     }
 
@@ -123,10 +165,59 @@ pub fn verify_groth16_proof(
         return Ok(VerificationResult::Invalid);
     }
 
-    // TODO: Actual CPI to Sunspot verifier
-    // For development, accept all validly-formatted proofs
+    // Check if ZK verification is enabled
+    if !ZK_VERIFICATION_ENABLED {
+        msg!("ZK verification DISABLED - accepting proof without verification");
+        return Ok(VerificationResult::Valid);
+    }
 
-    Ok(VerificationResult::Valid)
+    // Build CPI instruction data: [proof_bytes || witness_bytes]
+    // Sunspot/gnark witness format:
+    // - num_inputs (u32 BE): number of public inputs
+    // - padding (4 bytes): 0
+    // - num_field_elements (u32 BE): number of field elements
+    // - inputs (32 bytes each): field element data
+    //
+    // Total witness: 12 + (public_inputs.len() * 32) bytes
+    let num_inputs = public_inputs.len() as u32;
+    let witness_size = 12 + (public_inputs.len() * 32);
+    let mut verifier_data = Vec::with_capacity(proof.len() + witness_size);
+
+    // Copy proof bytes
+    verifier_data.extend_from_slice(proof);
+
+    // Build witness in gnark format
+    verifier_data.extend_from_slice(&num_inputs.to_be_bytes()); // num_inputs (BE)
+    verifier_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // padding
+    verifier_data.extend_from_slice(&num_inputs.to_be_bytes()); // num_field_elements (BE)
+
+    // Append each public input as a 32-byte field element
+    for input in public_inputs {
+        verifier_data.extend_from_slice(input);
+    }
+
+    // Build the CPI instruction
+    // Sunspot verifiers take zero accounts - all data is in instruction
+    let verify_ix = Instruction {
+        program_id: verifier_program.key(),
+        accounts: vec![],
+        data: verifier_data,
+    };
+
+    msg!("Invoking Sunspot verifier with {} inputs", num_inputs);
+
+    // Invoke the verifier program
+    // If the proof is invalid, this will return an error
+    match invoke(&verify_ix, &[]) {
+        Ok(_) => {
+            msg!("ZK proof verification: VALID");
+            Ok(VerificationResult::Valid)
+        }
+        Err(e) => {
+            msg!("ZK proof verification FAILED: {:?}", e);
+            Ok(VerificationResult::Invalid)
+        }
+    }
 }
 
 /// Decode a Groth16 proof from bytes

@@ -1,7 +1,12 @@
 use anchor_lang::prelude::*;
 
+use crate::cpi::arcium::{verify_position_params_sync, EncryptedU64};
 use crate::error::ConfidexError;
+use crate::oracle::{get_sol_usd_price, validate_price_deviation};
 use crate::state::{ConfidentialPosition, PerpetualMarket, FundingRateState, PositionSide, PositionStatus};
+
+/// Maximum deviation between user entry price and oracle price (1% = 100 bps)
+const MAX_ENTRY_PRICE_DEVIATION_BPS: u16 = 100;
 
 #[derive(Accounts)]
 pub struct OpenPosition<'info> {
@@ -53,6 +58,9 @@ pub struct OpenPosition<'info> {
     #[account(mut)]
     pub trader: Signer<'info>,
 
+    /// CHECK: Arcium program for MPC verification
+    pub arcium_program: AccountInfo<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -97,6 +105,25 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
         ConfidexError::OpenInterestLimitExceeded
     );
 
+    // Fetch current oracle price and validate user's entry price
+    let oracle_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+    msg!("Oracle SOL/USD price: {} (6 decimals)", oracle_price);
+
+    // Extract user's claimed entry price from encrypted params (hybrid format: first 8 bytes are plaintext)
+    let user_entry_price = u64::from_le_bytes(
+        params.encrypted_entry_price[0..8].try_into().unwrap_or([0u8; 8])
+    );
+
+    // Validate entry price is within acceptable deviation from oracle
+    let price_valid = validate_price_deviation(user_entry_price, oracle_price, MAX_ENTRY_PRICE_DEVIATION_BPS)?;
+    require!(
+        price_valid,
+        ConfidexError::InvalidOraclePrice
+    );
+
+    msg!("Entry price {} validated against oracle price {} (within {}bps)",
+        user_entry_price, oracle_price, MAX_ENTRY_PRICE_DEVIATION_BPS);
+
     // TODO: Verify eligibility proof via Sunspot verifier CPI
     // For now, we'll mark it as needing verification
     // In production, this would CPI to the eligibility_verifier program
@@ -104,9 +131,25 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
     // TODO: Transfer encrypted collateral from trader to vault via C-SPL CPI
     // This would use confidential_transfer instruction
 
-    // TODO: Submit MPC request to verify liquidation threshold matches position params
-    // The MPC will verify: threshold = entry_price * (1 - maintenance_margin / leverage) for longs
-    //                      threshold = entry_price * (1 + maintenance_margin / leverage) for shorts
+    // === MPC VERIFICATION ===
+    // Verify that the claimed liquidation threshold matches the encrypted position params
+    // The MPC computes: threshold = entry_price * (1 - maintenance_margin / leverage) for longs
+    //                   threshold = entry_price * (1 + maintenance_margin / leverage) for shorts
+    let is_long = matches!(params.side, PositionSide::Long);
+    let threshold_valid = verify_position_params_sync(
+        &ctx.accounts.arcium_program,
+        &perp_market.arcium_cluster,
+        &params.encrypted_entry_price,
+        params.liquidation_threshold,
+        params.leverage,
+        is_long,
+        perp_market.maintenance_margin_bps,
+    )?;
+
+    require!(
+        threshold_valid,
+        ConfidexError::InvalidLiquidationThreshold
+    );
 
     // Initialize position
     position.trader = ctx.accounts.trader.key();
@@ -135,7 +178,7 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
         }
     }
     position.last_threshold_update = clock.unix_timestamp;
-    position.threshold_verified = false; // Will be set true after MPC verification
+    position.threshold_verified = true; // Verified via MPC above
 
     // Record cumulative funding at entry for later settlement
     position.entry_cumulative_funding = match params.side {

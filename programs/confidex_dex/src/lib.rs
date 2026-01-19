@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 pub mod cpi;
 pub mod error;
 pub mod instructions;
+pub mod oracle;
 pub mod settlement;
 pub mod state;
 
@@ -49,7 +50,7 @@ pub mod confidex_dex {
         order_type: state::OrderType,
         encrypted_amount: [u8; 64],
         encrypted_price: [u8; 64],
-        eligibility_proof: [u8; 388],
+        eligibility_proof: [u8; 324],
     ) -> Result<()> {
         instructions::place_order::handler(
             ctx,
@@ -98,6 +99,29 @@ pub mod confidex_dex {
     /// Set vault addresses for a trading pair (admin only)
     pub fn set_pair_vaults(ctx: Context<SetPairVaults>) -> Result<()> {
         instructions::admin::set_pair_vaults_handler(ctx)
+    }
+
+    /// Close a perpetual market for migration (admin only)
+    pub fn close_perp_market(ctx: Context<ClosePerpMarket>) -> Result<()> {
+        instructions::admin::close_perp_market_handler(ctx)
+    }
+
+    /// Close a funding state for migration (admin only)
+    pub fn close_funding_state(ctx: Context<CloseFundingState>) -> Result<()> {
+        instructions::admin::close_funding_state_handler(ctx)
+    }
+
+    /// Set vault addresses for a perpetual market (admin only)
+    pub fn set_perp_market_vaults(ctx: Context<SetPerpMarketVaults>) -> Result<()> {
+        instructions::admin::set_perp_market_vaults_handler(ctx)
+    }
+
+    /// Update perpetual market configuration (admin only)
+    pub fn update_perp_market_config(
+        ctx: Context<UpdatePerpMarketConfig>,
+        params: UpdatePerpMarketParams,
+    ) -> Result<()> {
+        instructions::admin::update_perp_market_config_handler(ctx, params)
     }
 
     // === Perpetuals Instructions ===
@@ -210,5 +234,38 @@ pub mod confidex_dex {
     /// Settle accumulated funding payments for a position
     pub fn settle_funding(ctx: Context<SettleFunding>) -> Result<()> {
         instructions::perp_settle_funding::handler(ctx)
+    }
+
+    // === MPC Callback Instructions ===
+
+    /// Finalize order match from Arcium MPC callback (simplified production flow)
+    /// Called by the MXE after MPC price comparison completes.
+    /// Orders are passed directly via callback_account_1/2 stored in ComputationRequest.
+    pub fn finalize_match(
+        ctx: Context<FinalizeMatch>,
+        request_id: [u8; 32],
+        result: Vec<u8>,
+    ) -> Result<()> {
+        instructions::mpc_callback::finalize_match(ctx, request_id, result)
+    }
+
+    /// Receive price comparison result from Arcium MPC (legacy PendingMatch flow)
+    /// Called by the MXE after MPC execution completes
+    pub fn receive_compare_result(
+        ctx: Context<ReceiveCompareResult>,
+        request_id: [u8; 32],
+        result: Vec<u8>,
+    ) -> Result<()> {
+        instructions::mpc_callback::receive_compare_result(ctx, request_id, result)
+    }
+
+    /// Receive fill calculation result from Arcium MPC (legacy PendingMatch flow)
+    /// Called by the MXE after MPC execution completes
+    pub fn receive_fill_result(
+        ctx: Context<ReceiveFillResult>,
+        request_id: [u8; 32],
+        result: Vec<u8>,
+    ) -> Result<()> {
+        instructions::mpc_callback::receive_fill_result(ctx, request_id, result)
     }
 }

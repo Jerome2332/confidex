@@ -1,8 +1,8 @@
 # Confidex - Remaining Tasks
 
-**Last Updated:** January 15, 2026
+**Last Updated:** January 18, 2026
 **Submission Deadline:** January 30, 2026
-**Days Remaining:** 15
+**Days Remaining:** 12
 
 ---
 
@@ -42,27 +42,10 @@
 
 ### 2.1 PRD Synchronization
 - [x] **PRD-003**: Update Barretenberg → Sunspot/Groth16 ✅ COMPLETED
-  - Updated proof system to server-side Sunspot
-  - Updated circuit code to use pedersen_hash (stdlib)
-  - Fixed all client-side references
 - [x] **PRD-001**: Update timeline and prize targets ✅ COMPLETED
-  - Already at $66.5K target
-  - Fixed proof generation note (server-side)
 - [x] **PRD-002**: Add dual settlement account structures ✅ COMPLETED
-  - Added Section 7: Dual Settlement Architecture
-  - SettlementMethod enum (CSPL, ShadowWire)
-  - UserConfidentialAccount and ShadowWireDeposit structs
-  - TradingPairSettlement with dual vault support
-  - Updated Program IDs with deployed addresses
 - [x] **PRD-005**: Add ShadowWire/Inco/PNP integration specs ✅ COMPLETED
-  - Added ShadowWire SDK integration section
-  - Added PNP Exchange SDK integration section
-  - Fixed client-side proof generation references
 - [x] **dev-setup.md**: Align version numbers ✅ COMPLETED
-  - Created comprehensive dev-setup.md with all tool versions
-  - Anchor: 0.32.1, Rust: 1.89.0, Noir: 1.0.0-beta.13
-  - Sunspot, Arcium CLI, Node.js setup instructions
-  - IDE configuration, troubleshooting, deployed Program IDs
 
 ---
 
@@ -70,10 +53,6 @@
 
 ### 3.1 Integration Tests
 - [x] Create `tests/integration/mpc_matching.ts` ✅ COMPLETED
-  - Test encrypted price comparison
-  - Test fill amount calculation
-  - Test callback handling
-  - Add to `package.json` scripts
   - **Result:** 10/10 tests passing
 
 ---
@@ -105,9 +84,6 @@
 
 ### 5.1 Missing Pages
 - [x] Create Wrap/Unwrap page (`/wrap`) ✅ COMPLETED
-  - Deposit tokens to get confidential tokens
-  - Withdraw confidential tokens to regular tokens
-  - Show balances before/after
   - **Features:** Tab switching, token selection, max amount, conversion preview
 
 ---
@@ -122,6 +98,32 @@
 
 ---
 
+## 7. Production Hardening (Phase 9) ✅ COMPLETED
+
+### 7.1 Critical Gaps - All Complete
+- [x] **Task A**: Token mint mapping in settlement library ✅
+  - Added `KNOWN_MINTS`, `tokenFromMint()`, `isMintSupportedByShadowWire()`
+  - File: `lib/src/settlement.ts`
+- [x] **Task B**: Strict proof mode ✅
+  - Added `STRICT_PROOF_MODE` flag to backend and frontend
+  - Rejects simulated proofs when `STRICT_PROOFS=true`
+  - Files: `backend/src/lib/prover.ts`, `frontend/src/hooks/use-range-proof.ts`
+- [x] **Task C**: Standard SPL transfer fallback ✅
+  - Complete fallback when ShadowWire unavailable
+  - ATA creation + transfer instructions
+  - File: `lib/src/settlement.ts`
+- [x] **Task D**: Disable mock market fallback in production ✅
+  - Mock data only enabled in development
+  - File: `frontend/src/lib/pnp.ts`
+- [x] **Task E**: Document ShadowWire range proof status ✅
+  - Comprehensive documentation explaining devnet verification strategy
+  - File: `programs/confidex_dex/src/settlement/shadowwire.rs`
+- [x] **Task F**: Verify admin auth check ✅
+  - Confirmed example code only, on-chain enforces security
+  - File: `project-docs/pnp-exchange-examples/setMarketResolvable.ts`
+
+---
+
 ## Progress Summary
 
 | Category | Total | Completed | Remaining |
@@ -131,8 +133,9 @@
 | Tests | 1 | 1 | 0 |
 | Demo/Submission | 8 | 0 | 8 |
 | Frontend | 1 | 1 | 0 |
+| Production Hardening | 6 | 6 | 0 |
 | Stretch | 4 | 0 | 4 |
-| **Total** | **23** | **11** | **12** |
+| **Total** | **29** | **17** | **12** |
 
 ---
 
@@ -146,6 +149,8 @@
 - [x] Phase 5: Frontend Development (Next.js app)
 - [x] Phase 6: Prize Integrations (Helius, PNP)
 - [x] Phase 7: Testing + Demo Prep (integration tests, demo script)
+- [x] Phase 8: Production Readiness (8 core tasks)
+- [x] Phase 9: Production Hardening (6 guardrail tasks)
 
 ---
 
@@ -166,6 +171,33 @@ cd tests && pnpm test
 
 # Run demo
 ./scripts/demo.sh
+
+# Production build (verify guardrails)
+NODE_ENV=production cd frontend && pnpm build
+```
+
+---
+
+## Environment Variables (Phase 9)
+
+### Production
+```bash
+# Backend
+STRICT_PROOFS=true              # Reject simulated ZK proofs
+
+# Frontend
+NEXT_PUBLIC_STRICT_PROOFS=true  # Reject simulated proofs
+NEXT_PUBLIC_PNP_USE_MOCK=false  # Disable mock markets
+```
+
+### Development
+```bash
+# Backend
+STRICT_PROOFS=false             # Allow simulated proofs
+
+# Frontend
+NEXT_PUBLIC_STRICT_PROOFS=false # Allow simulated proofs
+# NEXT_PUBLIC_PNP_USE_MOCK omitted = true in dev
 ```
 
 ---
@@ -173,6 +205,7 @@ cd tests && pnpm test
 ## Notes
 
 - Programs compile successfully: `confidex_dex.so` (368KB), `arcium_mxe.so` (236KB)
-- Frontend builds successfully
+- Frontend builds successfully (15 static pages)
 - All 29 integration tests pass (ZK: 10, Trade: 9, MPC: 10)
 - Helius RPC integration requires API key in `.env.local`
+- **14 production readiness tasks complete** (Phase 8 + Phase 9)

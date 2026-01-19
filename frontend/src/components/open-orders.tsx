@@ -2,10 +2,22 @@
 
 import { FC, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Lock, X, Loader2 } from 'lucide-react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
+import { Lock, X, SpinnerGap } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { useOrderStore } from '@/stores/order-store';
 import { useSettingsStore } from '@/stores/settings-store';
+import { buildCancelOrderTransaction } from '@/lib/confidex-client';
+import { TRADING_PAIRS } from '@/lib/constants';
+import { createLogger } from '@/lib/logger';
+import { MpcStatus, MpcIndicator } from './mpc-status';
+
+// Default to SOL/USDC pair mints
+const DEFAULT_BASE_MINT = TRADING_PAIRS[0].baseMint;
+const DEFAULT_QUOTE_MINT = TRADING_PAIRS[0].quoteMint;
+
+const log = createLogger('open-orders');
 
 interface OpenOrder {
   id: string;
@@ -14,7 +26,8 @@ interface OpenOrder {
   amount: string; // Encrypted - shows placeholder
   price: string; // Encrypted - shows placeholder
   filled: string;
-  status: 'open' | 'partial';
+  status: 'open' | 'partial' | 'matching';
+  mpcStatus?: 'queued' | 'comparing' | 'matched' | 'settling' | 'complete';
   createdAt: Date;
 }
 
@@ -24,7 +37,8 @@ interface OpenOrdersProps {
 
 export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
   const isTable = variant === 'table';
-  const { connected } = useWallet();
+  const { connected, publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const { openOrders, removeOrder } = useOrderStore();
   const { notifications } = useSettingsStore();
@@ -37,23 +51,86 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
     amount: '***', // Encrypted - show placeholder
     price: '***',  // Encrypted - show placeholder
     filled: `${order.filledPercent}%`,
-    status: order.status === 'partial' ? 'partial' : 'open',
+    status: order.status === 'partial' ? 'partial' : order.status === 'matching' ? 'matching' : 'open',
+    mpcStatus: order.status === 'matching' ? 'comparing' : order.status === 'filled' ? 'complete' : undefined,
     createdAt: order.createdAt,
   }));
 
   const handleCancel = async (orderId: string) => {
+    if (!publicKey || !sendTransaction) {
+      toast.error('Wallet not connected');
+      return;
+    }
+
     setCancellingId(orderId);
     try {
-      // TODO: Call on-chain cancel instruction when implemented
-      await new Promise((r) => setTimeout(r, 1500));
+      // Find the order in the store to get on-chain details
+      const order = openOrders.find(o => o.id === orderId);
+      if (!order) {
+        throw new Error('Order not found');
+      }
+
+      // Check if we have the on-chain order ID
+      if (order.onChainOrderId === undefined) {
+        // Fallback for orders placed before we tracked onChainOrderId
+        log.warn('Order missing onChainOrderId, using local removal only', { orderId });
+        removeOrder(orderId);
+        if (notifications) {
+          toast.success('Order removed from local state');
+        }
+        return;
+      }
+
+      // Get mint addresses - use stored values or defaults
+      const baseMint = order.baseMint
+        ? new PublicKey(order.baseMint)
+        : new PublicKey(DEFAULT_BASE_MINT);
+      const quoteMint = order.quoteMint
+        ? new PublicKey(order.quoteMint)
+        : new PublicKey(DEFAULT_QUOTE_MINT);
+
+      log.info('Cancelling order on-chain', {
+        orderId,
+        onChainOrderId: order.onChainOrderId.toString(),
+        pair: order.pair,
+      });
+
+      // Build the cancel transaction
+      const transaction = await buildCancelOrderTransaction({
+        connection,
+        maker: publicKey,
+        orderId: order.onChainOrderId,
+        baseMint,
+        quoteMint,
+      });
+
+      // Send and confirm the transaction
+      const signature = await sendTransaction(transaction, connection);
+      log.info('Cancel transaction sent', { signature });
+
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+
+      if (confirmation.value.err) {
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      }
+
+      log.info('Order cancelled successfully', { signature, orderId });
+
+      // Remove from local state
       removeOrder(orderId);
+
       // Only show toast if notifications are enabled
       if (notifications) {
         toast.success('Order cancelled');
       }
     } catch (error) {
+      log.error('Failed to cancel order', {
+        error: error instanceof Error ? error.message : String(error),
+        orderId
+      });
       // Always show error toasts
-      toast.error('Failed to cancel order');
+      toast.error(error instanceof Error ? error.message : 'Failed to cancel order');
     } finally {
       setCancellingId(null);
     }
@@ -74,6 +151,9 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
   if (isTable) {
     return (
       <div className="p-4">
+        {/* MPC Status Banner */}
+        <MpcStatus variant="compact" className="mb-3" />
+
         {orders.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
             No open orders
@@ -88,6 +168,7 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                   <th className="text-right py-2 px-3">Amount</th>
                   <th className="text-right py-2 px-3">Price</th>
                   <th className="text-right py-2 px-3">Filled</th>
+                  <th className="text-center py-2 px-3">MPC</th>
                   <th className="text-right py-2 px-3">Action</th>
                 </tr>
               </thead>
@@ -106,17 +187,24 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                     <td className="py-2 px-3">{order.pair}</td>
                     <td className="py-2 px-3 text-right font-mono">
                       <span className="flex items-center justify-end gap-1">
-                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        <Lock size={12} className="text-muted-foreground" />
                         {order.amount}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right font-mono">
                       <span className="flex items-center justify-end gap-1">
-                        <Lock className="h-3 w-3 text-muted-foreground" />
+                        <Lock size={12} className="text-muted-foreground" />
                         {order.price}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right font-mono">{order.filled}</td>
+                    <td className="py-2 px-3 text-center">
+                      {order.mpcStatus ? (
+                        <MpcIndicator status={order.mpcStatus} />
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">Waiting</span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-right">
                       <button
                         onClick={() => handleCancel(order.id)}
@@ -124,9 +212,9 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                         className="p-1 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                       >
                         {cancellingId === order.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
+                          <SpinnerGap size={16} className="animate-spin" />
                         ) : (
-                          <X className="h-4 w-4" />
+                          <X size={16} />
                         )}
                       </button>
                     </td>
@@ -149,6 +237,9 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
           {orders.length} active
         </span>
       </div>
+
+      {/* MPC Status Banner */}
+      <MpcStatus variant="compact" className="mb-3" />
 
       {orders.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">
@@ -180,9 +271,9 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                   className="p-1 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                 >
                   {cancellingId === order.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <SpinnerGap size={16} className="animate-spin" />
                   ) : (
-                    <X className="h-4 w-4" />
+                    <X size={16} />
                   )}
                 </button>
               </div>
@@ -191,14 +282,14 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
                 <div>
                   <p className="text-muted-foreground">Amount</p>
                   <div className="flex items-center gap-1 font-mono">
-                    <Lock className="h-3 w-3 text-muted-foreground" />
+                    <Lock size={12} className="text-muted-foreground" />
                     <span>{order.amount}</span>
                   </div>
                 </div>
                 <div>
                   <p className="text-muted-foreground">Price</p>
                   <div className="flex items-center gap-1 font-mono">
-                    <Lock className="h-3 w-3 text-muted-foreground" />
+                    <Lock size={12} className="text-muted-foreground" />
                     <span>{order.price}</span>
                   </div>
                 </div>

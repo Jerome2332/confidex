@@ -24,6 +24,7 @@ import {
   TransactionMessage,
   VersionedTransaction,
   ComputeBudgetProgram,
+  Keypair,
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddressSync,
@@ -33,14 +34,23 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
 
-// PNP uses mainnet by default (has 862+ markets with real USDC)
-// Set NEXT_PUBLIC_PNP_NETWORK=devnet to use devnet instead
-const PNP_NETWORK = process.env.NEXT_PUBLIC_PNP_NETWORK || 'mainnet';
+// PNP Network Configuration
+// Set NEXT_PUBLIC_PNP_NETWORK=devnet for testing, mainnet for production
+const PNP_NETWORK = process.env.NEXT_PUBLIC_PNP_NETWORK || 'devnet';
 const RPC_URL =
   PNP_NETWORK === 'mainnet'
     ? process.env.NEXT_PUBLIC_PNP_MAINNET_RPC || 'https://api.mainnet-beta.solana.com'
-    : process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com';
-const PNP_PROGRAM_ID = new PublicKey('6fnYZUSyp3vJxTNnayq5S62d363EFaGARnqYux5bqrxb');
+    : process.env.NEXT_PUBLIC_PNP_DEVNET_RPC || process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.devnet.solana.com';
+
+// PNP Program IDs
+const PNP_MAINNET_PROGRAM_ID = new PublicKey('6fnYZUSyp3vJxTNnayq5S62d363EFaGARnqYux5bqrxb');
+const PNP_DEVNET_PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PNP_DEVNET_PROGRAM || 'pnpkv2qnh4bfpGvTugGDSEhvZC7DP4pVxTuDykV3BGz');
+const PNP_PROGRAM_ID = PNP_NETWORK === 'mainnet' ? PNP_MAINNET_PROGRAM_ID : PNP_DEVNET_PROGRAM_ID;
+
+// Devnet USDC for PNP markets
+const DEVNET_COLLATERAL_MINT = process.env.NEXT_PUBLIC_PNP_DEVNET_COLLATERAL || 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr';
+
+log.info(`PNP Build TX API initialized - Network: ${PNP_NETWORK}, Program: ${PNP_PROGRAM_ID.toBase58()}, RPC: ${RPC_URL.slice(0, 50)}...`);
 
 // SDK and IDL loading state
 let sdkLoadAttempted = false;
@@ -125,7 +135,12 @@ interface MarketData {
 }
 
 /**
- * Fetch market data from on-chain account
+ * Fetch market data using SDK's fetchMarket for raw on-chain data
+ *
+ * IMPORTANT: We use fetchMarket() instead of trading.getMarketInfo() because:
+ * - getMarketInfo() tries to derive PDAs but returns System Program for some markets
+ * - fetchMarket() returns the actual on-chain token mint addresses
+ * - The raw account data has yes_token_mint and no_token_mint fields with real addresses
  */
 async function fetchMarketData(
   connection: Connection,
@@ -136,29 +151,86 @@ async function fetchMarketData(
     throw new Error('Market account not found');
   }
 
-  // Decode market account using SDK's pattern
-  // Market account layout (simplified):
-  // - 8 bytes: discriminator
-  // - Variable: market data including mints, creator, reserves, etc.
-
-  // For now, use the read-only client to fetch market
+  // Use fetchMarket to get raw on-chain data with actual token mints
   const client = new PNPClientClass(RPC_URL);
   const marketResponse = await client.fetchMarket(marketPubkey);
-  const market = marketResponse.account;
+  const rawMarket = marketResponse.account;
 
-  const yesTokenMint = new PublicKey(market.yes_token_mint || market.yesTokenMint);
-  const noTokenMint = new PublicKey(market.no_token_mint || market.noTokenMint);
-  const collateralMint = new PublicKey(market.collateral_token || market.collateralToken);
-  const creator = new PublicKey(market.creator);
-  const creatorFeeTreasury = new PublicKey(market.creator_fee_treasury || market.creatorFeeTreasury);
+  log.debug('Raw market data from SDK', {
+    id: rawMarket.id,
+    yes_token_mint: rawMarket.yes_token_mint,
+    no_token_mint: rawMarket.no_token_mint,
+    collateral_token: rawMarket.collateral_token,
+    resolvable: rawMarket.resolvable,
+  });
 
-  // Parse reserves and supplies
-  const parseValue = (v: unknown): bigint => {
+  // Extract token mints - handle both string and PublicKey formats
+  const extractPubkey = (value: unknown, fieldName: string): PublicKey => {
+    if (!value) {
+      throw new Error(`Missing required field: ${fieldName}`);
+    }
+    if (typeof value === 'string') {
+      return new PublicKey(value);
+    }
+    if (typeof value === 'object' && value !== null) {
+      if ('toBase58' in value) {
+        return new PublicKey((value as { toBase58: () => string }).toBase58());
+      }
+      if ('toString' in value) {
+        return new PublicKey((value as { toString: () => string }).toString());
+      }
+    }
+    throw new Error(`Invalid value for ${fieldName}: ${typeof value}`);
+  };
+
+  // Use raw market data fields (snake_case from on-chain account)
+  const yesTokenMint = extractPubkey(
+    rawMarket.yes_token_mint || rawMarket.yesTokenMint,
+    'yesTokenMint'
+  );
+  const noTokenMint = extractPubkey(
+    rawMarket.no_token_mint || rawMarket.noTokenMint,
+    'noTokenMint'
+  );
+  const collateralMint = extractPubkey(
+    rawMarket.collateral_token || rawMarket.collateralToken,
+    'collateralMint'
+  );
+  const creator = extractPubkey(rawMarket.creator, 'creator');
+  const creatorFeeTreasury = extractPubkey(
+    rawMarket.creator_fee_treasury || rawMarket.creatorFeeTreasury,
+    'creatorFeeTreasury'
+  );
+
+  // Validate token mints are not System Program (market not fully initialized)
+  const SYSTEM_PROGRAM = '11111111111111111111111111111111';
+  if (yesTokenMint.toBase58() === SYSTEM_PROGRAM || noTokenMint.toBase58() === SYSTEM_PROGRAM) {
+    throw new Error(
+      `Market token mints are not initialized. This market needs setMarketResolvable(true) called. ` +
+      `Market: ${marketPubkey.toBase58()}`
+    );
+  }
+
+  // Check if market is resolvable (required for trading)
+  if (!rawMarket.resolvable) {
+    throw new Error(
+      `Market is not resolvable yet. On devnet, call setMarketResolvable(true) to enable trading. ` +
+      `Market: ${marketPubkey.toBase58()}`
+    );
+  }
+
+  // Parse hex string values from raw market data
+  const parseHexValue = (v: unknown): bigint => {
     if (v === undefined || v === null) return BigInt(0);
     if (typeof v === 'bigint') return v;
     if (typeof v === 'number') return BigInt(v);
-    if (typeof v === 'string') return BigInt(v);
-    // BN object
+    if (typeof v === 'string') {
+      // Handle hex strings (e.g., "05f5e100")
+      if (/^[0-9a-fA-F]+$/.test(v)) {
+        return BigInt('0x' + v);
+      }
+      return BigInt(v);
+    }
     if (typeof v === 'object' && 'toNumber' in v) {
       return BigInt((v as { toNumber: () => number }).toNumber());
     }
@@ -167,11 +239,11 @@ async function fetchMarketData(
 
   // Determine winning outcome
   let winningOutcome: 'YES' | 'NO' | null = null;
-  const winningTokenId = market.winning_token_id || market.winningTokenId;
-  if (winningTokenId) {
-    if (winningTokenId.Yes || winningTokenId.yes) {
+  const winningTokenId = rawMarket.winning_token_id || rawMarket.winningTokenId;
+  if (winningTokenId && typeof winningTokenId === 'object') {
+    if ('Yes' in winningTokenId) {
       winningOutcome = 'YES';
-    } else if (winningTokenId.No || winningTokenId.no) {
+    } else if ('No' in winningTokenId) {
       winningOutcome = 'NO';
     }
   }
@@ -182,10 +254,10 @@ async function fetchMarketData(
     collateralMint,
     creator,
     creatorFeeTreasury,
-    marketReserves: parseValue(market.market_reserves || market.marketReserves),
-    yesSupply: parseValue(market.yes_token_supply_minted || market.yesTokenSupplyMinted),
-    noSupply: parseValue(market.no_token_supply_minted || market.noTokenSupplyMinted),
-    resolved: Boolean(market.resolved),
+    marketReserves: parseHexValue(rawMarket.market_reserves || rawMarket.marketReserves),
+    yesSupply: parseHexValue(rawMarket.yes_token_supply_minted || rawMarket.yesTokenSupplyMinted),
+    noSupply: parseHexValue(rawMarket.no_token_supply_minted || rawMarket.noTokenSupplyMinted),
+    resolved: Boolean(rawMarket.resolved),
     winningOutcome,
   };
 }
@@ -336,51 +408,103 @@ export async function POST(request: NextRequest) {
     const globalConfig = await fetchGlobalConfig(connection);
     const [globalConfigPda] = deriveGlobalConfigPda();
 
-    // Determine token program (check if Token-2022 or standard)
-    const yesAccountInfo = await connection.getAccountInfo(marketData.yesTokenMint);
+    // Determine token program for each mint (collateral vs outcome tokens may differ)
+    // YES/NO tokens on PNP devnet use Token-2022, collateral may use standard Token Program
+    const [yesAccountInfo, noAccountInfo, collateralAccountInfo] = await Promise.all([
+      connection.getAccountInfo(marketData.yesTokenMint),
+      connection.getAccountInfo(marketData.noTokenMint),
+      connection.getAccountInfo(marketData.collateralMint),
+    ]);
+
     if (!yesAccountInfo) {
       return NextResponse.json(
         { error: 'Yes token mint not found' },
         { status: 400 }
       );
     }
-    const tokenProgramId = yesAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
+    if (!noAccountInfo) {
+      return NextResponse.json(
+        { error: 'No token mint not found' },
+        { status: 400 }
+      );
+    }
+    if (!collateralAccountInfo) {
+      return NextResponse.json(
+        { error: 'Collateral mint not found' },
+        { status: 400 }
+      );
+    }
+
+    // Determine program ID for each token type
+    const yesTokenProgramId = yesAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
+    const noTokenProgramId = noAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
+      ? TOKEN_2022_PROGRAM_ID
+      : TOKEN_PROGRAM_ID;
+    const collateralProgramId = collateralAccountInfo.owner.equals(TOKEN_2022_PROGRAM_ID)
       ? TOKEN_2022_PROGRAM_ID
       : TOKEN_PROGRAM_ID;
 
-    // Derive all ATAs
-    const buyerCollateralAta = getAta(buyerPubkey, marketData.collateralMint, false, tokenProgramId);
-    const adminCollateralAta = getAta(globalConfig.admin, marketData.collateralMint, false, tokenProgramId);
-    const marketReserveVault = getAta(marketPubkey, marketData.collateralMint, true, tokenProgramId);
-    const buyerYesAta = getAta(buyerPubkey, marketData.yesTokenMint, false, tokenProgramId);
-    const buyerNoAta = getAta(buyerPubkey, marketData.noTokenMint, false, tokenProgramId);
+    console.log('[PNP Build TX API] Token program detection:', {
+      yesMint: marketData.yesTokenMint.toBase58(),
+      yesOwner: yesAccountInfo.owner.toBase58(),
+      yesProgram: yesTokenProgramId.toBase58(),
+      noMint: marketData.noTokenMint.toBase58(),
+      noOwner: noAccountInfo.owner.toBase58(),
+      noProgram: noTokenProgramId.toBase58(),
+      collateralMint: marketData.collateralMint.toBase58(),
+      collateralOwner: collateralAccountInfo.owner.toBase58(),
+      collateralProgram: collateralProgramId.toBase58(),
+    });
+
+    // Derive all ATAs with correct token programs
+    const buyerCollateralAta = getAta(buyerPubkey, marketData.collateralMint, false, collateralProgramId);
+    const adminCollateralAta = getAta(globalConfig.admin, marketData.collateralMint, false, collateralProgramId);
+    const marketReserveVault = getAta(marketPubkey, marketData.collateralMint, true, collateralProgramId);
+    const buyerYesAta = getAta(buyerPubkey, marketData.yesTokenMint, false, yesTokenProgramId);
+    const buyerNoAta = getAta(buyerPubkey, marketData.noTokenMint, false, noTokenProgramId);
 
     // Build pre-instructions to create ATAs if needed
     const preInstructions: ReturnType<typeof createAssociatedTokenAccountInstruction>[] = [];
 
-    const checkAndCreateAta = async (owner: PublicKey, mint: PublicKey, ata: PublicKey, allowOffCurve = false) => {
+    const checkAndCreateAta = async (
+      owner: PublicKey,
+      mint: PublicKey,
+      ata: PublicKey,
+      tokenProgram: PublicKey,
+      label: string
+    ) => {
       const info = await connection.getAccountInfo(ata);
       if (!info) {
+        console.log(`[PNP Build TX API] Creating ATA for ${label}:`, {
+          owner: owner.toBase58(),
+          mint: mint.toBase58(),
+          ata: ata.toBase58(),
+          tokenProgram: tokenProgram.toBase58(),
+        });
         preInstructions.push(
           createAssociatedTokenAccountInstruction(
             buyerPubkey, // payer
             ata,
             owner,
             mint,
-            tokenProgramId,
+            tokenProgram,
             ASSOCIATED_TOKEN_PROGRAM_ID
           )
         );
+      } else {
+        console.log(`[PNP Build TX API] ATA exists for ${label}:`, ata.toBase58());
       }
     };
 
-    // Check and create necessary ATAs
+    // Check and create necessary ATAs with correct token programs
     await Promise.all([
-      checkAndCreateAta(buyerPubkey, marketData.collateralMint, buyerCollateralAta),
-      checkAndCreateAta(globalConfig.admin, marketData.collateralMint, adminCollateralAta),
-      checkAndCreateAta(marketPubkey, marketData.collateralMint, marketReserveVault, true),
-      checkAndCreateAta(buyerPubkey, marketData.yesTokenMint, buyerYesAta),
-      checkAndCreateAta(buyerPubkey, marketData.noTokenMint, buyerNoAta),
+      checkAndCreateAta(buyerPubkey, marketData.collateralMint, buyerCollateralAta, collateralProgramId, 'buyerCollateral'),
+      checkAndCreateAta(globalConfig.admin, marketData.collateralMint, adminCollateralAta, collateralProgramId, 'adminCollateral'),
+      checkAndCreateAta(marketPubkey, marketData.collateralMint, marketReserveVault, collateralProgramId, 'marketReserveVault'),
+      checkAndCreateAta(buyerPubkey, marketData.yesTokenMint, buyerYesAta, yesTokenProgramId, 'buyerYes'),
+      checkAndCreateAta(buyerPubkey, marketData.noTokenMint, buyerNoAta, noTokenProgramId, 'buyerNo'),
     ]);
 
     // For buy action, log balance info but don't block transaction building
@@ -423,7 +547,10 @@ export async function POST(request: NextRequest) {
       const winningMint = marketData.winningOutcome === 'YES'
         ? marketData.yesTokenMint
         : marketData.noTokenMint;
-      const userWinningAta = getAta(buyerPubkey, winningMint, false, tokenProgramId);
+      const winningTokenProgramId = marketData.winningOutcome === 'YES'
+        ? yesTokenProgramId
+        : noTokenProgramId;
+      const userWinningAta = getAta(buyerPubkey, winningMint, false, winningTokenProgramId);
 
       // Check user has winning tokens
       const winningBalance = await connection.getTokenAccountBalance(userWinningAta).catch(() => null);
@@ -450,7 +577,7 @@ export async function POST(request: NextRequest) {
         { pubkey: marketReserveVault, isSigner: false, isWritable: true },
         { pubkey: buyerCollateralAta, isSigner: false, isWritable: true },
         { pubkey: marketData.collateralMint, isSigner: false, isWritable: false },
-        { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+        { pubkey: winningTokenProgramId, isSigner: false, isWritable: false },
         { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false },
       ];
 
@@ -500,6 +627,8 @@ export async function POST(request: NextRequest) {
     const minOut = BigInt(minimumOut ?? 0); // Default to 0 (no slippage protection)
 
     // Account keys in order per IDL
+    // Note: PNP may need both token programs if collateral differs from outcome tokens
+    // The program expects the outcome token program for minting YES/NO tokens
     const accountKeys = [
       { pubkey: buyerPubkey, isSigner: true, isWritable: true },
       { pubkey: globalConfig.admin, isSigner: false, isWritable: true },
@@ -515,7 +644,7 @@ export async function POST(request: NextRequest) {
       { pubkey: buyerCollateralAta, isSigner: false, isWritable: true },
       { pubkey: adminCollateralAta, isSigner: false, isWritable: true },
       { pubkey: marketData.creatorFeeTreasury, isSigner: false, isWritable: true },
-      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
+      { pubkey: yesTokenProgramId, isSigner: false, isWritable: false }, // Use YES token program for outcome tokens
       { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
       { pubkey: new PublicKey('11111111111111111111111111111111'), isSigner: false, isWritable: false }, // System program
     ];

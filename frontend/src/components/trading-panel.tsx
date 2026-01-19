@@ -2,13 +2,13 @@
 
 import { FC, useState, useEffect, useMemo } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { Lock, Loader2, Shield, AlertCircle, Eye, EyeOff, RefreshCw, TrendingUp, TrendingDown } from 'lucide-react';
+import { TrendUp, TrendDown, Lock, ShieldCheck, Eye, EyeSlash, ArrowsClockwise, WarningCircle, SpinnerGap } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { PublicKey, ComputeBudgetProgram } from '@solana/web3.js';
 import { useProof } from '@/hooks/use-proof';
 import { useEncryption } from '@/hooks/use-encryption';
 import { useOrderStore } from '@/stores/order-store';
-import { TRADING_PAIRS } from '@/lib/constants';
+import { TRADING_PAIRS, SOL_PERP_MARKET_PDA } from '@/lib/constants';
 
 import { createLogger } from '@/lib/logger';
 
@@ -16,10 +16,15 @@ const log = createLogger('trading');
 import {
   buildPlaceOrderTransaction,
   buildAutoWrapAndPlaceOrderTransaction,
+  buildOpenPositionTransaction,
   isExchangeInitialized,
   isPairInitialized,
+  isPerpMarketInitialized,
+  parseOrderPlacedEvent,
   Side as ProgramSide,
   OrderType as ProgramOrderType,
+  PositionSide as ProgramPositionSide,
+  calculateLiquidationPrice as calcLiqPrice,
 } from '@/lib/confidex-client';
 import { useEncryptedBalance } from '@/hooks/use-encrypted-balance';
 import { useTokenBalance } from '@/hooks/use-token-balance';
@@ -28,9 +33,11 @@ import { usePerpetualStore } from '@/stores/perpetuals-store';
 import { OrderConfirmDialog } from './confirm-dialog';
 import { LeverageSelector } from './leverage-selector';
 import { FundingDisplay } from './funding-display';
+import { TokenSelector, AVAILABLE_TOKENS } from './token-selector';
 import { NATIVE_MINT } from '@solana/spl-token';
 import Link from 'next/link';
 import { useSolPrice } from '@/hooks/use-pyth-price';
+import { OrderProgress, useOrderProgress } from './order-progress';
 
 type OrderSide = 'buy' | 'sell';
 type PositionSide = 'long' | 'short';
@@ -51,6 +58,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   const { connection } = useConnection();
   const { connected, publicKey, sendTransaction, signMessage } = useWallet();
   const [side, setSide] = useState<OrderSide>('buy');
+  const [selectedToken, setSelectedToken] = useState('SOL');
   const [positionSide, setPositionSide] = useState<PositionSide>('long');
   const [orderType, setOrderType] = useState<OrderType>('limit');
   const [amount, setAmount] = useState('');
@@ -59,6 +67,9 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   const [sizePercent, setSizePercent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+
+  // Order progress tracking for visual feedback
+  const { step: orderStep, setStep: setOrderStep, errorMessage: orderError, setError: setOrderError, reset: resetOrderProgress } = useOrderProgress();
 
   // Use the mode prop instead of store tradingMode
   const tradingMode = mode;
@@ -309,7 +320,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
   // Handle opening a perpetual position
   const handleOpenPosition = async () => {
-    if (!connected || !publicKey || !solPrice) {
+    if (!connected || !publicKey || !solPrice || !sendTransaction) {
       toast.error('Please connect your wallet and wait for price feed');
       return;
     }
@@ -317,6 +328,10 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     setIsOpeningPosition(true);
 
     try {
+      // Check if perp market is initialized on devnet
+      const perpMarketReady = await isPerpMarketInitialized(connection, NATIVE_MINT);
+      log.debug('Perp market initialized', { ready: perpMarketReady });
+
       // Generate eligibility proof
       toast.info('Generating eligibility proof...', { id: 'proof-gen' });
       const proofResult = await generateProof();
@@ -338,21 +353,99 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       const encryptedCollateral = await encryptValue(collateralMicros);
       toast.success('Position data encrypted', { id: 'encrypt' });
 
-      // Calculate liquidation threshold (public)
+      // Calculate liquidation threshold (public) using the client library
       const maintenanceMarginBps = 500; // 5%
-      const liqPrice = estimateLiquidationPrice(positionSide, solPrice, leverage, maintenanceMarginBps);
+      const programSide = positionSide === 'long' ? ProgramPositionSide.Long : ProgramPositionSide.Short;
+      const liqPrice = calcLiqPrice(programSide, solPrice, leverage, maintenanceMarginBps);
       const liqPriceThreshold = BigInt(Math.floor(liqPrice * 1e6));
 
-      // Simulate position creation (demo mode since perp market not deployed)
-      toast.info('Opening position...', { id: 'position-open' });
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Also use the store's estimator for UI display
+      const displayLiqPrice = estimateLiquidationPrice(positionSide, solPrice, leverage, maintenanceMarginBps);
 
-      // Create position in store
+      let txSignature: string | null = null;
+
+      if (perpMarketReady) {
+        // Real on-chain position opening
+        toast.info('Building transaction...', { id: 'position-open' });
+        log.info('Perp market is live - opening real position', {
+          size: amount,
+          leverage,
+          side: positionSide,
+          liqPrice: liqPrice.toFixed(2),
+        });
+
+        // Get USDC mint from trading pairs
+        const tradingPair = TRADING_PAIRS[0];
+        const quoteMint = new PublicKey(tradingPair.quoteMint);
+
+        // Build the open_position transaction
+        const transaction = await buildOpenPositionTransaction({
+          connection,
+          trader: publicKey,
+          underlyingMint: NATIVE_MINT, // SOL for SOL-PERP
+          quoteMint,
+          side: programSide,
+          leverage,
+          encryptedSize,
+          encryptedCollateral,
+          encryptedEntryPrice,
+          liquidationThreshold: liqPriceThreshold,
+          eligibilityProof: proofResult?.proof || new Uint8Array(324),
+        });
+
+        // Add compute budget for MPC verification
+        transaction.add(
+          ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 })
+        );
+
+        // Get recent blockhash
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+
+        toast.info('Awaiting wallet approval...', { id: 'position-open' });
+
+        // Send transaction
+        try {
+          txSignature = await sendTransaction(transaction, connection, {
+            skipPreflight: false,
+            preflightCommitment: 'confirmed',
+          });
+
+          toast.info('Confirming transaction...', { id: 'position-open' });
+
+          // Wait for confirmation
+          const confirmation = await connection.confirmTransaction({
+            signature: txSignature,
+            blockhash,
+            lastValidBlockHeight,
+          }, 'confirmed');
+
+          if (confirmation.value.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+          }
+
+          log.info('Position opened on-chain', { signature: txSignature });
+        } catch (txError) {
+          // If tx fails, fall back to demo mode with error context
+          log.warn('On-chain position failed, using demo mode', {
+            error: txError instanceof Error ? txError.message : String(txError),
+          });
+          toast.info('On-chain tx failed - storing position locally', { id: 'position-open' });
+        }
+      } else {
+        // Demo mode - perp market not deployed
+        log.info('Perp market not initialized - using demo mode');
+        toast.info('Demo mode: Opening position...', { id: 'position-open' });
+        await new Promise(resolve => setTimeout(resolve, 1500));
+      }
+
+      // Create position in store (for both real and demo modes)
       const positionId = `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const newPosition = {
         id: positionId,
         positionId: Date.now(),
-        market: publicKey, // Placeholder
+        market: SOL_PERP_MARKET_PDA, // Use actual market PDA
         marketSymbol: 'SOL-PERP',
         trader: publicKey,
         side: positionSide as 'long' | 'short',
@@ -361,9 +454,9 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         encryptedEntryPrice,
         encryptedCollateral,
         encryptedRealizedPnl: new Uint8Array(64),
-        liquidatableBelowPrice: positionSide === 'long' ? liqPrice : 0,
-        liquidatableAbovePrice: positionSide === 'short' ? liqPrice : Number.MAX_SAFE_INTEGER,
-        thresholdVerified: true, // Mock
+        liquidatableBelowPrice: positionSide === 'long' ? displayLiqPrice : 0,
+        liquidatableAbovePrice: positionSide === 'short' ? displayLiqPrice : Number.MAX_SAFE_INTEGER,
+        thresholdVerified: txSignature !== null, // True if on-chain tx succeeded
         entryCumulativeFunding: BigInt(0),
         pendingFunding: BigInt(0),
         status: 'open' as const,
@@ -378,11 +471,14 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       addPosition(newPosition);
 
       if (notifications) {
+        const statusText = txSignature ? '' : perpMarketReady ? ' (local)' : ' (demo)';
         toast.success(
-          `${leverage}x ${positionSide.toUpperCase()} position opened`,
+          `${leverage}x ${positionSide.toUpperCase()} position opened${statusText}`,
           {
             id: 'position-open',
-            description: `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${liqPrice.toFixed(2)}`,
+            description: txSignature
+              ? `TX: ${txSignature.slice(0, 8)}... | Liq: $${displayLiqPrice.toFixed(2)}`
+              : `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${displayLiqPrice.toFixed(2)}`,
           }
         );
       } else {
@@ -428,6 +524,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
     setIsSubmitting(true);
     setIsPlacingOrder(true);
+    resetOrderProgress();
 
     try {
       console.log('[Trading] Checking exchange initialization...');
@@ -459,14 +556,19 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         return;
       }
 
+      // Layer 1: ZK Proof Generation
+      setOrderStep('generating-proof');
       toast.info('Generating eligibility proof...', { id: 'proof-gen' });
       const proofResult = await generateProof();
+      setOrderStep('proof-ready');
       toast.success('Proof generated', { id: 'proof-gen' });
 
       if (!isInitialized) {
         await initializeEncryption();
       }
 
+      // Layer 2: Encryption
+      setOrderStep('encrypting');
       toast.info('Encrypting order...', { id: 'encrypt' });
       const amountLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
       const priceLamports = orderType === 'limit'
@@ -475,6 +577,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
       const encryptedAmount = await encryptValue(amountLamports);
       const encryptedPrice = await encryptValue(priceLamports);
+      setOrderStep('encrypted');
       toast.success('Order encrypted', { id: 'encrypt' });
 
       const programSide = side === 'buy' ? ProgramSide.Buy : ProgramSide.Sell;
@@ -572,10 +675,12 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         console.warn('[Trading] Could not simulate, proceeding anyway...');
       }
 
+      setOrderStep('submitting');
       toast.info('Sending transaction - please approve in wallet...', { id: 'tx-send' });
 
       const signature = await sendTransaction(transaction, connection);
       console.log('[Trading] Transaction sent:', signature);
+      setOrderStep('confirming');
       toast.info('Confirming transaction...', { id: 'tx-send' });
 
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
@@ -589,11 +694,32 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
 
+      // Order placed - now waiting for MPC matching
+      setOrderStep('mpc-queued');
+
+      // Fetch transaction to get logs and parse the on-chain order ID
+      let onChainOrderId: bigint | undefined;
+      try {
+        const txDetails = await connection.getTransaction(signature, {
+          commitment: 'confirmed',
+          maxSupportedTransactionVersion: 0,
+        });
+        if (txDetails?.meta?.logMessages) {
+          onChainOrderId = parseOrderPlacedEvent(txDetails.meta.logMessages) ?? undefined;
+          log.info('Parsed on-chain order ID', { onChainOrderId: onChainOrderId?.toString() });
+        }
+      } catch (parseError) {
+        log.warn('Could not parse order ID from logs', { error: parseError });
+      }
+
       const orderId = Date.now();
       addOrder({
         id: orderId.toString(),
+        onChainOrderId, // The actual on-chain order ID for cancel operations
         maker: publicKey,
         pair: 'SOL/USDC',
+        baseMint: baseMint.toString(),
+        quoteMint: quoteMint.toString(),
         side,
         type: orderType,
         encryptedAmount,
@@ -648,6 +774,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         }
       }
 
+      setOrderError(errorMessage);
       log.error('Error', { error: errorMessage });
       toast.error(errorMessage, { id: 'tx-send' });
     } finally {
@@ -699,11 +826,15 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       const orderId = Date.now();
+      const tradingPair = TRADING_PAIRS[0];
       console.log('[Trading] Creating order with ID:', orderId);
       addOrder({
         id: orderId.toString(),
+        // No onChainOrderId for demo orders - they're not on-chain
         maker: publicKey!,
         pair: 'SOL/USDC',
+        baseMint: tradingPair.baseMint,
+        quoteMint: tradingPair.quoteMint,
         side,
         type: orderType,
         encryptedAmount,
@@ -806,12 +937,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
       {/* Token Selector */}
       <div className="px-3 py-2 border-b border-border/50 shrink-0">
-        <select
-          className="w-full bg-secondary border border-border rounded px-3 py-1.5 text-sm"
-          defaultValue="SOL"
-        >
-          <option value="SOL">SOL</option>
-        </select>
+        <TokenSelector
+          value={selectedToken}
+          onChange={setSelectedToken}
+          tokens={AVAILABLE_TOKENS}
+        />
       </div>
 
       {/* Buy/Sell Toggle (Spot) or Long/Short Toggle (Perps) */}
@@ -849,7 +979,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
                   : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
-              <TrendingUp className="h-4 w-4" />
+              <TrendUp size={16} />
               Long
             </button>
             <button
@@ -860,7 +990,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
                   : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
-              <TrendingDown className="h-4 w-4" />
+              <TrendDown size={16} />
               Short
             </button>
           </>
@@ -1023,24 +1153,17 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         </div>
       )}
 
-      {/* Status Messages */}
-      {isGenerating && (
-        <div className="mx-3 mb-2 p-2 bg-secondary rounded text-xs flex items-center gap-2 shrink-0">
-          <Loader2 className="h-3 w-3 animate-spin text-primary" />
-          <span>Generating ZK proof...</span>
+      {/* Order Progress - 3-Layer Privacy Status */}
+      {orderStep !== 'idle' && (
+        <div className="mx-3 mb-2 shrink-0">
+          <OrderProgress step={orderStep} errorMessage={orderError} variant="inline" />
         </div>
       )}
 
-      {proofReady && !isGenerating && (
-        <div className="mx-3 mb-2 p-2 bg-secondary rounded text-xs flex items-center gap-2 shrink-0">
-          <Shield className="h-3 w-3 text-primary" />
-          <span className="text-primary">Proof ready</span>
-        </div>
-      )}
-
-      {connected && needsWrap && canProceed && !isLoadingBalances && (
+      {/* Auto-wrap notification */}
+      {connected && needsWrap && canProceed && !isLoadingBalances && orderStep === 'idle' && (
         <div className="mx-3 mb-2 p-2 bg-blue-500/10 border border-blue-500/20 rounded text-xs flex items-center gap-2 text-blue-400 shrink-0">
-          <Shield className="h-3 w-3" />
+          <ShieldCheck size={12} />
           <span>
             Will auto-wrap {side === 'sell'
               ? `${(Number(wrapNeeded) / 1e9).toFixed(4)} SOL`
@@ -1050,9 +1173,10 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         </div>
       )}
 
+      {/* Insufficient balance error */}
       {connected && insufficientBalanceError && (
         <div className="mx-3 mb-2 p-2 bg-rose-500/20 border border-rose-500/30 rounded text-xs flex items-center gap-2 text-rose-400/80 shrink-0">
-          <AlertCircle className="h-3 w-3" />
+          <WarningCircle size={12} />
           <span>{insufficientBalanceError}</span>
         </div>
       )}
@@ -1074,7 +1198,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         >
           {isSubmitting || isGenerating || isOpeningPosition ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <SpinnerGap size={16} className="animate-spin" />
               {isGenerating ? 'Generating Proof...' : isOpeningPosition ? 'Opening Position...' : 'Processing...'}
             </>
           ) : !connected ? (
@@ -1085,7 +1209,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             'Insufficient Balance'
           ) : tradingMode === 'perps' ? (
             <>
-              {positionSide === 'long' ? <TrendingUp className="h-4 w-4" /> : <TrendingDown className="h-4 w-4" />}
+              {positionSide === 'long' ? <TrendUp size={16} /> : <TrendDown size={16} />}
               Open {leverage}x {positionSide === 'long' ? 'Long' : 'Short'}
             </>
           ) : needsWrap ? (
@@ -1125,7 +1249,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
                 className="p-1 text-muted-foreground hover:text-foreground transition-colors"
                 disabled={isLoadingBalances}
               >
-                <RefreshCw className={`h-3 w-3 ${isLoadingBalances ? 'animate-spin' : ''}`} />
+                <ArrowsClockwise size={12} className={isLoadingBalances ? 'animate-spin' : ''} />
               </button>
             </div>
             <div className="text-sm font-semibold font-mono">
@@ -1151,14 +1275,14 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           <div className="space-y-1.5 pt-2 border-t border-border/50">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1">
-                <Lock className="h-3 w-3 text-primary" />
+                <Lock size={12} className="text-primary" />
                 <span className="text-xs text-muted-foreground">Trading Balance</span>
               </div>
               <button
                 onClick={() => setPrivacyMode(!privacyMode)}
                 className="p-1 text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showBalances ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                {showBalances ? <EyeSlash size={12} /> : <Eye size={12} />}
               </button>
             </div>
             <div className="text-sm font-semibold font-mono">

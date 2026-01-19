@@ -1,5 +1,15 @@
 use anchor_lang::prelude::*;
 
+/// Arcium Program ID (devnet)
+/// From @arcium-hq/client v0.6.2
+/// Base58: Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
+pub const ARCIUM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
+    0x92, 0x6f, 0x09, 0xaa, 0x6d, 0x48, 0x7d, 0xe2,
+    0xd8, 0x8c, 0x37, 0x6a, 0x16, 0x1d, 0x07, 0x7f,
+    0xb0, 0x81, 0x0b, 0x13, 0x23, 0x6b, 0x7c, 0x76,
+    0x47, 0xa0, 0x70, 0x28, 0x03, 0xfa, 0x5d, 0x89,
+]);
+
 /// MXE configuration state
 #[account]
 pub struct MxeConfig {
@@ -7,10 +17,16 @@ pub struct MxeConfig {
     pub authority: Pubkey,
     /// Arcium cluster ID for this MXE
     pub cluster_id: Pubkey,
+    /// Cluster offset (123, 456, or 789 on devnet)
+    pub cluster_offset: u16,
+    /// Arcium program ID for CPI
+    pub arcium_program: Pubkey,
     /// Total computations queued
     pub computation_count: u64,
     /// Total computations completed
     pub completed_count: u64,
+    /// Authority bump for PDA signing
+    pub authority_bump: u8,
     /// PDA bump
     pub bump: u8,
 }
@@ -19,11 +35,15 @@ impl MxeConfig {
     pub const SIZE: usize = 8 + // discriminator
         32 + // authority
         32 + // cluster_id
+        2 +  // cluster_offset
+        32 + // arcium_program
         8 +  // computation_count
         8 +  // completed_count
+        1 +  // authority_bump
         1;   // bump
 
     pub const SEED: &'static [u8] = b"mxe_config";
+    pub const AUTHORITY_SEED: &'static [u8] = b"mxe_authority";
 }
 
 /// Pending computation request
@@ -49,6 +69,10 @@ pub struct ComputationRequest {
     pub completed_at: i64,
     /// Result data (empty until completed)
     pub result: Vec<u8>,
+    /// Callback account 1 (e.g., buy_order for order matching)
+    pub callback_account_1: Pubkey,
+    /// Callback account 2 (e.g., sell_order for order matching)
+    pub callback_account_2: Pubkey,
     /// PDA bump
     pub bump: u8,
 }
@@ -65,6 +89,8 @@ impl ComputationRequest {
         8 +  // created_at
         8 +  // completed_at
         4 +  // result vec length prefix
+        32 + // callback_account_1
+        32 + // callback_account_2
         1;   // bump
 
     pub const SEED: &'static [u8] = b"computation";

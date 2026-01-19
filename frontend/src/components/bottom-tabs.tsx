@@ -1,15 +1,23 @@
 'use client';
 
 import { FC, useState } from 'react';
+import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { PublicKey } from '@solana/web3.js';
 import { OpenOrders } from './open-orders';
 import { TradeHistory } from './trade-history';
 import { PositionRow, NoPositions } from './position-row';
-import { ChevronUp, ChevronDown, ChevronDownIcon, Filter, RefreshCw, Lock, TrendingUp, TrendingDown, X, Loader2 } from 'lucide-react';
+import { Funnel, ArrowsClockwise, Lock, X, CaretUp, CaretDown, TrendUp, TrendDown, SpinnerGap } from '@phosphor-icons/react';
 import { ToggleSwitch } from './ui/toggle-switch';
-import { useWallet } from '@solana/wallet-adapter-react';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { usePerpetualStore, PerpPosition } from '@/stores/perpetuals-store';
+import {
+  buildClosePositionTransaction,
+  createHybridEncryptedValue,
+  derivePerpMarketPda,
+} from '@/lib/confidex-client';
+import { PYTH_SOL_USD_FEED, ARCIUM_PROGRAM_ID } from '@/lib/constants';
+import { toast } from 'sonner';
 
 import { createLogger } from '@/lib/logger';
 
@@ -86,9 +94,9 @@ export const BottomTabs: FC<BottomTabsProps> = ({ defaultHeight = 224 }) => {
               onClick={() => setShowFilterDropdown(!showFilterDropdown)}
               className="flex items-center gap-1 px-2 py-1 text-xs text-muted-foreground hover:text-foreground rounded hover:bg-secondary/50 transition-colors"
             >
-              <Filter className="h-3 w-3" />
+              <Funnel size={12} />
               <span>{filterOptions.find(f => f.value === filter)?.label}</span>
-              <ChevronDownIcon className="h-3 w-3" />
+              <CaretDown size={12} />
             </button>
             {showFilterDropdown && (
               <>
@@ -133,9 +141,9 @@ export const BottomTabs: FC<BottomTabsProps> = ({ defaultHeight = 224 }) => {
             title={isCollapsed ? 'Expand' : 'Collapse'}
           >
             {isCollapsed ? (
-              <ChevronUp className="h-4 w-4" />
+              <CaretUp size={16} />
             ) : (
-              <ChevronDown className="h-4 w-4" />
+              <CaretDown size={16} />
             )}
           </button>
         </div>
@@ -222,7 +230,7 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
             className={`p-0.5 hover:text-foreground transition-colors ${isLoading ? 'animate-spin' : ''}`}
             title="Refresh balances"
           >
-            <RefreshCw className="h-3 w-3" />
+            <ArrowsClockwise size={12} />
           </button>
         </span>
         <span className="text-right">Total Balance</span>
@@ -275,16 +283,66 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
 const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
   const { positions, isClosingPosition, setIsClosingPosition, removePosition } = usePerpetualStore();
   const { price: solPrice } = useSolPrice();
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction } = useWallet();
 
   const handleClosePosition = async (positionId: string) => {
+    if (!publicKey) {
+      toast.error('Please connect your wallet');
+      return;
+    }
+
     setIsClosingPosition(positionId);
     try {
-      // TODO: Implement actual position close via program
-      // For now, simulate closing
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      const position = positions.find(p => p.id === positionId);
+      if (!position) {
+        throw new Error('Position not found');
+      }
+
+      // Get current oracle price for exit (convert to micro-dollars: 6 decimals)
+      const exitPrice = solPrice ? BigInt(Math.floor(solPrice * 1_000_000)) : BigInt(0);
+
+      // Use position's encrypted size directly, create encrypted exit price
+      const encryptedCloseSize = position.encryptedSize;
+      const encryptedExitPrice = createHybridEncryptedValue(exitPrice);
+
+      // Derive perp market PDA from underlying mint (SOL)
+      const underlyingMint = new PublicKey('So11111111111111111111111111111111111111112');
+      const [perpMarketPda] = derivePerpMarketPda(underlyingMint);
+
+      // Build close position transaction
+      // Note: collateralVault and feeRecipient would come from on-chain market data
+      // For now, using placeholders that would be fetched from the PerpetualMarket account
+      const transaction = await buildClosePositionTransaction({
+        connection,
+        trader: publicKey,
+        perpMarketPda,
+        positionId: BigInt(position.positionId || 0),
+        underlyingMint,
+        encryptedCloseSize,
+        encryptedExitPrice,
+        fullClose: true,
+        oraclePriceFeed: PYTH_SOL_USD_FEED,
+        collateralVault: perpMarketPda, // Would be fetched from market account
+        feeRecipient: perpMarketPda, // Would be fetched from market account
+        arciumProgram: ARCIUM_PROGRAM_ID,
+      });
+
+      // Send transaction
+      const signature = await sendTransaction(transaction, connection);
+      log.info('Close position transaction sent', { signature });
+
+      // Wait for confirmation
+      await connection.confirmTransaction(signature, 'confirmed');
+
+      // Remove from local state
       removePosition(positionId);
+      toast.success('Position closed successfully');
+
+      log.info('Position closed', { positionId, signature });
     } catch (error) {
       log.error('Failed to close position:', { error: error instanceof Error ? error.message : String(error) });
+      toast.error('Failed to close position');
     } finally {
       setIsClosingPosition(null);
     }
@@ -365,9 +423,9 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
             {/* Side / Leverage */}
             <span className="text-right flex items-center justify-end gap-1.5">
               {isLong ? (
-                <TrendingUp className="h-3 w-3 text-emerald-400/80" />
+                <TrendUp size={12} className="text-emerald-400/80" />
               ) : (
-                <TrendingDown className="h-3 w-3 text-rose-400/80" />
+                <TrendDown size={12} className="text-rose-400/80" />
               )}
               <span className={isLong ? 'text-emerald-400/80' : 'text-rose-400/80'}>
                 {position.leverage}x {isLong ? 'Long' : 'Short'}
@@ -376,13 +434,13 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
 
             {/* Size (Encrypted) */}
             <span className="text-right font-mono flex items-center justify-end gap-1">
-              <Lock className="h-3 w-3 text-primary" />
+              <Lock size={12} className="text-primary" />
               <span className="text-muted-foreground">••••••</span>
             </span>
 
             {/* Entry Price (Encrypted) */}
             <span className="text-right font-mono flex items-center justify-end gap-1">
-              <Lock className="h-3 w-3 text-primary" />
+              <Lock size={12} className="text-primary" />
               <span className="text-muted-foreground">••••••</span>
             </span>
 
@@ -393,7 +451,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
 
             {/* Unrealized PnL (Encrypted) */}
             <span className="text-right font-mono flex items-center justify-end gap-1">
-              <Lock className="h-3 w-3 text-primary" />
+              <Lock size={12} className="text-primary" />
               <span className="text-muted-foreground">••••••</span>
             </span>
 
@@ -406,9 +464,9 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
                 title="Close Position"
               >
                 {isClosing ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <SpinnerGap size={16} className="animate-spin" />
                 ) : (
-                  <X className="h-4 w-4" />
+                  <X size={16} />
                 )}
               </button>
             </span>

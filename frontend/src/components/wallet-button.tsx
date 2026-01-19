@@ -3,7 +3,7 @@
 import { FC } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import { Wallet, LogOut, Copy, Check } from 'lucide-react';
+import { Wallet, SignOut, Check, Copy } from '@phosphor-icons/react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
@@ -27,7 +27,7 @@ export const WalletButton: FC = () => {
         onClick={() => setVisible(true)}
         className="flex items-center gap-2 bg-white text-black px-4 py-2 rounded-lg font-medium hover:bg-white/90 transition-colors"
       >
-        <Wallet className="h-4 w-4" />
+        <Wallet size={16} />
         Connect Wallet
       </button>
     );
@@ -45,9 +45,9 @@ export const WalletButton: FC = () => {
           className="text-white/60 hover:text-white transition-colors"
         >
           {copied ? (
-            <Check className="h-4 w-4 text-white" />
+            <Check size={16} className="text-white" />
           ) : (
-            <Copy className="h-4 w-4" />
+            <Copy size={16} />
           )}
         </button>
       </div>
@@ -56,7 +56,7 @@ export const WalletButton: FC = () => {
         className="p-2 text-white/60 hover:text-red-400 transition-colors"
         title="Disconnect"
       >
-        <LogOut className="h-4 w-4" />
+        <SignOut size={16} />
       </button>
     </div>
   );

@@ -68,6 +68,9 @@ pub enum ConfidexError {
     #[msg("Invalid encrypted data length")]
     InvalidEncryptedDataLength,
 
+    #[msg("Invalid amount format")]
+    InvalidAmount,
+
     // === Perpetuals Errors ===
 
     #[msg("Invalid leverage (must be 1-20)")]
@@ -100,6 +103,9 @@ pub enum ConfidexError {
     #[msg("Liquidation threshold not verified by MPC")]
     ThresholdNotVerified,
 
+    #[msg("Invalid liquidation threshold - MPC verification failed")]
+    InvalidLiquidationThreshold,
+
     #[msg("Open interest limit exceeded")]
     OpenInterestLimitExceeded,
 
@@ -117,4 +123,13 @@ pub enum ConfidexError {
 
     #[msg("Insurance fund depleted")]
     InsuranceFundDepleted,
+
+    #[msg("Liquidation threshold does not match position parameters")]
+    ThresholdMismatch,
+
+    #[msg("Insurance fund not depleted - ADL not triggered")]
+    InsuranceFundNotDepleted,
+
+    #[msg("Position is not liquidatable at current price")]
+    NotLiquidatable,
 }

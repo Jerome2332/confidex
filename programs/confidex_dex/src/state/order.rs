@@ -24,6 +24,8 @@ pub enum OrderStatus {
     PartiallyFilled,
     Filled,
     Cancelled,
+    /// Pending async MPC match computation
+    Matching,
 }
 
 /// Confidential order account
@@ -64,6 +66,10 @@ pub struct ConfidentialOrder {
     /// Whether eligibility ZK proof has been verified
     pub eligibility_proof_verified: bool,
 
+    /// Pending MPC match request ID (for async flow)
+    /// All zeros if no pending request
+    pub pending_match_request: [u8; 32],
+
     /// PDA bump seed
     pub bump: u8,
 }
@@ -81,13 +87,18 @@ impl ConfidentialOrder {
         8 +  // created_at
         8 +  // order_id
         1 +  // eligibility_proof_verified
+        32 + // pending_match_request
         1;   // bump
-    // Total: 285 bytes
+    // Total: 317 bytes
 
     pub const SEED: &'static [u8] = b"order";
 
     pub fn is_open(&self) -> bool {
-        matches!(self.status, OrderStatus::Open | OrderStatus::PartiallyFilled)
+        matches!(self.status, OrderStatus::Open | OrderStatus::PartiallyFilled | OrderStatus::Matching)
+    }
+
+    pub fn has_pending_match(&self) -> bool {
+        self.pending_match_request != [0u8; 32]
     }
 
     pub fn can_match(&self, other: &ConfidentialOrder) -> bool {

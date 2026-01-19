@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, ReactNode } from 'react';
-import { X, AlertTriangle, Shield, Lock } from 'lucide-react';
+import { X, Warning, Shield, Lock } from '@phosphor-icons/react';
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -42,9 +42,9 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
             {variant === 'danger' ? (
-              <AlertTriangle className="h-5 w-5 text-destructive" />
+              <Warning size={20} className="text-destructive" />
             ) : (
-              <Shield className="h-5 w-5 text-primary" />
+              <Shield size={20} className="text-primary" />
             )}
             <h3 className="font-semibold">{title}</h3>
           </div>
@@ -52,7 +52,7 @@ export const ConfirmDialog: FC<ConfirmDialogProps> = ({
             onClick={onClose}
             className="p-1 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X size={20} />
           </button>
         </div>
 
@@ -134,14 +134,14 @@ export const OrderConfirmDialog: FC<OrderConfirmDialogProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-primary" />
+            <Shield size={20} className="text-primary" />
             <h3 className="font-semibold">Confirm Order</h3>
           </div>
           <button
             onClick={onClose}
             className="p-1 text-muted-foreground hover:text-foreground transition-colors"
           >
-            <X className="h-5 w-5" />
+            <X size={20} />
           </button>
         </div>
 
@@ -179,7 +179,7 @@ export const OrderConfirmDialog: FC<OrderConfirmDialogProps> = ({
           {needsWrap && wrapAmount && (
             <div className="p-3 bg-white/5 border border-white/20 rounded-lg mb-4">
               <div className="flex items-center gap-2 text-sm text-white/80">
-                <Lock className="h-4 w-4" />
+                <Lock size={16} />
                 <span>Will auto-wrap {wrapAmount} with this transaction</span>
               </div>
             </div>
@@ -188,7 +188,7 @@ export const OrderConfirmDialog: FC<OrderConfirmDialogProps> = ({
           {/* Privacy notice */}
           <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
             <div className="flex items-start gap-2">
-              <Lock className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+              <Lock size={16} className="text-primary flex-shrink-0 mt-0.5" />
               <p className="text-xs text-muted-foreground">
                 Your order amount and price will be encrypted using Arcium MPC.
                 This transaction will be submitted to the Solana network.

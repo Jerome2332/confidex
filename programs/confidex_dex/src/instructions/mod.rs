@@ -19,6 +19,9 @@ pub mod perp_liquidate;
 pub mod perp_auto_deleverage;
 pub mod perp_settle_funding;
 
+// MPC callback handlers
+pub mod mpc_callback;
+
 pub use admin::*;
 pub use cancel_order::*;
 pub use create_pair::*;
@@ -39,3 +42,6 @@ pub use perp_remove_margin::*;
 pub use perp_liquidate::*;
 pub use perp_auto_deleverage::*;
 pub use perp_settle_funding::*;
+
+// MPC callback exports
+pub use mpc_callback::*;

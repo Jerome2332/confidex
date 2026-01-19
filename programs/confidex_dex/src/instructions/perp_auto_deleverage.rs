@@ -1,6 +1,8 @@
 use anchor_lang::prelude::*;
 
+use crate::cpi::arcium::{calculate_pnl_sync, check_liquidation_sync};
 use crate::error::ConfidexError;
+use crate::oracle::get_sol_usd_price;
 use crate::state::{
     ConfidentialPosition, LiquidationConfig, PerpetualMarket, PositionSide, PositionStatus,
 };
@@ -75,6 +77,9 @@ pub struct AutoDeleverage<'info> {
     )]
     pub insurance_fund: AccountInfo<'info>,
 
+    /// CHECK: Arcium program for MPC computations
+    pub arcium_program: AccountInfo<'info>,
+
     /// Keeper/admin that triggers ADL
     /// Could be permissionless with proper incentive design
     #[account(mut)]
@@ -88,11 +93,17 @@ pub fn handler(ctx: Context<AutoDeleverage>) -> Result<()> {
     let target_position = &mut ctx.accounts.target_position;
     let liquidation_config = &ctx.accounts.liquidation_config;
 
-    // TODO: Verify insurance fund is below ADL trigger threshold
-    // This would check the balance of the insurance fund account
-    // let insurance_balance = get_token_balance(&ctx.accounts.insurance_fund)?;
-    // let threshold = liquidation_config.adl_trigger_threshold_bps;
-    // require!(insurance_balance < threshold, ConfidexError::InsuranceFundNotDepleted);
+    // Verify insurance fund is below ADL trigger threshold
+    // ADL only triggers when insurance fund is depleted
+    let insurance_balance = ctx.accounts.insurance_fund.lamports();
+    let adl_threshold = perp_market
+        .insurance_fund_target
+        .saturating_mul(liquidation_config.adl_trigger_threshold_bps as u64)
+        .saturating_div(10000);
+    require!(
+        insurance_balance < adl_threshold,
+        ConfidexError::InsuranceFundNotDepleted
+    );
 
     // Verify target position has high ADL priority (most profitable)
     // In production, this would be verified via MPC
@@ -101,15 +112,50 @@ pub fn handler(ctx: Context<AutoDeleverage>) -> Result<()> {
         ConfidexError::InvalidAdlThreshold
     );
 
-    // TODO: Submit MPC computation to:
-    // 1. Verify bankrupt position is truly underwater (loss > collateral)
-    // 2. Calculate the deleveraging amount needed
-    // 3. Reduce target position size proportionally
-    // 4. Transfer PnL from target to cover bankrupt position loss
-    // 5. Update encrypted position data for both positions
+    // Get mark price from oracle for settlement price (6 decimal precision)
+    let mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+    msg!("ADL settlement mark price: {}", mark_price);
 
-    // TODO: Get mark price from oracle for settlement price
-    // let mark_price = get_pyth_price(&ctx.accounts.oracle)?;
+    // Step 1: Verify bankrupt position is truly underwater via MPC
+    // This checks that the position should be liquidated (loss > collateral)
+    let is_bankrupt_long = matches!(bankrupt_position.side, PositionSide::Long);
+    let should_liquidate = check_liquidation_sync(
+        &ctx.accounts.arcium_program,
+        &perp_market.key(), // Using market key as cluster placeholder
+        &bankrupt_position.encrypted_collateral,
+        &bankrupt_position.encrypted_size,
+        &bankrupt_position.encrypted_entry_price,
+        mark_price,
+        is_bankrupt_long,
+        perp_market.maintenance_margin_bps,
+    )?;
+
+    require!(should_liquidate, ConfidexError::NotLiquidatable);
+
+    // Step 2: Calculate PnL for the target position (to verify profitability)
+    let is_target_long = matches!(target_position.side, PositionSide::Long);
+    let (encrypted_pnl, is_profit) = calculate_pnl_sync(
+        &ctx.accounts.arcium_program,
+        &target_position.encrypted_size,
+        &target_position.encrypted_entry_price,
+        mark_price,
+        is_target_long,
+    )?;
+
+    // Target must be profitable to be selected for ADL
+    require!(is_profit, ConfidexError::InvalidAdlThreshold);
+
+    msg!(
+        "ADL verified: bankrupt position underwater, target position profitable"
+    );
+
+    // Step 3-5: Calculate ADL amounts and update positions
+    // NOTE: Full ADL with encrypted size reduction requires a new MPC circuit (CALCULATE_ADL_AMOUNTS)
+    // For now, we mark positions and emit events. The encrypted size/collateral updates
+    // would happen via callback when the ADL MPC circuit is implemented.
+
+    // Store the calculated PnL for the callback (unused for now)
+    let _ = encrypted_pnl;
 
     // Mark bankrupt position as auto-deleveraged
     bankrupt_position.status = PositionStatus::AutoDeleveraged;

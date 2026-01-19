@@ -37,6 +37,9 @@ pub fn handler(
     request.created_at = clock.unix_timestamp;
     request.completed_at = 0;
     request.result = Vec::new();
+    // Fill calculation doesn't need callback accounts (used in PendingMatch flow)
+    request.callback_account_1 = Pubkey::default();
+    request.callback_account_2 = Pubkey::default();
     request.bump = ctx.bumps.request;
 
     config.computation_count = config.computation_count.saturating_add(1);
@@ -45,6 +48,8 @@ pub fn handler(
         request_id,
         computation_type: ComputationType::CalculateFill,
         requester: ctx.accounts.requester.key(),
+        callback_account_1: Pubkey::default(),
+        callback_account_2: Pubkey::default(),
         timestamp: clock.unix_timestamp,
     });
 

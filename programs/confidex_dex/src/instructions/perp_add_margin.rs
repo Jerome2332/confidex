@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 
+use crate::cpi::arcium::{add_encrypted, verify_position_params_sync};
 use crate::error::ConfidexError;
 use crate::state::{ConfidentialPosition, PerpetualMarket, PositionSide};
 
@@ -37,6 +38,9 @@ pub struct AddMargin<'info> {
     )]
     pub collateral_vault: AccountInfo<'info>,
 
+    /// CHECK: Arcium program for MPC computations
+    pub arcium_program: AccountInfo<'info>,
+
     #[account(mut)]
     pub trader: Signer<'info>,
 }
@@ -57,12 +61,32 @@ pub fn handler(ctx: Context<AddMargin>, params: AddMarginParams) -> Result<()> {
     let position = &mut ctx.accounts.position;
 
     // TODO: Transfer encrypted collateral from trader to vault via C-SPL CPI
-    // This would use confidential_transfer instruction
+    // This would use confidential_transfer instruction (blocked on C-SPL SDK)
 
-    // TODO: Submit MPC request to:
-    // 1. Add encrypted_amount to encrypted_collateral
-    // 2. Verify new_liquidation_threshold matches updated position
-    // 3. Store new_encrypted_collateral in position
+    // Add margin to encrypted collateral via MPC
+    let new_encrypted_collateral = add_encrypted(
+        &ctx.accounts.arcium_program,
+        &position.encrypted_collateral,
+        &params.encrypted_amount,
+    )?;
+
+    // Verify new threshold matches updated collateral
+    let is_long = matches!(position.side, PositionSide::Long);
+    let threshold_valid = verify_position_params_sync(
+        &ctx.accounts.arcium_program,
+        &perp_market.key(), // Using market key as cluster placeholder
+        &position.encrypted_entry_price,
+        params.new_liquidation_threshold,
+        position.leverage,
+        is_long,
+        perp_market.maintenance_margin_bps,
+    )?;
+
+    require!(threshold_valid, ConfidexError::ThresholdMismatch);
+
+    // Store the updated encrypted collateral
+    position.encrypted_collateral = new_encrypted_collateral;
+    position.threshold_verified = true;
 
     // Update liquidation threshold
     // This moves the threshold further from current price, making liquidation less likely
@@ -78,7 +102,7 @@ pub fn handler(ctx: Context<AddMargin>, params: AddMarginParams) -> Result<()> {
     }
 
     position.last_threshold_update = clock.unix_timestamp;
-    position.threshold_verified = false; // Needs MPC verification
+    // threshold_verified already set to true above after MPC verification
     position.last_updated = clock.unix_timestamp;
     position.last_margin_add = clock.unix_timestamp;
     position.margin_add_count = position.margin_add_count.saturating_add(1);

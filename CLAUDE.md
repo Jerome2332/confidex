@@ -2,6 +2,14 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Planning & Task Breakdown
+
+When planning work on this project, follow the guidelines in [docs/spec.md](docs/spec.md):
+- Every task/ticket should be an atomic, commitable piece of work with tests (or other validation)
+- Every sprint should result in a demoable piece of software that can be run, tested, and built upon
+- Focus on small atomic tasks that compose into clear sprint goals
+- Be exhaustive, clear, and technical in task definitions
+
 ## Development Standards
 
 **NO SHORTCUTS OR BYPASSES.** This is a production-grade platform, not a hackathon demo. Every feature must be implemented correctly:
@@ -29,6 +37,7 @@ Confidex is a confidential decentralized exchange (DEX) for the Solana Privacy H
 - **Prediction Markets:** PNP SDK (pnp-sdk npm package)
 - **Rust:** 1.89.0 (required for Arcium v0.4.0+)
 - **Frontend:** Next.js 14, TypeScript, Tailwind, shadcn/ui, Zustand
+- **Icons:** Phosphor Icons (@phosphor-icons/react) - see [frontend/phosphor-icons.md](frontend/phosphor-icons.md)
 - **RPC:** Helius SDK
 - **Arcium Client:** @arcium-hq/client, @arcium-hq/reader (TS SDK available)
 
@@ -1019,6 +1028,159 @@ Test files location: `/frontend/src/__tests__/`
 
 **Required env:** `HELIUS_WEBHOOK_SECRET`
 
+## Backend Service
+
+The backend provides ZK proof generation and the automated crank service for order matching.
+
+### Build Commands
+
+```bash
+cd backend
+pnpm install                    # Install dependencies
+pnpm dev                        # Development server (tsx watch)
+pnpm build                      # Compile TypeScript to dist/
+pnpm start                      # Run compiled JS
+pnpm start:prod                 # Run with NODE_ENV=production
+```
+
+### Crank Service (Order Matching)
+
+The crank service automatically monitors open orders and triggers MPC-based matching when compatible orders exist.
+
+**How it works:**
+1. Polls on-chain order accounts every 5 seconds
+2. Identifies matchable buy/sell pairs
+3. Executes `match_orders` instruction via MPC
+4. Handles callbacks and updates order state
+
+**Configuration (`backend/.env`):**
+```env
+CRANK_ENABLED=true              # Auto-start on backend launch
+CRANK_POLLING_INTERVAL_MS=5000  # Poll every 5 seconds
+CRANK_USE_ASYNC_MPC=true        # Use production async MPC flow
+CRANK_MAX_CONCURRENT_MATCHES=5  # Max parallel match attempts
+CRANK_WALLET_PATH=./keys/crank-wallet.json
+CRANK_MIN_SOL_BALANCE=0.1       # Warning threshold
+CRANK_ERROR_THRESHOLD=10        # Circuit breaker trigger
+CRANK_PAUSE_DURATION_MS=60000   # Pause after circuit breaker
+```
+
+**Crank Wallet:**
+- Located at `backend/keys/crank-wallet.json`
+- Current address: `8LPCkBETLQNaDcbaFqFmeiZJJDoqjUipjEW6G2sf3TJr`
+- Needs SOL for transaction fees (~0.1 SOL minimum)
+
+### Production Deployment (PM2)
+
+PM2 provides process management, auto-restart, and logging for production.
+
+**Setup:**
+```bash
+# Install PM2 globally
+npm install -g pm2
+
+# Build and start
+cd backend
+pnpm build
+pnpm pm2:start
+
+# Useful commands
+pnpm pm2:status                 # Check process status
+pnpm pm2:logs                   # View live logs
+pnpm pm2:restart                # Restart service
+pnpm pm2:stop                   # Stop service
+
+# Auto-start on system boot
+pm2 startup                     # Follow printed instructions
+pm2 save                        # Save current process list
+```
+
+**PM2 Configuration** (`backend/ecosystem.config.cjs`):
+- Auto-restart on crash
+- Max memory: 500MB
+- Logs: `backend/logs/out.log`, `backend/logs/error.log`
+- Environment: production with async MPC enabled
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health` | GET | Health check with prover status |
+| `/api/prove` | POST | Generate ZK eligibility proof |
+| `/api/admin/blacklist` | GET/POST/DELETE | Manage blacklist |
+| `/api/admin/crank/status` | GET | Crank metrics and status |
+| `/api/admin/crank/start` | POST | Start crank service |
+| `/api/admin/crank/stop` | POST | Stop crank service |
+| `/api/admin/crank/pause` | POST | Pause polling |
+| `/api/admin/crank/resume` | POST | Resume polling |
+
+**Crank Status Response:**
+```json
+{
+  "status": "running",
+  "metrics": {
+    "status": "running",
+    "startedAt": 1768823244616,
+    "lastPollAt": 1768823283595,
+    "totalPolls": 100,
+    "totalMatchAttempts": 5,
+    "successfulMatches": 4,
+    "failedMatches": 1,
+    "consecutiveErrors": 0,
+    "walletBalance": 0.95,
+    "openOrderCount": 12,
+    "pendingMatches": 0
+  },
+  "config": {
+    "pollingIntervalMs": 5000,
+    "useAsyncMpc": true,
+    "maxConcurrentMatches": 5
+  }
+}
+```
+
+### Alternative Deployment Options
+
+**Systemd (Linux):**
+```ini
+# /etc/systemd/system/confidex-crank.service
+[Unit]
+Description=Confidex Crank Service
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/confidex/backend
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+EnvironmentFile=/path/to/confidex/backend/.env.production
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Then:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable confidex-crank
+sudo systemctl start confidex-crank
+```
+
+**Docker:**
+```dockerfile
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json pnpm-lock.yaml ./
+RUN npm install -g pnpm && pnpm install --prod
+COPY dist/ ./dist/
+COPY keys/ ./keys/
+ENV NODE_ENV=production
+CMD ["node", "dist/index.js"]
+```
+
 ## Branding Guidelines
 
 See `/frontend/BRAND_GUIDELINES.md` for comprehensive design documentation.
@@ -1045,3 +1207,10 @@ See `/frontend/BRAND_GUIDELINES.md` for comprehensive design documentation.
 - Buttons: `rounded-lg`
 - Cards: `rounded-xl`
 - Badges: `rounded-full`
+
+**Icons:**
+- **Use Phosphor Icons by default** (`@phosphor-icons/react`)
+- Prefer Phosphor over Lucide for consistency
+- If unsure of the icon name, search [phosphoricons.com](https://phosphoricons.com)
+- Document new icons in [frontend/phosphor-icons.md](frontend/phosphor-icons.md)
+- Common sizes: `size={16}` for inline/nav, `size={24}` for buttons, `size={36}` for section headers
