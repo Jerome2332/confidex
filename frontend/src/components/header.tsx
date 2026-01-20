@@ -1,7 +1,7 @@
 'use client';
 
 import { FC, useState } from 'react';
-import { Shield, ArrowsLeftRight, GearSix, TrendUp } from '@phosphor-icons/react';
+import { ArrowsLeftRight, GearSix, TrendUp } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletButton } from '@/components/wallet-button';
@@ -9,6 +9,7 @@ import { NavDropdown } from '@/components/nav-dropdown';
 import { SettingsPanel } from '@/components/settings-panel';
 import { MarketTicker } from '@/components/market-ticker';
 import { PrivacyBadge, usePrivacyLevel } from '@/components/privacy-indicator';
+import { Logo } from '@/components/logo';
 
 interface HeaderProps {
   showMarketTicker?: boolean;
@@ -44,8 +45,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-            <Shield size={28} className="text-white" />
-            <span className="text-xl font-bold text-white">Confidex</span>
+            <Logo variant="auto" size={28} />
             <span className="text-[10px] bg-white/10 text-white/80 px-1.5 py-0.5 rounded font-medium border border-white/20">
               DEVNET
             </span>

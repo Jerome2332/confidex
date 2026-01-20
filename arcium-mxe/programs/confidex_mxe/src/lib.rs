@@ -12,9 +12,19 @@
 //! 5. Results come back via callback to DEX
 //!
 //! Circuits defined in ../encrypted-ixs/src/lib.rs
+//!
+//! IMPORTANT: Circuit bytecode is stored offchain to avoid excessive on-chain costs.
+//! Arx nodes fetch circuits from CIRCUIT_BASE_URL and verify via circuit_hash! macro.
 
 use anchor_lang::prelude::*;
 use arcium_anchor::prelude::*;
+use arcium_client::idl::arcium::types::{CircuitSource, OffChainCircuitSource};
+use arcium_macros::circuit_hash;
+
+/// Base URL for offchain circuit storage (GitHub Releases)
+///
+/// Arx nodes will fetch {CIRCUIT_BASE_URL}/{circuit_name}.arcis and verify against circuit_hash!
+const CIRCUIT_BASE_URL: &str = "https://github.com/Jerome2332/confidex/releases/download/v0.1.0-circuits";
 
 // Computation definition offsets (generated from circuit names)
 const COMP_DEF_OFFSET_COMPARE_PRICES: u32 = comp_def_offset("compare_prices");
@@ -37,63 +47,134 @@ pub mod confidex_mxe {
     // =============================================================
     // COMPUTATION DEFINITION INITIALIZATION
     // These only need to be called once after deployment
+    // Circuits are stored offchain and verified via circuit_hash! macro
     // =============================================================
 
     pub fn init_compare_prices_comp_def(ctx: Context<InitComparePricesCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/compare_prices.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("compare_prices"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_calculate_fill_comp_def(ctx: Context<InitCalculateFillCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/calculate_fill.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("calculate_fill"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_verify_position_params_comp_def(
         ctx: Context<InitVerifyPositionParamsCompDef>,
     ) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/verify_position_params.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("verify_position_params"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_check_liquidation_comp_def(
         ctx: Context<InitCheckLiquidationCompDef>,
     ) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/check_liquidation.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("check_liquidation"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_batch_liquidation_check_comp_def(
         ctx: Context<InitBatchLiquidationCheckCompDef>,
     ) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/batch_liquidation_check.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("batch_liquidation_check"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_calculate_pnl_comp_def(ctx: Context<InitCalculatePnlCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/calculate_pnl.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("calculate_pnl"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_calculate_funding_comp_def(
         ctx: Context<InitCalculateFundingCompDef>,
     ) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/calculate_funding.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("calculate_funding"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_add_encrypted_comp_def(ctx: Context<InitAddEncryptedCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/add_encrypted.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("add_encrypted"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_sub_encrypted_comp_def(ctx: Context<InitSubEncryptedCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/sub_encrypted.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("sub_encrypted"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 
     pub fn init_mul_encrypted_comp_def(ctx: Context<InitMulEncryptedCompDef>) -> Result<()> {
-        init_comp_def(ctx.accounts, None, None)?;
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/mul_encrypted.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("mul_encrypted"),
+            })),
+            None,
+        )?;
         Ok(())
     }
 

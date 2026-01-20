@@ -1,6 +1,6 @@
 'use client';
 
-import { CSSProperties } from 'react';
+import { CSSProperties, useEffect, useId, useState } from 'react';
 
 interface ConicBorderProps {
   /** Width of the container in pixels (undefined for fluid width) */
@@ -22,8 +22,8 @@ interface ConicBorderProps {
 /**
  * ConicBorderAnimation
  *
- * A rotating conic gradient border effect using CSS @property animation.
- * The gradient creates a spotlight effect that rotates around the border.
+ * A rotating conic gradient border effect using CSS animation.
+ * Uses a rotating pseudo-element technique for maximum browser compatibility.
  */
 export function ConicBorderAnimation({
   width,
@@ -35,40 +35,60 @@ export function ConicBorderAnimation({
   className = '',
 }: ConicBorderProps) {
   const innerRadius = Math.max(0, borderRadius - borderWidth);
+  const uniqueId = useId().replace(/:/g, '');
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // CSS for the animation - injected once per component instance
+  const animationStyles = `
+    @keyframes conic-rotate-${uniqueId} {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    .conic-wrapper-${uniqueId} {
+      position: relative;
+    }
+
+    .conic-border-${uniqueId} {
+      position: absolute;
+      inset: 0;
+      border-radius: ${borderRadius}px;
+      overflow: hidden;
+    }
+
+    .conic-border-${uniqueId}::before {
+      content: '';
+      position: absolute;
+      inset: -50%;
+      background: conic-gradient(
+        from 0deg,
+        rgba(255, 255, 255, 0.1) 0deg,
+        rgba(255, 255, 255, 0.1) 60deg,
+        rgba(255, 255, 255, 0.9) 120deg,
+        rgba(255, 255, 255, 0.1) 180deg,
+        rgba(255, 255, 255, 0.1) 240deg,
+        rgba(255, 255, 255, 0.9) 300deg,
+        rgba(255, 255, 255, 0.1) 360deg
+      );
+      animation: conic-rotate-${uniqueId} ${duration}s linear infinite;
+    }
+  `;
 
   return (
     <>
-      <style jsx global>{`
-        @property --conic-gradient-angle {
-          syntax: "<angle>";
-          inherits: false;
-          initial-value: 0deg;
-        }
-
-        @keyframes conic-border-rotate {
-          0% {
-            --conic-gradient-angle: 0deg;
-          }
-          100% {
-            --conic-gradient-angle: 360deg;
-          }
-        }
-
-        .conic-border-glow {
-          background: conic-gradient(
-            from var(--conic-gradient-angle),
-            rgba(255, 255, 255, 0.1) 0deg,
-            rgba(255, 255, 255, 0.1) 60deg,
-            rgba(255, 255, 255, 0.9) 120deg,
-            rgba(255, 255, 255, 0.1) 180deg,
-            rgba(255, 255, 255, 0.1) 240deg,
-            rgba(255, 255, 255, 0.9) 300deg,
-            rgba(255, 255, 255, 0.1) 360deg
-          );
-        }
-      `}</style>
+      {mounted && (
+        <style dangerouslySetInnerHTML={{ __html: animationStyles }} />
+      )}
       <div
-        className={`relative ${className}`}
+        className={`conic-wrapper-${uniqueId} ${className}`}
         style={{
           width: width !== undefined ? `${width}px` : undefined,
           height: height !== undefined ? `${height}px` : undefined,
@@ -77,13 +97,7 @@ export function ConicBorderAnimation({
         } as CSSProperties}
       >
         {/* Animated border layer */}
-        <div
-          className="conic-border-glow absolute inset-0"
-          style={{
-            borderRadius: `${borderRadius}px`,
-            animation: `conic-border-rotate ${duration}s linear infinite`,
-          }}
-        />
+        <div className={`conic-border-${uniqueId}`} />
         {/* Content layer */}
         <div
           className="relative bg-black w-full h-full"

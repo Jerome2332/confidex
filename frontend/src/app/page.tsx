@@ -4,6 +4,7 @@ import { Header } from '@/components/header';
 import { ScrollTextReveal } from '@/components/scroll-text-reveal';
 import { CircleAnimation } from '@/components/circle-animations';
 import { ConicBorderAnimation } from '@/components/conic-border-animation';
+import { LogoIcon } from '@/components/logo';
 import {
   Lock,
   Fingerprint,
@@ -356,8 +357,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <ShieldCheck size={24} className="text-white" />
-              <span className="font-normal text-white">Confidex</span>
+              <LogoIcon size={24} />
               <span className="text-xs text-white/50 font-light">
                 Built for Solana Privacy Hack 2026
               </span>

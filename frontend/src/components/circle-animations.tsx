@@ -71,57 +71,108 @@ function CornerDecoration({ position }: { position: string }) {
 
 export function CircleAnimation({ type, title, className = '' }: CircleAnimationProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | null>(null);
+  const timeRef = useRef({ time: 0, lastTime: 0 });
+  const animateFnRef = useRef<((timestamp: number) => void) | null>(null);
 
+  // Create animation function once on mount/type change
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas) {
+      console.warn('[CircleAnimation] No canvas ref');
+      return;
+    }
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    if (!ctx) {
+      console.warn('[CircleAnimation] No canvas context');
+      return;
+    }
 
-    let lastTime = 0;
-    let time = 0;
+    // Reset time state when type changes
+    timeRef.current = { time: 0, lastTime: 0 };
 
-    const animations: Record<AnimationType, (timestamp: number) => void> = {
-      'sphere-scan': createSphereScan(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'crystalline-refraction': createCrystallineRefraction(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'sonar-sweep': createSonarSweep(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'helix-scanner': createHelixScanner(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'interconnecting-waves': createInterconnectingWaves(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'cylindrical-analysis': createCylindricalAnalysis(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'voxel-matrix-morph': createVoxelMatrixMorph(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'phased-array-emitter': createPhasedArrayEmitter(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-      'crystalline-cube-refraction': createCrystallineCubeRefraction(ctx, () => time, (t) => { time = t; }, () => lastTime, (t) => { lastTime = t; }),
-    };
+    const getTime = () => timeRef.current.time;
+    const setTime = (t: number) => { timeRef.current.time = t; };
+    const getLastTime = () => timeRef.current.lastTime;
+    const setLastTime = (t: number) => { timeRef.current.lastTime = t; };
 
-    const animate = animations[type];
+    // Create the animation function for this type
+    switch (type) {
+      case 'sphere-scan':
+        animateFnRef.current = createSphereScan(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'crystalline-refraction':
+        animateFnRef.current = createCrystallineRefraction(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'sonar-sweep':
+        animateFnRef.current = createSonarSweep(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'helix-scanner':
+        animateFnRef.current = createHelixScanner(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'interconnecting-waves':
+        animateFnRef.current = createInterconnectingWaves(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'cylindrical-analysis':
+        animateFnRef.current = createCylindricalAnalysis(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'voxel-matrix-morph':
+        animateFnRef.current = createVoxelMatrixMorph(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'phased-array-emitter':
+        animateFnRef.current = createPhasedArrayEmitter(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      case 'crystalline-cube-refraction':
+        animateFnRef.current = createCrystallineCubeRefraction(ctx, getTime, setTime, getLastTime, setLastTime);
+        break;
+      default:
+        console.warn('[CircleAnimation] Unknown animation type:', type);
+        return;
+    }
+
+    let isRunning = true;
 
     function loop(timestamp: number) {
-      animate(timestamp);
+      if (!isRunning || !animateFnRef.current) return;
+      try {
+        animateFnRef.current(timestamp);
+      } catch (err) {
+        console.error('[CircleAnimation] Animation error:', err);
+        isRunning = false;
+        return;
+      }
       animationRef.current = requestAnimationFrame(loop);
     }
 
+    // Start the animation loop
     animationRef.current = requestAnimationFrame(loop);
 
     return () => {
-      if (animationRef.current) {
+      isRunning = false;
+      if (animationRef.current !== null) {
         cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
       }
+      animateFnRef.current = null;
     };
   }, [type]);
 
+  const showTitle = title && title.trim().length > 0;
+
   return (
     <div
-      className={`group relative w-[220px] h-[220px] border border-white/10 bg-black/50 p-2.5 flex flex-col items-center overflow-visible transition-colors hover:border-white/30 ${className}`}
+      className={`group relative w-[220px] ${showTitle ? 'h-[220px]' : 'h-[200px]'} border border-white/10 bg-black/50 p-2.5 flex flex-col items-center overflow-visible transition-colors hover:border-white/30 ${className}`}
     >
       <CornerDecoration position="top-left" />
       <CornerDecoration position="top-right" />
       <CornerDecoration position="bottom-left" />
       <CornerDecoration position="bottom-right" />
-      <div className="mb-2.5 text-xs tracking-wider uppercase text-center text-white/90">
-        {title}
-      </div>
+      {showTitle && (
+        <div className="mb-2.5 text-xs tracking-wider uppercase text-center text-white/90">
+          {title}
+        </div>
+      )}
       <div className="relative w-[180px] h-[180px] flex justify-center items-center">
         <canvas
           ref={canvasRef}
