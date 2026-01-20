@@ -1,5 +1,5 @@
 [toolchain]
-anchor_version = "0.29.0"
+anchor_version = "0.32.1"
 solana_version = "1.18.26"
 
 [features]
@@ -8,7 +8,7 @@ skip-lint = false
 
 [programs.devnet]
 confidex_dex = "63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB"
-arcium_mxe = "CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE"
+arcium_mxe = "DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM"
 
 [registry]
 url = "https://api.apr.dev"

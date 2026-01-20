@@ -31,7 +31,7 @@ const MXE_PROGRAM_ID = new PublicKey(
 );
 const RPC_URL =
   process.env.RPC_URL ||
-  'https://devnet.helius-rpc.com/?api-key=a5993fde-e283-4034-82cf-6a6fef562a19';
+  'https://api.devnet.solana.com';
 const ARCIUM_PROGRAM_ID = new PublicKey(ARCIUM_ADDR);
 
 // Keypair path
