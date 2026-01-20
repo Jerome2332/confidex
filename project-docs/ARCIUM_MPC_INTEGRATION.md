@@ -15,7 +15,7 @@ Confidex uses Arcium's MPC infrastructure to enable **true encrypted order match
 | Program | Program ID | Network |
 |---------|-----------|---------|
 | **confidex_dex** | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Devnet |
-| **arcium_mxe** | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` | Devnet |
+| **arcium_mxe** | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | Devnet |
 | **Arcium Core** | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` | Devnet |
 
 ## Architecture

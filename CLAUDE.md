@@ -208,7 +208,7 @@ arcup list                 # List installed versions
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
 
 # Arcium MXE Program (our deployed MXE wrapper)
-NEXT_PUBLIC_MXE_PROGRAM_ID=CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
+NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
 
 # Arcium Core Program (official Arcium program)
 ARCIUM_PROGRAM_ID=Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
@@ -811,34 +811,34 @@ arcium requeue-mxe-keygen <MXE_PROGRAM_ID> \
   --rpc-url <RPC_URL>
 ```
 
-#### Current Workaround: Demo Encryption Mode
+#### MXE Deployment Complete (2026-01-20)
 
-Since MXE keygen is not completing on devnet, the frontend uses a **demo encryption mode**:
+**✅ MXE keygen has completed successfully.** The frontend now uses production Arcium encryption.
 
-1. **Environment Variable Override** (Preferred for production):
-   ```env
-   # Set in frontend/.env.local when you have a valid MXE key
-   NEXT_PUBLIC_MXE_X25519_PUBKEY=<64-hex-chars>
-   ```
-
-2. **Fallback Chain** in `use-encryption.ts`:
-   ```
-   Priority 1: NEXT_PUBLIC_MXE_X25519_PUBKEY environment variable
-   Priority 2: getMXEPublicKey() from Arcium SDK (currently failing)
-   Priority 3: Deterministic demo key (SHA-256 of MXE program ID)
-   ```
-
-3. **Demo Mode Behavior**:
-   - Values are encrypted with RescueCipher using demo shared secret
-   - Encryption format (V2) is production-ready
-   - MPC cluster cannot decrypt (different key material)
-   - Suitable for UI/UX testing, NOT production privacy
-
-**Expected Log Warning:**
+**Current Configuration:**
+```env
+# frontend/.env.local
+NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+NEXT_PUBLIC_MXE_X25519_PUBKEY=14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
+NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
 ```
-[WARN] [encryption] MXE key fetch failed - using demo mode.
-Reason: { error: "Account does not exist", note: "This is expected on devnet when MXE keygen is not complete." }
+
+**Key Priority Chain** in `use-encryption.ts`:
 ```
+Priority 1: NEXT_PUBLIC_MXE_X25519_PUBKEY environment variable ← ACTIVE
+Priority 2: getMXEPublicKey() from Arcium SDK (fallback)
+Priority 3: Deterministic demo key (emergency fallback only)
+```
+
+**Expected Log (Production Mode):**
+```
+[INFO] [encryption] Using production Arcium encryption (key source: env)
+```
+
+**Circuit Storage:** All 10 MPC circuits are stored on GitHub Releases and fetched by Arx nodes:
+- URL: https://github.com/Jerome2332/confidex/releases/tag/v0.1.0-circuits
+- Total size: ~15MB (10 circuits)
+- Hash verification: `circuit_hash!` macro ensures integrity
 
 #### MXE Deployment (Use CLI, Not Manual Scripts)
 
@@ -938,63 +938,35 @@ NEXT_PUBLIC_ARCIUM_ENABLED=true
 - [ ] Frontend shows "production Arcium encryption" in logs
 - [ ] Test order placement creates 64-byte encrypted blobs on-chain
 
-#### Analysis Findings (January 20, 2026)
+#### Resolution Complete (January 20, 2026)
 
-**Root Cause Identified: Cluster 123 Does Not Exist**
+**✅ RESOLVED:** Fresh MXE deployed with cluster 456 and keygen completed successfully.
 
-The existing MXE (`CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE`) was initialized with cluster offset 123, which **does not exist on devnet**. This is why keygen never completes.
+**Deployment Summary:**
+| Item | Value |
+|------|-------|
+| MXE Program ID | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` |
+| X25519 Public Key | `14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960` |
+| Cluster | 456 (Arcium v0.6.3) |
+| Recovery Set | 4 nodes |
+| Circuits | 10 (stored on GitHub Releases) |
+| DEX Program Updated | ✅ Slot 436479951 |
 
-**Evidence from `npx tsx frontend/init-mxe.ts`:**
-```
-Cluster Offset: 123  ← INVALID (doesn't exist)
-Cluster ID: FwweBxRZeYYxgiBgk9XuzTLsKbR9RWkDvXiFvazeTJ2H
-Arcium Program: Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
-```
+**Arcium MXE Project Structure:**
+
+The production MXE is at `arcium-mxe/` with:
+- `Arcium.toml` - Cluster 456 configuration
+- `encrypted-ixs/` - Arcis circuits for DEX operations (10 circuits)
+- `programs/confidex_mxe/` - Anchor program wrapper with `CircuitSource::OffChain`
+- `build/` - Compiled `.arcis` circuit files
+- `OFFCHAIN_CIRCUITS.md` - Implementation documentation
 
 **Valid Devnet Clusters:**
 | Offset | Version | Status |
 |--------|---------|--------|
 | 123 | N/A | ❌ Does NOT exist |
-| 456 | v0.6.3 | ✅ Recommended |
-| 789 | v0.5.1 | ✅ Available |
-
-**Attempted Fixes:**
-1. ❌ `arcium deploy --skip-deploy --cluster-offset 456` - Failed: Arcium MXE account already exists, can't reinitialize
-2. ⚠️ Fresh MXE deployment blocked by CLI/macro compatibility issues
-
-**Resolution Options:**
-
-**Option A: Deploy Fresh MXE (Recommended)**
-```bash
-# 1. Create new Arcium project
-arcium init confidex-mxe-v2 --skip-node-modules-install
-
-# 2. Add encrypted-ixs circuits for DEX operations
-
-# 3. Build with arcium build
-
-# 4. Deploy with correct cluster
-arcium deploy --cluster-offset 456 --recovery-set-size 4 \
-  --keypair-path ~/.config/solana/devnet.json \
-  --rpc-url https://devnet.helius-rpc.com/?api-key=<key>
-```
-
-**Option B: Contact Arcium Team**
-- Contact: Arihant Bansal
-- Request: Delete/reset MXE account for CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
-- Or: Migrate to cluster 456
-
-**Arcium MXE Project Created:**
-
-A proper Arcium MXE project structure has been created at `arcium-mxe/` with:
-- `Arcium.toml` - Cluster configuration
-- `encrypted-ixs/` - Arcis circuits for DEX operations
-- `programs/confidex_mxe/` - Anchor program wrapper
-
-**Build blocked by:**
-- arcium CLI expects specific Anchor version patterns
-- arcium-anchor macros require proper account struct definition
-- Need Arcium team guidance on macro usage for custom structs
+| 456 | v0.6.3 | ✅ **IN USE** |
+| 789 | v0.5.1 | ✅ Available (backup) |
 
 ---
 

@@ -280,8 +280,8 @@ export function usePythPrice(symbol: string) {
 
 | Program | ID | Size | Purpose |
 |---------|-----|------|---------|
-| confidex_dex | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | 375KB | Core DEX logic |
-| arcium_mxe | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` | 239KB | MPC adapter |
+| confidex_dex | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | 899KB | Core DEX logic |
+| confidex_mxe | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | ~200KB | MPC adapter (deployed 2026-01-20) |
 | eligibility_verifier | `6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF` | 197KB | ZK proof verification |
 
 ### Account Structures

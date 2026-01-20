@@ -892,7 +892,7 @@ pub fn set_settlement_method(
 | Program | Network | Address |
 |---------|---------|---------|
 | `confidex_dex` | Devnet | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` |
-| `arcium_mxe` | Devnet | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` |
+| `arcium_mxe` | Devnet | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` |
 | `eligibility_verifier` | Devnet | `6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF` |
 | `c_spl_program` | Devnet | Pending C-SPL testnet release |
 

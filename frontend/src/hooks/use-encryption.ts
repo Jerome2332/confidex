@@ -22,7 +22,7 @@ import {
 // MXE Program ID (devnet - from constants)
 const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-  'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
+  'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
 );
 
 // Optional: Override MXE public key via environment variable (hex-encoded 32 bytes)

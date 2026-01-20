@@ -199,7 +199,7 @@ NEXT_PUBLIC_HELIUS_API_KEY=your_helius_api_key
 
 # Program IDs
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
+NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
 NEXT_PUBLIC_VERIFIER_PROGRAM_ID=6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF
 
 # Proof server (for server-side proof generation)
@@ -350,7 +350,7 @@ cd frontend && pnpm build
 | Program | Address |
 |---------|---------|
 | `confidex_dex` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` |
-| `arcium_mxe` | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` |
+| `arcium_mxe` | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` |
 | `eligibility_verifier` | `6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF` |
 
 ---

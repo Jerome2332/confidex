@@ -1,6 +1,6 @@
 # Confidex - Remaining Tasks
 
-**Last Updated:** January 18, 2026
+**Last Updated:** January 20, 2026
 **Submission Deadline:** January 30, 2026
 **Days Remaining:** 12
 
@@ -19,9 +19,11 @@
 - [x] Deploy `confidex_dex` to devnet ✅ COMPLETED
   - Program ID: `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`
   - Size: 375KB
-- [x] Deploy `arcium_mxe` to devnet ✅ COMPLETED
-  - Program ID: `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE`
-  - Size: 239KB
+- [x] Deploy `confidex_mxe` to devnet ✅ COMPLETED (2026-01-20)
+  - Program ID: `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM`
+  - X25519 Key: `14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960`
+  - Cluster: 456 (Arcium v0.6.3)
+  - Circuits: 10 (stored on GitHub Releases)
 - [x] Deploy ZK verifier via Sunspot ✅ COMPLETED
   - Circuit compiled: `circuits/eligibility/target/eligibility.json` (32KB)
   - Noir tests: 2/2 passing
@@ -68,7 +70,7 @@
   - **2:30-3:00** - Why it matters: Institutional adoption, compliance
 
 ### 4.2 Submission Checklist
-- [ ] Ensure GitHub repo is public
+- [x] Ensure GitHub repo is public ✅ (2026-01-20)
 - [ ] Verify README has setup instructions
 - [ ] Submit prize track declarations:
   - [ ] Arcium ($10K)

@@ -79,7 +79,7 @@ export function loadCrankConfig(): CrankConfig {
 
     programs: {
       confidexDex: process.env.CONFIDEX_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-      arciumMxe: process.env.MXE_PROGRAM_ID || 'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE',
+      arciumMxe: process.env.MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM',
     },
   };
 }

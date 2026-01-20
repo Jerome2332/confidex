@@ -398,6 +398,35 @@ fn main(
               the MPC cluster compares them without ever decrypting, preventing front-running and MEV extraction.
             </p>
 
+            {/* MXE Deployment Status */}
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 mb-6">
+              <h3 className="font-medium text-white mb-4 flex items-center gap-2">
+                <CheckCircle size={20} className="text-emerald-400" />
+                MXE Deployment Status (Live)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-white/50 mb-1">MXE Program ID</div>
+                  <code className="text-xs font-mono text-emerald-400">DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM</code>
+                </div>
+                <div>
+                  <div className="text-white/50 mb-1">X25519 Public Key</div>
+                  <code className="text-xs font-mono text-emerald-400 break-all">14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960</code>
+                </div>
+                <div>
+                  <div className="text-white/50 mb-1">Cluster</div>
+                  <div className="text-white font-mono">456 (Arcium v0.6.3 devnet)</div>
+                </div>
+                <div>
+                  <div className="text-white/50 mb-1">Circuit Storage</div>
+                  <a href="https://github.com/Jerome2332/confidex/releases/tag/v0.1.0-circuits" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1">
+                    GitHub Releases (10 circuits, ~15MB)
+                    <ArrowSquareOut size={12} />
+                  </a>
+                </div>
+              </div>
+            </div>
+
             {/* MPC Operations Table */}
             <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden mb-6">
               <div className="px-6 py-4 border-b border-white/10 bg-white/5">
@@ -751,7 +780,7 @@ Bytes 48-63: Ephemeral pubkey  → MPC key routing
               <div className="divide-y divide-white/5">
                 {[
                   { name: 'Confidex DEX', id: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB', desc: 'Core DEX logic, order management' },
-                  { name: 'Arcium MXE', id: 'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE', desc: 'MXE wrapper for MPC operations' },
+                  { name: 'Arcium MXE', id: 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM', desc: 'MXE wrapper for MPC operations' },
                   { name: 'Eligibility Verifier', id: '9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W', desc: 'Groth16 proof verification' },
                   { name: 'Arcium Core', id: 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ', desc: 'Official Arcium program' },
                 ].map((program) => (
