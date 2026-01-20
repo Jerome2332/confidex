@@ -34,7 +34,17 @@ Layer 3: C-SPL Tokens       → Persistent encrypted balances (settlement)
 |-----|---------|-------|
 | Exchange State | `AzYUvLiRgUz5juG24rvLMQBuKD7AmnJ3eh8GKp7exVWb` | `[b"exchange"]` |
 | SOL Perp Market | `FFU5bwpju8Hrb2bgrrWPK4LgGG1rD1ReK9ieVHavcW6n` | `[b"perp_market", SOL_MINT]` |
+| Funding State | `7eiG5J7ntca6k6ChFDygxE835zJaAVfTcp9ewCNPgT7o` | `[b"funding", perp_market]` |
+| Vault Authority | `Bj4ZZtvbg7CJzbCJMomYzW5MLkxiRGcZbmPSrjyR3sVE` | `[b"vault", perp_market]` |
 | Trader Eligibility | Dynamic | `[b"trader_eligibility", trader_pubkey]` |
+
+### Token Accounts
+
+| Account | Address | Owner | Purpose |
+|---------|---------|-------|---------|
+| Collateral Vault | `DF8HbGMS6gLjQRjWgpaUV4G4C1CcJczseWJFtd1Jx32q` | Vault Authority PDA | Holds USDC collateral |
+| Fee Recipient | `2HmZ5C68M3m9WBdzDGHw4oUiUEJ7f9pxJddi2GUL2jGt` | Exchange authority | Receives trading fees |
+| Insurance Fund | `F9f1r3kRHF265Xme5qkjskzvByVYZ1jt1iWVVySTZbK6` | Exchange authority | Socialized losses |
 
 ---
 

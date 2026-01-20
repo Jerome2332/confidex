@@ -14,12 +14,19 @@ export const VERIFIER_PROGRAM_ID = new PublicKey(
   '11111111111111111111111111111111'
 );
 
-// Arcium devnet clusters (offsets: 123, 456, 789)
+// Arcium devnet clusters
+// NOTE: Cluster 123 does NOT exist on devnet (Jan 2026)
+// Valid clusters: 456, 789 (both run v0.5.1)
+// Recovery set size on cluster 456: 4 nodes
+// Reference: https://docs.arcium.com/developers/deployment
 export const ARCIUM_CLUSTERS = {
-  CLUSTER_123: new PublicKey('11111111111111111111111111111111'), // Placeholder
-  CLUSTER_456: new PublicKey('11111111111111111111111111111111'),
-  CLUSTER_789: new PublicKey('11111111111111111111111111111111'),
+  // CLUSTER_123 DOES NOT EXIST - removed to prevent accidental use
+  CLUSTER_456: new PublicKey('11111111111111111111111111111111'), // Primary devnet cluster
+  CLUSTER_789: new PublicKey('11111111111111111111111111111111'), // Secondary devnet cluster
 };
+
+// Default cluster offset for MPC operations
+export const DEFAULT_ARCIUM_CLUSTER_OFFSET = 456;
 
 // Encrypted value sizes
 export const ENCRYPTED_VALUE_SIZE = 64; // bytes

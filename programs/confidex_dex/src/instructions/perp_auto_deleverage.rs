@@ -27,7 +27,7 @@ pub struct AutoDeleverage<'info> {
             ConfidentialPosition::SEED,
             bankrupt_position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &bankrupt_position.position_id
+            &bankrupt_position.position_seed.to_le_bytes()
         ],
         bump = bankrupt_position.bump,
         constraint = bankrupt_position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
@@ -42,7 +42,7 @@ pub struct AutoDeleverage<'info> {
             ConfidentialPosition::SEED,
             target_position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &target_position.position_id
+            &target_position.position_seed.to_le_bytes()
         ],
         bump = target_position.bump,
         constraint = target_position.market == perp_market.key() @ ConfidexError::InvalidFundingState,

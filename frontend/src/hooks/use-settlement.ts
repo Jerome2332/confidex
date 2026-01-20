@@ -1,12 +1,25 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+/**
+ * Unified Settlement Hook
+ *
+ * Provides settlement operations with automatic provider selection:
+ * - C-SPL (Arcium Confidential SPL) - zero fees, full confidentiality (when available)
+ * - ShadowWire - 1% fee, Bulletproof-based privacy (production-ready)
+ * - SPL - public transfers (fallback, no privacy)
+ */
+
+import { useCallback, useState, useMemo } from 'react';
 import { useShadowWire } from './use-shadowwire';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { CSPL_ENABLED, SHADOWWIRE_ENABLED, SHADOWWIRE_FEE_BPS } from '@/lib/constants';
 
 import { createLogger } from '@/lib/logger';
 
 const log = createLogger('settlement');
+
+// Settlement provider types
+export type SettlementProvider = 'cspl' | 'shadowwire' | 'spl';
 
 export interface SettlementParams {
   buyerAddress: string;
@@ -26,21 +39,64 @@ export interface UseSettlementReturn {
   executeSettlement: (params: SettlementParams) => Promise<SettlementResult>;
   isSettlementReady: boolean;
   isSettling: boolean;
+  /** Currently active settlement provider */
+  provider: SettlementProvider;
+  /** Whether using a privacy-preserving provider */
+  isPrivate: boolean;
+  /** Fee in basis points for current provider */
+  feeBps: number;
 }
 
 /**
- * Hook for executing order settlements via ShadowWire
+ * Hook for executing order settlements with automatic provider selection
+ *
+ * Provider Priority:
+ * 1. C-SPL (Arcium Confidential SPL) - zero fees (when available)
+ * 2. ShadowWire - 1% fee, Bulletproof-based privacy (production-ready)
+ * 3. SPL - public transfers (fallback)
  *
  * Settlement flow:
  * 1. Buyer sends USDC to seller (internal transfer - amount hidden)
  * 2. Seller sends SOL to buyer (internal transfer - amount hidden)
- *
- * Both transfers happen via ShadowWire's privacy-preserving transfer mechanism.
  */
 export function useSettlement(): UseSettlementReturn {
-  const { transfer, isReady } = useShadowWire();
+  const { transfer, isReady: shadowWireReady } = useShadowWire();
   const { publicKey } = useWallet();
   const [isSettling, setIsSettling] = useState(false);
+
+  // Determine the best available provider
+  const provider = useMemo<SettlementProvider>(() => {
+    // Priority 1: C-SPL when enabled
+    if (CSPL_ENABLED) {
+      return 'cspl';
+    }
+    // Priority 2: ShadowWire when enabled and ready
+    if (SHADOWWIRE_ENABLED && shadowWireReady) {
+      return 'shadowwire';
+    }
+    // Fallback: public SPL
+    return 'spl';
+  }, [shadowWireReady]);
+
+  const isPrivate = useMemo(() => {
+    return provider === 'cspl' || provider === 'shadowwire';
+  }, [provider]);
+
+  const feeBps = useMemo(() => {
+    switch (provider) {
+      case 'cspl':
+        return 0;
+      case 'shadowwire':
+        return SHADOWWIRE_FEE_BPS;
+      case 'spl':
+        return 0;
+      default:
+        return 0;
+    }
+  }, [provider]);
+
+  // Use ShadowWire ready state since it's currently the only active private provider
+  const isReady = provider === 'shadowwire' ? shadowWireReady : !!publicKey;
 
   const executeSettlement = useCallback(async (params: SettlementParams): Promise<SettlementResult> => {
     if (!isReady) {
@@ -124,6 +180,9 @@ export function useSettlement(): UseSettlementReturn {
     executeSettlement,
     isSettlementReady: isReady,
     isSettling,
+    provider,
+    isPrivate,
+    feeBps,
   };
 }
 

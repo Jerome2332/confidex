@@ -6,7 +6,10 @@ set -e
 
 KEYPAIR_PATH="${SOLANA_KEYPAIR:-$HOME/.config/solana/devnet.json}"
 MXE_KEYPAIR="./target/deploy/arcium_mxe-keypair.json"
-CLUSTER_OFFSET="${ARCIUM_CLUSTER_OFFSET:-123}"
+# NOTE: Cluster 123 does NOT exist on devnet (Jan 2026)
+# Valid clusters: 456, 789 (both run v0.5.1)
+# Reference: https://docs.arcium.com/developers/deployment
+CLUSTER_OFFSET="${ARCIUM_CLUSTER_OFFSET:-456}"
 
 echo "=== Deploying Arcium MXE Program ==="
 echo ""

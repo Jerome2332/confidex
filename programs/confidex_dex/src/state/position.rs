@@ -115,6 +115,10 @@ pub struct ConfidentialPosition {
 
     /// PDA bump seed
     pub bump: u8,
+
+    /// The position_count value used in PDA seed derivation
+    /// Stored so close_position can derive the same PDA
+    pub position_seed: u64,
 }
 
 impl ConfidentialPosition {
@@ -142,8 +146,9 @@ impl ConfidentialPosition {
         8 +   // auto_deleverage_priority
         8 +   // last_margin_add_hour
         1 +   // margin_add_count
-        1;    // bump
-    // Total: 561 bytes
+        1 +   // bump
+        8;    // position_seed
+    // Total: 576 bytes (8 + 32+32+16+8+8+1+1 + 64*6 + 32+8+1+16+1+1+1+8+8+1+1+8)
 
     pub const SEED: &'static [u8] = b"position";
 

@@ -27,7 +27,7 @@ const WRAP_TOKENS_DISCRIMINATOR = new Uint8Array([0xf4, 0x89, 0x39, 0xfb, 0xe8, 
 const UNWRAP_TOKENS_DISCRIMINATOR = new Uint8Array([0x11, 0x79, 0x03, 0xfa, 0x43, 0x69, 0xe8, 0x71]);
 const MATCH_ORDERS_DISCRIMINATOR = new Uint8Array([0x11, 0x01, 0xc9, 0x5d, 0x07, 0x33, 0xfb, 0x86]);
 const CANCEL_ORDER_DISCRIMINATOR = new Uint8Array([0x5f, 0x81, 0xed, 0xf0, 0x08, 0x31, 0xdf, 0x84]);
-const CLOSE_POSITION_DISCRIMINATOR = new Uint8Array([0x7b, 0x86, 0x51, 0x0b, 0x11, 0x73, 0x61, 0x39]);
+const CLOSE_POSITION_DISCRIMINATOR = new Uint8Array([0x7b, 0x86, 0x51, 0x00, 0x31, 0x44, 0x62, 0x62]);
 
 // PDA seeds
 const EXCHANGE_SEED = Buffer.from('exchange');
@@ -1117,7 +1117,13 @@ export interface OpenPositionParams {
 export async function fetchPerpMarketData(
   connection: Connection,
   underlyingMint: PublicKey
-): Promise<{ positionCount: bigint; oraclePriceFeed: PublicKey; collateralVault: PublicKey; arciumCluster: PublicKey } | null> {
+): Promise<{
+  positionCount: bigint;
+  oraclePriceFeed: PublicKey;
+  collateralVault: PublicKey;
+  feeRecipient: PublicKey;
+  arciumCluster: PublicKey;
+} | null> {
   const [marketPda] = derivePerpMarketPda(underlyingMint);
   const accountInfo = await connection.getAccountInfo(marketPda);
 
@@ -1147,15 +1153,20 @@ export async function fetchPerpMarketData(
   const oracleOffset = positionCountOffset + 8 + 8 + 8 + 16 + 16;
   const oraclePriceFeed = new PublicKey(data.slice(oracleOffset, oracleOffset + 32));
 
-  // collateral_vault is right after oracle_price_feed
-  const collateralVault = new PublicKey(data.slice(oracleOffset + 32, oracleOffset + 64));
+  // collateral_vault is right after oracle_price_feed (offset 179 + 32 = 211)
+  const collateralVaultOffset = oracleOffset + 32;
+  const collateralVault = new PublicKey(data.slice(collateralVaultOffset, collateralVaultOffset + 32));
 
-  // arcium_cluster offset = collateral_vault(32) + insurance_fund(32) + insurance_fund_target(8) +
-  // fee_recipient(32) + c_quote_mint(32) = 136 more bytes
-  const arciumClusterOffset = oracleOffset + 32 + 32 + 32 + 8 + 32 + 32;
+  // fee_recipient offset = collateral_vault + insurance_fund(32) + insurance_fund_target(8)
+  // = 211 + 32 + 32 + 8 = 283
+  const feeRecipientOffset = collateralVaultOffset + 32 + 32 + 8;
+  const feeRecipient = new PublicKey(data.slice(feeRecipientOffset, feeRecipientOffset + 32));
+
+  // arcium_cluster offset = fee_recipient(32) + c_quote_mint(32) = 283 + 64 = 347
+  const arciumClusterOffset = feeRecipientOffset + 32 + 32;
   const arciumCluster = new PublicKey(data.slice(arciumClusterOffset, arciumClusterOffset + 32));
 
-  return { positionCount, oraclePriceFeed, collateralVault, arciumCluster };
+  return { positionCount, oraclePriceFeed, collateralVault, feeRecipient, arciumCluster };
 }
 
 /**
@@ -1878,14 +1889,16 @@ export interface ClosePositionParams {
   connection: Connection;
   trader: PublicKey;
   perpMarketPda: PublicKey;
-  positionId: bigint;
-  underlyingMint: PublicKey;
+  /** Position PDA - the account address of the position to close */
+  positionPda: PublicKey;
   /** Encrypted close size (64 bytes) - ignored if fullClose is true */
   encryptedCloseSize: Uint8Array;
   /** Encrypted exit price (64 bytes) - should match oracle */
   encryptedExitPrice: Uint8Array;
   /** Whether to close the entire position */
   fullClose: boolean;
+  /** Payout amount in USDC (for SPL token transfer fallback) */
+  payoutAmount: bigint;
   /** Oracle price feed account (e.g., Pyth SOL/USD) */
   oraclePriceFeed: PublicKey;
   /** Collateral vault PDA */
@@ -1909,10 +1922,11 @@ export async function buildClosePositionTransaction(
     connection,
     trader,
     perpMarketPda,
-    positionId,
+    positionPda,
     encryptedCloseSize,
     encryptedExitPrice,
     fullClose,
+    payoutAmount,
     oraclePriceFeed,
     collateralVault,
     feeRecipient,
@@ -1922,12 +1936,10 @@ export async function buildClosePositionTransaction(
   log.debug('Building close position transaction', {
     trader: trader.toBase58(),
     perpMarket: perpMarketPda.toBase58(),
-    positionId: positionId.toString(),
+    positionPda: positionPda.toBase58(),
     fullClose,
+    payoutAmount: payoutAmount.toString(),
   });
-
-  // Derive position PDA
-  const [positionPda] = derivePositionPda(trader, perpMarketPda, positionId);
 
   // Get trader's collateral token account (USDC ATA)
   const traderCollateralAccount = await getAssociatedTokenAddress(
@@ -1935,22 +1947,35 @@ export async function buildClosePositionTransaction(
     trader
   );
 
+  // Derive vault authority PDA: seeds = ["vault", perp_market]
+  const [vaultAuthority] = PublicKey.findProgramAddressSync(
+    [Buffer.from('vault'), perpMarketPda.toBuffer()],
+    CONFIDEX_PROGRAM_ID
+  );
+
   log.debug('Close position PDAs', {
     perpMarket: perpMarketPda.toBase58(),
     position: positionPda.toBase58(),
     oracle: oraclePriceFeed.toBase58(),
     collateralVault: collateralVault.toBase58(),
+    vaultAuthority: vaultAuthority.toBase58(),
   });
 
   // Build instruction data: discriminator + ClosePositionParams
-  // ClosePositionParams: encrypted_close_size[64] + encrypted_exit_price[64] + full_close[1]
-  const instructionData = Buffer.alloc(8 + 64 + 64 + 1);
+  // ClosePositionParams: encrypted_close_size[64] + encrypted_exit_price[64] + full_close[1] + payout_amount[8]
+  const instructionData = Buffer.alloc(8 + 64 + 64 + 1 + 8);
   Buffer.from(CLOSE_POSITION_DISCRIMINATOR).copy(instructionData, 0);
   Buffer.from(encryptedCloseSize).copy(instructionData, 8);
   Buffer.from(encryptedExitPrice).copy(instructionData, 72);
   instructionData.writeUInt8(fullClose ? 1 : 0, 136);
+  instructionData.writeBigUInt64LE(payoutAmount, 137);
+
+  // SPL Token program
+  const TOKEN_PROGRAM_ID = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
 
   // Build close position instruction
+  // Account order must match Rust struct: perp_market, position, oracle, trader_collateral_account,
+  // collateral_vault, fee_recipient, vault_authority, trader, arcium_program, token_program
   const instruction = new TransactionInstruction({
     keys: [
       { pubkey: perpMarketPda, isSigner: false, isWritable: true },
@@ -1959,8 +1984,10 @@ export async function buildClosePositionTransaction(
       { pubkey: traderCollateralAccount, isSigner: false, isWritable: true },
       { pubkey: collateralVault, isSigner: false, isWritable: true },
       { pubkey: feeRecipient, isSigner: false, isWritable: true },
+      { pubkey: vaultAuthority, isSigner: false, isWritable: false },
       { pubkey: trader, isSigner: true, isWritable: true },
       { pubkey: arciumProgram, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
     ],
     programId: CONFIDEX_PROGRAM_ID,
     data: instructionData,
@@ -2007,8 +2034,8 @@ export enum PositionStatusEnum {
 }
 
 /**
- * ConfidentialPosition account layout (561 bytes total)
- * V2 with encrypted liquidation thresholds
+ * ConfidentialPosition account layout (576 bytes total)
+ * V2 with encrypted liquidation thresholds and position_seed for PDA derivation
  */
 export interface ConfidentialPositionAccount {
   trader: PublicKey;
@@ -2041,12 +2068,14 @@ export interface ConfidentialPositionAccount {
   lastMarginAddHour: bigint;
   marginAddCount: number;
   bump: number;
+  // PDA seed (position_count used during creation)
+  positionSeed: bigint;
 }
 
 /**
  * Parse ConfidentialPosition from on-chain account data
  * Layout matches programs/confidex_dex/src/state/position.rs
- * Total size: 561 bytes (8 discriminator + 553 data)
+ * Total size: 576 bytes (8 discriminator + 568 data)
  */
 export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAccount {
   // Skip 8-byte Anchor discriminator
@@ -2150,6 +2179,10 @@ export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAcc
 
   // bump: u8 (1 byte)
   const bump = data.readUInt8(offset);
+  offset += 1;
+
+  // position_seed: u64 (8 bytes) - the position_count used in PDA creation
+  const positionSeed = data.readBigUInt64LE(offset);
 
   return {
     trader,
@@ -2176,6 +2209,7 @@ export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAcc
     lastMarginAddHour,
     marginAddCount,
     bump,
+    positionSeed,
   };
 }
 
@@ -2191,9 +2225,9 @@ export async function fetchUserPositions(
   connection: Connection,
   trader: PublicKey
 ): Promise<{ pda: PublicKey; position: ConfidentialPositionAccount }[]> {
-  // Note: On-chain account size is 568 bytes (includes Anchor padding)
-  // This differs from the calculated 561 bytes in position.rs due to alignment
-  const POSITION_ACCOUNT_SIZE = 568;
+  // Note: On-chain account size is 576 bytes (8 discriminator + 568 data fields)
+  // Includes position_seed field for PDA derivation
+  const POSITION_ACCOUNT_SIZE = 576;
 
   try {
     log.debug('Fetching user positions for', { trader: trader.toString() });

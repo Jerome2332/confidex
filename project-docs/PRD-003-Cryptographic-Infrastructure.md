@@ -732,8 +732,106 @@ async function comparePrices(
 
 ---
 
-## 8. Revision History
+## 8. Encryption Provider Feature Flags
+
+### 8.1 Overview
+
+Confidex supports runtime switching between encryption providers without code changes or redeployment. This enables:
+
+- **Instant failover:** Switch providers if one becomes unavailable
+- **User preference:** Users can choose their preferred security model
+- **Admin control:** Emergency switches via environment variables
+- **A/B testing:** Compare provider performance in production
+
+### 8.2 Supported Providers
+
+| Provider | Security Model | Latency | Status |
+|----------|---------------|---------|--------|
+| **Arcium MPC** | Cryptographic (dishonest majority) | ~500ms | Primary |
+| **Inco TEE** | Hardware (Intel TDX) | ~100ms | Alternative |
+| **Demo** | None (testing only) | Instant | Fallback |
+
+### 8.3 Provider Selection Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    PROVIDER SELECTION CASCADE                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Level 1: ENV_FORCE_PROVIDER (Admin Emergency Override)          │
+│           ↓                                                      │
+│  Level 2: User Settings (localStorage)                           │
+│           ↓                                                      │
+│  Level 3: Environment Defaults                                   │
+│           ↓                                                      │
+│  Level 4: Hardcoded Auto Selection                               │
+│           (Arcium prod > Inco > Arcium demo > demo)              │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 8.4 Configuration
+
+#### Environment Variables
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `NEXT_PUBLIC_FORCE_ENCRYPTION_PROVIDER` | `arcium \| inco \| demo` | - | Forces specific provider, overrides all settings |
+| `NEXT_PUBLIC_PREFERRED_ENCRYPTION_PROVIDER` | `auto \| arcium \| inco` | `auto` | Default preference for new users |
+| `NEXT_PUBLIC_ARCIUM_ENABLED` | boolean | `true` | Enables/disables Arcium MPC |
+| `NEXT_PUBLIC_INCO_ENABLED` | boolean | `false` | Enables/disables Inco TEE |
+| `NEXT_PUBLIC_AUTO_FALLBACK_ENABLED` | boolean | `true` | Auto-switch if preferred unavailable |
+
+#### User Settings (Zustand Store)
+
+```typescript
+interface EncryptionSettings {
+  preferredEncryptionProvider: 'auto' | 'arcium' | 'inco';
+  arciumEnabled: boolean;
+  incoEnabled: boolean;
+  autoFallbackEnabled: boolean;
+}
+```
+
+### 8.5 Security Considerations
+
+#### What's Stored Locally
+
+| Data | Storage | Encrypted | Notes |
+|------|---------|-----------|-------|
+| Provider preference | localStorage | No | Not sensitive |
+| Enable/disable flags | localStorage | No | Not sensitive |
+
+#### What's NEVER Stored
+
+- Private keys (MXE or user)
+- Encrypted values
+- Session tokens
+- MXE public keys
+
+### 8.6 Fallback Behavior
+
+| Scenario | Auto-Fallback ON | Auto-Fallback OFF |
+|----------|------------------|-------------------|
+| Preferred Arcium, Arcium unavailable | Falls back to Inco/demo | Returns `demo` mode |
+| Preferred Inco, Inco unavailable | Falls back to Arcium/demo | Returns `demo` mode |
+| Both unavailable | Demo mode | Demo mode |
+
+### 8.7 Implementation Files
+
+| File | Responsibility |
+|------|----------------|
+| `frontend/src/stores/settings-store.ts` | Persist user preferences |
+| `frontend/src/lib/constants.ts` | Environment variable parsing |
+| `frontend/src/hooks/use-unified-encryption.ts` | Provider selection logic |
+| `frontend/src/hooks/use-encryption-status.ts` | UI status reporting |
+| `frontend/src/components/settings/encryption-settings.tsx` | Settings UI |
+
+---
+
+## 9. Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | Jan 10, 2026 | Zac | Initial document |
+| 1.1 | Jan 20, 2026 | Zac | Added encryption provider feature flags and runtime switching |

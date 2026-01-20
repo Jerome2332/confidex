@@ -161,7 +161,7 @@ pub fn handler<'info>(
     let callback_discriminator = [0xcb, 0xba, 0x7c, 0x1d, 0x2e, 0x3f, 0x40, 0x51]; // liquidation_batch_callback
 
     let computation = queue_batch_liquidation_check(
-        Some(mxe_accounts),
+        mxe_accounts,
         &position_data,
         mark_price,
         &crate::ID, // Callback to this program

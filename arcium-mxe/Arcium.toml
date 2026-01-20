@@ -1,0 +1,16 @@
+# Arcium MXE Configuration for Confidex DEX
+# Reference: https://docs.arcium.com/developers/deployment
+
+[localnet]
+# Number of nodes in a single cluster (minimum 2)
+nodes = 2
+# How long to wait for cluster startup
+localnet_timeout_secs = 60
+# MPC backend - Cerberus is recommended for DEX operations (strongest security)
+backends = ["Cerberus"]
+
+# Devnet cluster configuration
+[clusters.devnet]
+# Cluster 456 = v0.6.3 (recommended)
+# Note: Cluster 123 does NOT exist on devnet
+offset = 456

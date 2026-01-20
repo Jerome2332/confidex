@@ -19,7 +19,7 @@ pub struct RemoveMargin<'info> {
             ConfidentialPosition::SEED,
             trader.key().as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id
+            &position.position_seed.to_le_bytes()
         ],
         bump = position.bump,
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,

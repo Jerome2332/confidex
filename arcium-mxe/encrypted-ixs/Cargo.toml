@@ -1,0 +1,11 @@
+[package]
+name = "encrypted-ixs"
+version = "0.1.0"
+edition = "2021"
+description = "Confidex DEX encrypted instructions (Arcis circuits)"
+
+[dependencies]
+# Arcis framework for writing MPC circuits
+arcis = "0.6.3"
+# Blake3 must be pinned to 1.8.2 (newer versions use Rust 2024 edition)
+blake3 = "=1.8.2"

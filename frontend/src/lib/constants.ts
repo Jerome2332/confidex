@@ -8,7 +8,7 @@ export const CONFIDEX_PROGRAM_ID = new PublicKey(
 
 export const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-    'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
+    'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
 );
 
 // ZK Eligibility Verifier (deployed via Sunspot)
@@ -100,7 +100,122 @@ export const LIQUIDATION_CONFIG_PDA = new PublicKey(
   '6sUqk2qFq5yc4dZ13BUQfcr76xTXF5y8FNjZr5qncobe'
 );
 
+// Perpetual Market Vault Addresses (devnet)
+// Vault Authority PDA - seeds = ["vault", perp_market] - signs token transfers from vault
+export const SOL_PERP_VAULT_AUTHORITY = new PublicKey(
+  'Bj4ZZtvbg7CJzbCJMomYzW5MLkxiRGcZbmPSrjyR3sVE'
+);
+// Collateral Vault - USDC token account owned by vault authority
+export const SOL_PERP_COLLATERAL_VAULT = new PublicKey(
+  'DF8HbGMS6gLjQRjWgpaUV4G4C1CcJczseWJFtd1Jx32q'
+);
+// Fee Recipient - receives trading fees
+export const SOL_PERP_FEE_RECIPIENT = new PublicKey(
+  '2HmZ5C68M3m9WBdzDGHw4oUiUEJ7f9pxJddi2GUL2jGt'
+);
+// Insurance Fund - for socialized losses and ADL
+export const SOL_PERP_INSURANCE_FUND = new PublicKey(
+  'F9f1r3kRHF265Xme5qkjskzvByVYZ1jt1iWVVySTZbK6'
+);
+
+// Perpetual Market Registry
+// Maps market PDA addresses to their symbols and metadata
+export interface PerpMarketConfig {
+  symbol: string;
+  underlyingMint: PublicKey;
+  quoteMint: PublicKey;
+  oracleFeed: PublicKey;
+  maxLeverage: number;
+  maintenanceMarginBps: number;
+  tickSize: number;
+}
+
+export const PERP_MARKET_REGISTRY: Record<string, PerpMarketConfig> = {
+  [SOL_PERP_MARKET_PDA.toBase58()]: {
+    symbol: 'SOL-PERP',
+    underlyingMint: new PublicKey('So11111111111111111111111111111111111111112'),
+    quoteMint: new PublicKey(USDC_DEVNET),
+    oracleFeed: PYTH_SOL_USD_FEED,
+    maxLeverage: 20,
+    maintenanceMarginBps: 500, // 5%
+    tickSize: 0.01,
+  },
+};
+
+/**
+ * Get market symbol from market PDA address
+ * Returns 'UNKNOWN' if market not found in registry
+ */
+export function getMarketSymbol(marketPda: PublicKey | string): string {
+  const key = typeof marketPda === 'string' ? marketPda : marketPda.toBase58();
+  return PERP_MARKET_REGISTRY[key]?.symbol ?? 'UNKNOWN';
+}
+
+/**
+ * Get full market config from market PDA address
+ * Returns null if market not found in registry
+ */
+export function getMarketConfig(marketPda: PublicKey | string): PerpMarketConfig | null {
+  const key = typeof marketPda === 'string' ? marketPda : marketPda.toBase58();
+  return PERP_MARKET_REGISTRY[key] ?? null;
+}
+
 // Arcium Program (for MPC)
 export const ARCIUM_PROGRAM_ID = new PublicKey(
   'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ'
 );
+
+// Arcium Cluster Configuration (devnet)
+// Cluster 123: v0.5.4 (available)
+// Cluster 456: v0.6.3 (recommended)
+// Recovery set size: 4 nodes (required for devnet)
+// Reference: https://docs.arcium.com/developers/deployment
+export const ARCIUM_CLUSTER_OFFSET = parseInt(
+  process.env.NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET || '456',
+  10
+);
+
+// Inco Lightning (TEE-based confidential computing)
+// Program ID for devnet - see https://docs.inco.org/svm
+export const INCO_PROGRAM_ID = new PublicKey(
+  '5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj'
+);
+export const INCO_ENABLED = process.env.NEXT_PUBLIC_INCO_ENABLED === 'true';
+
+// Encryption provider selection
+// Priority: env override > Arcium SDK > Inco (if enabled) > demo mode
+export type EncryptionProvider = 'arcium' | 'inco' | 'demo';
+
+// Preferred provider type for user settings
+export type PreferredProvider = 'auto' | 'arcium' | 'inco';
+
+// Environment variable overrides for encryption providers
+// These take precedence over user settings when set
+
+/**
+ * Force a specific encryption provider (admin emergency switch)
+ * When set, overrides all user settings and auto-selection logic
+ */
+export const ENV_FORCE_PROVIDER =
+  process.env.NEXT_PUBLIC_FORCE_ENCRYPTION_PROVIDER as EncryptionProvider | undefined;
+
+/**
+ * Default preferred provider from environment
+ * Used as initial value if user hasn't set preference
+ */
+export const ENV_PREFERRED_PROVIDER =
+  (process.env.NEXT_PUBLIC_PREFERRED_ENCRYPTION_PROVIDER as PreferredProvider) || undefined;
+
+/**
+ * Enable/disable Arcium MPC from environment (default: true)
+ * Set to 'false' to completely disable Arcium
+ */
+export const ENV_ARCIUM_ENABLED =
+  process.env.NEXT_PUBLIC_ARCIUM_ENABLED !== 'false';
+
+/**
+ * Enable/disable auto-fallback from environment (default: true)
+ * When false, system won't switch providers if preferred is unavailable
+ */
+export const ENV_AUTO_FALLBACK_ENABLED =
+  process.env.NEXT_PUBLIC_AUTO_FALLBACK_ENABLED !== 'false';

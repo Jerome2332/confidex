@@ -12,6 +12,8 @@ const log = createLogger('encryption');
 import {
   RescueCipher,
   getMXEPublicKey,
+  getMXEAccAddress,
+  ARCIUM_ADDR,
   serializeLE,
   deserializeLE,
   x25519
@@ -23,6 +25,13 @@ const MXE_PROGRAM_ID = new PublicKey(
   'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
 );
 
+// Optional: Override MXE public key via environment variable (hex-encoded 32 bytes)
+// Use this when you have a properly initialized Arcium MXE with keygen complete
+const MXE_PUBLIC_KEY_OVERRIDE = process.env.NEXT_PUBLIC_MXE_X25519_PUBKEY;
+
+// Arcium program ID for reference
+const ARCIUM_PROGRAM_ID = new PublicKey(ARCIUM_ADDR);
+
 /**
  * Encryption format version
  * V1 (HYBRID): [plaintext (8) | nonce (8) | ciphertext (32) | ephemeral_pubkey (16)]
@@ -33,17 +42,28 @@ const MXE_PROGRAM_ID = new PublicKey(
  */
 const ENCRYPTION_VERSION = 2;
 
+// Key source types for tracking where the MXE key came from
+export type KeySource = 'env' | 'sdk' | 'demo';
+
 // Encryption context for Arcium
 interface EncryptionContext {
   mxePublicKey: Uint8Array;
   sharedSecret: Uint8Array;
   ephemeralPublicKey: Uint8Array;
   cipher: RescueCipher;
+  /** True if using a real MXE key (env or SDK), false for demo mode */
+  isProductionMode: boolean;
+  /** Source of the MXE public key */
+  keySource: KeySource;
 }
 
 interface UseEncryptionReturn {
   context: EncryptionContext | null;
   isInitialized: boolean;
+  /** True if encryption is using a real MXE key */
+  isProductionMode: boolean;
+  /** Source of the encryption key */
+  keySource: KeySource | null;
   initializeEncryption: () => Promise<void>;
   encryptValue: (value: bigint) => Promise<Uint8Array>;
   decryptValue: (encrypted: Uint8Array) => Promise<bigint>;
@@ -55,7 +75,7 @@ interface UseEncryptionReturn {
  * Uses X25519 key exchange and RescueCipher for encryption
  */
 export function useEncryption(): UseEncryptionReturn {
-  const { publicKey, signMessage } = useWallet();
+  const { publicKey } = useWallet();
   const { connection } = useConnection();
   const [context, setContext] = useState<EncryptionContext | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -69,46 +89,86 @@ export function useEncryption(): UseEncryptionReturn {
     try {
       log.debug('Initializing Arcium encryption...');
 
-      // Create a minimal provider for fetching MXE public key
-      // Note: In browser, we can't create a full AnchorProvider without a wallet
-      // So we'll try to fetch the MXE public key, or fall back to simulation
-
       let mxePublicKey: Uint8Array;
+      let keySource: KeySource = 'demo';
 
-      try {
-        // Try to fetch MXE public key from devnet
-        // This requires an AnchorProvider which needs a wallet
-        const provider = new AnchorProvider(
-          connection,
-          {
-            publicKey,
-            signTransaction: async (tx) => tx,
-            signAllTransactions: async (txs) => txs,
-          },
-          { commitment: 'confirmed' }
-        );
-
-        const fetchedKey = await getMXEPublicKey(provider, MXE_PROGRAM_ID);
-
-        if (fetchedKey) {
-          mxePublicKey = fetchedKey;
-          log.debug('Fetched MXE public key from devnet');
-        } else {
-          throw new Error('MXE public key not found');
+      // Priority 1: Use environment variable override if provided
+      if (MXE_PUBLIC_KEY_OVERRIDE) {
+        try {
+          const hexKey = MXE_PUBLIC_KEY_OVERRIDE.replace(/^0x/, '');
+          if (hexKey.length === 64) {
+            mxePublicKey = new Uint8Array(32);
+            for (let i = 0; i < 32; i++) {
+              mxePublicKey[i] = parseInt(hexKey.slice(i * 2, i * 2 + 2), 16);
+            }
+            keySource = 'env';
+            log.info('Using MXE public key from environment variable (production mode)');
+          } else {
+            throw new Error('Invalid hex length');
+          }
+        } catch (parseError) {
+          log.error('Failed to parse NEXT_PUBLIC_MXE_X25519_PUBKEY, must be 64 hex chars:', { parseError });
+          throw new Error('Invalid MXE public key override format');
         }
-      } catch (fetchError) {
-        // Fall back to using a deterministic key for demo purposes
-        // In production, this MUST be fetched from the actual MXE
-        log.warn('Could not fetch MXE key, using demo mode:', { fetchError });
+      } else {
+        // Priority 2: Try to fetch from Arcium SDK
+        try {
+          const provider = new AnchorProvider(
+            connection,
+            {
+              publicKey,
+              signTransaction: async (tx) => tx,
+              signAllTransactions: async (txs) => txs,
+            },
+            { commitment: 'confirmed' }
+          );
 
-        // Use a deterministic "demo" MXE public key
-        // This is NOT secure - only for hackathon demo
-        mxePublicKey = new Uint8Array(32);
-        const demoSeed = new TextEncoder().encode('confidex-demo-mxe-key-v1');
-        const hashBuffer = await crypto.subtle.digest('SHA-256', demoSeed);
-        new Uint8Array(hashBuffer).forEach((b, i) => {
-          if (i < 32) mxePublicKey[i] = b;
-        });
+          // getMXEPublicKey looks for an mxeAccount PDA under the Arcium program
+          // derived from: ["MXEAccount", mxeProgramId]
+          const mxeAccAddress = getMXEAccAddress(MXE_PROGRAM_ID);
+          log.debug('Looking for MXE account', { address: mxeAccAddress.toBase58() });
+          log.debug('Arcium program', { address: ARCIUM_PROGRAM_ID.toBase58() });
+
+          const fetchedKey = await getMXEPublicKey(provider, MXE_PROGRAM_ID);
+
+          if (fetchedKey && !fetchedKey.every(b => b === 0)) {
+            mxePublicKey = fetchedKey;
+            keySource = 'sdk';
+            log.info('Fetched MXE x25519 public key from Arcium devnet (production mode)');
+          } else {
+            throw new Error('MXE x25519 key not set (keygen not complete)');
+          }
+        } catch (fetchError) {
+          // Priority 3: Fall back to demo mode
+          // This happens when:
+          // 1. The mxeAccount PDA doesn't exist (MXE not registered with Arcium)
+          // 2. The mxeAccount exists but utilityPubkeys.x25519Pubkey is not set (keygen incomplete)
+          //
+          // On Arcium devnet (Jan 2026), most MXEs have not completed keygen,
+          // so this fallback is expected for hackathon demos.
+          log.warn('MXE key fetch failed - using demo mode. Reason:', {
+            error: fetchError instanceof Error ? fetchError.message : String(fetchError),
+            note: 'This is expected on devnet when MXE keygen is not complete. ' +
+                  'Set NEXT_PUBLIC_MXE_X25519_PUBKEY for production use.'
+          });
+
+          // Generate deterministic demo key from MXE program ID
+          // This ensures consistent encryption within the same MXE context
+          // Note: The seed string is arbitrary and doesn't reference actual clusters
+          mxePublicKey = new Uint8Array(32);
+          keySource = 'demo';
+          const demoSeed = new TextEncoder().encode(
+            `confidex-demo-mxe-${MXE_PROGRAM_ID.toBase58()}-v2`
+          );
+          const hashBuffer = await crypto.subtle.digest('SHA-256', demoSeed);
+          new Uint8Array(hashBuffer).forEach((b, i) => {
+            if (i < 32) mxePublicKey[i] = b;
+          });
+
+          log.debug('Demo MXE key generated', {
+            first8Bytes: Array.from(mxePublicKey.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join('')
+          });
+        }
       }
 
       // Generate ephemeral X25519 keypair
@@ -127,15 +187,23 @@ export function useEncryption(): UseEncryptionReturn {
 
       log.debug('Initialized RescueCipher');
 
+      const isProductionMode = keySource !== 'demo';
+
       setContext({
         mxePublicKey,
         sharedSecret,
         ephemeralPublicKey,
         cipher,
+        isProductionMode,
+        keySource,
       });
       setIsInitialized(true);
 
-      log.debug('Encryption context ready');
+      log.debug('Encryption context ready', {
+        isProductionMode,
+        keySource,
+        mxeKeyPrefix: Array.from(mxePublicKey.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join('')
+      });
     } catch (error) {
       log.error('Failed to initialize', { error: error instanceof Error ? error.message : String(error) });
       throw error;
@@ -275,6 +343,8 @@ export function useEncryption(): UseEncryptionReturn {
   return {
     context,
     isInitialized,
+    isProductionMode: context?.isProductionMode ?? false,
+    keySource: context?.keySource ?? null,
     initializeEncryption,
     encryptValue,
     decryptValue,

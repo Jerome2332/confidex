@@ -230,6 +230,8 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
         position.last_margin_add_hour = 0;
         position.margin_add_count = 0;
         position.bump = ctx.bumps.position;
+        // Store the position_count used in PDA seeds for close_position
+        position.position_seed = ctx.accounts.perp_market.position_count;
     }
 
     // Increment market position count

@@ -21,6 +21,7 @@ import { useSettingsStore } from '@/stores/settings-store';
 import { useSettlementSelector } from '@/hooks/use-unified-settlement';
 import type { SettlementMethod } from '@/lib/settlement';
 import { ToggleSwitch } from './ui/toggle-switch';
+import { EncryptionSettings } from './settings/encryption-settings';
 
 interface SettingsSectionProps {
   title: string;
@@ -276,27 +277,11 @@ export const SettingsPanel: FC<{ onClose: () => void }> = ({ onClose }) => {
               checked={privacyMode}
               onChange={setPrivacyMode}
             />
+          </SettingsSection>
 
-            <div className="p-3 bg-secondary/50 rounded-lg">
-              <div className="flex items-center gap-2 mb-2">
-                <Shield size={16} className="text-primary" />
-                <span className="text-sm font-medium">Encryption Status</span>
-              </div>
-              <div className="text-xs text-muted-foreground space-y-1">
-                <div className="flex items-center justify-between">
-                  <span>Arcium MPC</span>
-                  <span className="text-white">Active</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>ZK Proofs</span>
-                  <span className="text-white">Enabled</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>C-SPL Tokens</span>
-                  <span className="text-white/60">Pending</span>
-                </div>
-              </div>
-            </div>
+          {/* Encryption Provider Settings */}
+          <SettingsSection title="Encryption">
+            <EncryptionSettings />
           </SettingsSection>
 
           {/* Appearance */}

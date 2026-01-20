@@ -1,0 +1,26 @@
+{
+  "name": "confidex-mxe",
+  "version": "0.1.0",
+  "description": "Confidex DEX MXE - Arcium MPC wrapper for encrypted order matching",
+  "scripts": {
+    "build": "arcium build",
+    "test": "arcium test",
+    "deploy": "arcium deploy --cluster-offset 456 --recovery-set-size 4",
+    "init-comp-defs": "npx tsx scripts/init-comp-defs.ts"
+  },
+  "dependencies": {
+    "@arcium-hq/client": "0.6.3",
+    "@coral-xyz/anchor": "^0.32.1",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^4.3.0",
+    "@types/mocha": "^9.1.0",
+    "@types/node": "^20.0.0",
+    "chai": "^4.3.4",
+    "mocha": "^10.0.0",
+    "ts-mocha": "^10.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

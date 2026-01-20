@@ -14,7 +14,7 @@ import {
   positionIdToString,
 } from '@/lib/confidex-client';
 import { usePerpetualStore, PerpPosition, PositionSide, PositionStatus } from '@/stores/perpetuals-store';
-import { SOL_PERP_MARKET_PDA } from '@/lib/constants';
+import { getMarketSymbol } from '@/lib/constants';
 
 const log = createLogger('positions');
 
@@ -56,7 +56,7 @@ function toStorePerpPosition(
     id: pda.toString(),
     positionId: positionIdToString(position.positionId),
     market: position.market,
-    marketSymbol: 'SOL-PERP', // TODO: Lookup from market registry
+    marketSymbol: getMarketSymbol(position.market),
     trader: position.trader,
     side: mapPositionSide(position.side),
     leverage: position.leverage,

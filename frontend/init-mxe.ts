@@ -1,5 +1,13 @@
 /**
- * Initialize MXE Configuration for Arcium MPC
+ * ⚠️ DEPRECATED: Use `arcium deploy` CLI instead of this script
+ *
+ * Per Arcium team guidance (Jan 20, 2026):
+ * "Please use `arcium deploy` to do so - you should ideally never call it yourself."
+ *
+ * RECOMMENDED APPROACH:
+ * arcium deploy --cluster-offset 456 --keypair-path ./keys/deployer.json --rpc-url https://api.devnet.solana.com
+ *
+ * This script is kept for reference and status checking only.
  */
 
 import {
@@ -19,10 +27,12 @@ import * as crypto from 'crypto';
 const ARCIUM_MXE_PROGRAM_ID = new PublicKey('CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE');
 const RPC_URL = 'https://api.devnet.solana.com';
 
-// Arcium devnet cluster (offset 123)
-// Note: In production, this would be a real cluster ID from Arcium
-// For devnet testing, we use a deterministic cluster ID
-const CLUSTER_OFFSET = 123;
+// Arcium devnet cluster configuration
+// NOTE: Cluster 123 does NOT exist on devnet (Jan 2026)
+// Valid clusters: 456, 789 (both run v0.5.1)
+// Recovery set size on cluster 456: 4 nodes
+// Reference: https://docs.arcium.com/developers/deployment
+const CLUSTER_OFFSET = 456;
 
 // PDA seeds (matching initialize.rs)
 const MXE_CONFIG_SEED = Buffer.from('mxe_config');

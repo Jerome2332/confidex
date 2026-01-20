@@ -54,7 +54,7 @@ Confidex is a confidential decentralized exchange (DEX) for the Solana Privacy H
 
 - **Blockchain:** Solana (devnet), Anchor 0.32.1
 - **ZK Proofs:** Noir 1.0.0-beta.13, Groth16 via Sunspot
-- **MPC:** Arcium v0.4.0+ (Cerberus protocol)
+- **MPC:** Arcium v0.6.3 (Cerberus protocol)
 - **Prediction Markets:** PNP SDK (pnp-sdk npm package)
 - **Rust:** 1.89.0 (required for Arcium v0.4.0+)
 - **Frontend:** Next.js 14, TypeScript, Tailwind, shadcn/ui, Zustand
@@ -108,7 +108,7 @@ pnpm test:coverage              # Run tests with coverage
 | Program | Program ID (Devnet) | Purpose |
 |---------|---------------------|---------|
 | `confidex_dex` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Core DEX logic, order management, MPC callbacks |
-| `arcium_mxe` | `CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE` | MXE wrapper for Arcium MPC operations |
+| `confidex_mxe` | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | MXE wrapper for Arcium MPC operations (deployed 2026-01-20) |
 | `eligibility_verifier` | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` | ZK proof verification (Groth16 via Sunspot) |
 | `c_spl_program` | TBD | Confidential token standard |
 
@@ -225,6 +225,29 @@ ARCIUM_PROGRAM_ID=Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
 
 **Important:** All devnet scripts and frontend use Dummy USDC (`Gh9Zw...`) by default for testing. This allows unlimited test tokens without faucet limitations.
 
+### Perpetual Market Addresses (Devnet)
+
+| Account | Address | Purpose |
+|---------|---------|---------|
+| **Perp Market PDA** | `FFU5bwpju8Hrb2bgrrWPK4LgGG1rD1ReK9ieVHavcW6n` | SOL-PERP market state (seeds: `["perp_market", SOL_MINT]`) |
+| **Funding State PDA** | `7eiG5J7ntca6k6ChFDygxE835zJaAVfTcp9ewCNPgT7o` | Funding rate state (seeds: `["funding", perp_market]`) |
+| **Vault Authority PDA** | `Bj4ZZtvbg7CJzbCJMomYzW5MLkxiRGcZbmPSrjyR3sVE` | Signs vault transfers (seeds: `["vault", perp_market]`) |
+| **Collateral Vault** | `DF8HbGMS6gLjQRjWgpaUV4G4C1CcJczseWJFtd1Jx32q` | USDC token account (owned by vault authority) |
+| **Fee Recipient** | `2HmZ5C68M3m9WBdzDGHw4oUiUEJ7f9pxJddi2GUL2jGt` | Receives trading fees |
+| **Insurance Fund** | `F9f1r3kRHF265Xme5qkjskzvByVYZ1jt1iWVVySTZbK6` | Socialized losses / ADL fund |
+| **Liquidation Config PDA** | `6sUqk2qFq5yc4dZ13BUQfcr76xTXF5y8FNjZr5qncobe` | Liquidation parameters |
+| **Pyth Oracle** | `J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix` | SOL/USD price feed |
+
+**Market Parameters (SOL-PERP):**
+- Max Leverage: 10x
+- Maintenance Margin: 5% (500 bps)
+- Initial Margin: 10% (1000 bps)
+- Taker Fee: 0.5% (50 bps)
+- Maker Fee: 0.2% (20 bps)
+- Liquidation Fee: 1% (100 bps)
+- Min Position Size: 0.01 SOL
+- Funding Interval: 1 hour
+
 ## Noir Circuit Pattern
 
 Eligibility circuit proves blacklist non-membership:
@@ -264,7 +287,7 @@ arcium test                     # Run local tests
 arcium deploy --cluster-offset <offset> --keypair-path <path> --rpc-url <url>
 ```
 
-**Devnet cluster offsets:** 123, 456, 789 (all v0.5.1)
+**Devnet cluster offsets:** 456, 789 (v0.5.1) — Note: Cluster 123 does NOT exist despite documentation
 
 ### TypeScript SDK
 ```bash
@@ -410,7 +433,7 @@ The Arcium MPC integration is now fully wired up and deployed to devnet. This en
 ```rust
 // programs/confidex_dex/src/cpi/arcium.rs
 pub const USE_REAL_MPC: bool = true;  // Toggle simulation vs real MPC
-pub const DEFAULT_CLUSTER_OFFSET: u16 = 123;  // Devnet cluster (123, 456, 789)
+pub const DEFAULT_CLUSTER_OFFSET: u16 = 456;  // Devnet cluster (456 or 789 - NOT 123)
 ```
 
 **Events Emitted:**
@@ -451,11 +474,527 @@ onPriceCompareComplete((event) => {
 ```
 
 ### Docs
+
+**Local Documentation (project-docs/arcium/):**
+
+When working with Arcium, reference these local docs first - they are indexed from the official Arcium developer documentation:
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Introduction** | `project-docs/arcium/intro-to-arcium.md` | What Arcium enables, how it works |
+| **Installation** | `project-docs/arcium/installation.md` | Quick install and manual setup |
+| **Arcup** | `project-docs/arcium/arcup.md` | Version manager documentation |
+| **Hello World** | `project-docs/arcium/hello-world.md` | Step-by-step tutorial |
+| **Computation Lifecycle** | `project-docs/arcium/computation-lifecycle.md` | Full lifecycle with mermaid diagram |
+| **Deployment** | `project-docs/arcium/deployment.md` | Deploying MXE to devnet |
+| **Callback Server** | `project-docs/arcium/callback-server.md` | Handling large computation outputs |
+| **Current Limitations** | `project-docs/arcium/current-limitations.md` | Known constraints |
+| **Setup Testnet Node** | `project-docs/arcium/setup-testnet-node.md` | Running an Arx node |
+
+**Arcis Framework (MPC Circuits):**
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Overview** | `project-docs/arcium/arcis/arcis-overview.md` | Framework introduction |
+| **Mental Model** | `project-docs/arcium/arcis/mental-model.md` | Thinking in MPC |
+| **Types** | `project-docs/arcium/arcis/types.md` | Supported types reference |
+| **Input/Output** | `project-docs/arcium/arcis/input-output.md` | Working with Enc types |
+| **Operations** | `project-docs/arcium/arcis/operations.md` | Complete operations reference |
+| **Primitives** | `project-docs/arcium/arcis/primitives.md` | RNG, crypto, data packing |
+| **Best Practices** | `project-docs/arcium/arcis/best-practices.md` | Performance and debugging |
+| **Quick Reference** | `project-docs/arcium/arcis/quick-reference.md` | Syntax cheatsheet |
+
+**Solana Program Integration:**
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Program Overview** | `project-docs/arcium/program/program-overview.md` | Invoking encrypted instructions |
+| **Computation Definitions** | `project-docs/arcium/program/computation-def-accs.md` | Computation definition accounts |
+| **Callback Accounts** | `project-docs/arcium/program/callback-accs.md` | Additional callback accounts |
+| **Callback Type Generation** | `project-docs/arcium/program/callback-type-generation.md` | Auto-generated output types |
+
+**TypeScript Client:**
+
+| Document | Path | Description |
+|----------|------|-------------|
+| **Client Overview** | `project-docs/arcium/js-client-library/js-client-overview.md` | SDK overview |
+| **Encryption** | `project-docs/arcium/js-client-library/encryption.md` | Encryption overview |
+| **Encrypting Inputs** | `project-docs/arcium/js-client-library/encrypting-inputs.md` | Input encryption guide |
+| **Sealing** | `project-docs/arcium/js-client-library/sealing.md` | Re-encryption documentation |
+| **Tracking Callbacks** | `project-docs/arcium/js-client-library/tracking-callbacks.md` | Await computation finalization |
+
+**External Links:**
 - **Main:** https://docs.arcium.com/developers
 - **TS SDK API:** https://ts.arcium.com/api
 - **Hello World:** https://docs.arcium.com/developers/hello-world
 - **Architecture:** https://docs.arcium.com/getting-started/architecture-overview
 - **MPC Protocols:** https://docs.arcium.com/multi-party-execution-environments-mxes/mpc-protocols
+- **Migration Guide (v0.5.x → v0.6.3):** https://docs.arcium.com/llms.txt
+
+### Arcium v0.6.3 Migration Guide
+
+**Current Version:** v0.6.3 (as of January 2026)
+
+This section documents the migration from Arcium v0.5.x to v0.6.3. The v0.6.3 release requires a **program redeploy** due to a change in the Arcium program ID.
+
+#### Breaking Changes Summary
+
+| Change | Before v0.6 | v0.6.3 |
+|--------|-------------|--------|
+| Program ID | `BpaW2ZmCJnDwizWY8eM34JtVqp2kRgnmQcedSVc9USdP` | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` |
+| Signer Account Type | `SignerAccount` | `ArciumSignerAccount` |
+| Signer PDA Seed | `"SignerAccount"` | `"ArciumSignerAccount"` |
+| Rust Dependencies | `0.5.x` | `0.6.3` |
+| TypeScript Client | `@arcium-hq/client@0.5.x` | `@arcium-hq/client@0.6.3` |
+| Arcis Crate | `arcis-imports` | `arcis` |
+| blake3 (encrypted-ixs) | Not required | `blake3 = "=1.8.2"` |
+| clock_account | No `mut` | Requires `mut` |
+
+#### 1. Update TypeScript Dependencies
+
+```bash
+cd frontend
+pnpm add @arcium-hq/client@0.6.3 @arcium-hq/reader@0.6.3
+```
+
+#### 2. Update Rust Dependencies (if using Arcium crates)
+
+```bash
+# In programs/your-program-name
+cargo update --package arcium-client --precise 0.6.3
+cargo update --package arcium-macros --precise 0.6.3
+cargo update --package arcium-anchor --precise 0.6.3
+
+# In encrypted-ixs (if present)
+cargo update --package arcis --precise 0.6.3
+```
+
+**Note:** `arcis-imports` no longer exists in v0.6.3. Migrate to the `arcis` crate:
+
+```toml
+# Before v0.6 (Cargo.toml)
+[dependencies]
+arcis-imports = "0.5.1"
+
+# v0.6.3 (Cargo.toml)
+[dependencies]
+arcis = "0.6.3"
+blake3 = "=1.8.2"  # Must pin to 1.8.2 (newer uses Rust 2024 edition)
+```
+
+```rust
+// Before v0.6
+use arcis_imports::*;
+
+// v0.6.3
+use arcis::*;
+```
+
+#### 3. Rename SignerAccount to ArciumSignerAccount (if applicable)
+
+If your program uses Arcium's signer account pattern:
+
+```rust
+// Before v0.6
+#[account(
+    init_if_needed,
+    payer = payer,
+    space = 8 + 1,
+    seeds = [b"SignerAccount"],
+    bump,
+    address = derive_sign_pda!(),
+)]
+pub sign_pda_account: Account<'info, SignerAccount>,
+
+// v0.6.3
+#[account(
+    init_if_needed,
+    payer = payer,
+    space = 8 + 1,
+    seeds = [b"ArciumSignerAccount"],
+    bump,
+    address = derive_sign_pda!(),
+)]
+pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+```
+
+TypeScript PDA derivation:
+```typescript
+// Before v0.6
+const signPda = PublicKey.findProgramAddressSync(
+  [Buffer.from("SignerAccount")],
+  program.programId
+)[0];
+
+// v0.6.3
+const signPda = PublicKey.findProgramAddressSync(
+  [Buffer.from("ArciumSignerAccount")],
+  program.programId
+)[0];
+```
+
+#### 4. Add `mut` to clock_account
+
+```rust
+// Before v0.6
+#[account(address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+pub clock_account: Account<'info, ClockAccount>,
+
+// v0.6.3
+#[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+pub clock_account: Account<'info, ClockAccount>,
+```
+
+#### 5. Configure Arcium.toml for Testing
+
+v0.6.3 adds the `--cluster` flag for remote testing:
+
+```toml
+# Arcium.toml
+[localnet]
+nodes = 2
+localnet_timeout_secs = 60
+backends = ["Cerberus"]
+
+# Cluster config for devnet testing (cluster 456 = v0.6.3)
+[clusters.devnet]
+offset = 456
+```
+
+Run tests:
+```bash
+arcium test              # Localnet (Docker required)
+arcium test --cluster devnet  # Remote devnet cluster
+```
+
+#### 6. Redeploy MXE
+
+After completing code updates:
+```bash
+arcium build
+arcium test
+arcium deploy --cluster-offset 456 --recovery-set-size 4 --keypair-path <path> --rpc-url <url>
+```
+
+#### Confidex Migration Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Program ID | ✅ Already v0.6.3 | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` |
+| Frontend SDK | ✅ Updated | `@arcium-hq/client@0.6.3` |
+| Rust CPI code | ✅ Compatible | Uses custom CPI, no arcis crate |
+| SignerAccount | N/A | Not using this pattern |
+| clock_account | N/A | Not using this pattern |
+
+**Note:** Confidex uses custom Arcium CPI infrastructure in `programs/confidex_dex/src/cpi/arcium.rs` rather than the `arcium-anchor` crate, so most Rust-side migration steps don't apply.
+
+### Arcium Deployment (Official Documentation)
+
+**Reference:** https://docs.arcium.com/developers/deployment
+
+#### Devnet Cluster Configuration
+
+| Cluster Offset | Version | Status | Notes |
+|----------------|---------|--------|-------|
+| **123** | v0.5.4 | ✅ Available | Older version |
+| **456** | v0.6.3 | ✅ **Recommended** | Latest stable |
+
+**Recovery Set Size:** `4` (required parameter for devnet)
+
+#### Prerequisites
+
+Before deploying:
+- MXE built successfully with `arcium build`
+- Tests passing locally with `arcium test`
+- Solana keypair with **2-5 SOL** for deployment costs
+- **Reliable RPC endpoint** (Helius or QuickNode recommended - default Solana RPC drops transactions)
+
+#### Deployment Command
+
+**⚠️ IMPORTANT:** Use `arcium deploy`, NOT manual `initMxe` calls.
+
+```bash
+# Full deployment with required parameters
+arcium deploy \
+  --cluster-offset 456 \
+  --recovery-set-size 4 \
+  --keypair-path ~/.config/solana/devnet.json \
+  --rpc-url https://devnet.helius-rpc.com/?api-key=<your-api-key>
+```
+
+**Required Parameters:**
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `--cluster-offset` | `456` | Arcium cluster to connect to (456 recommended for v0.6.3) |
+| `--recovery-set-size` | `4` | Number of nodes for threshold crypto recovery |
+| `--keypair-path` | Path to keypair | Solana keypair with SOL for fees |
+| `--rpc-url` | Helius/QuickNode URL | **Use reliable RPC, not default devnet** |
+
+**Optional Parameters:**
+| Parameter | Default | Options |
+|-----------|---------|---------|
+| `--mempool-size` | `Tiny` | `Tiny`, `Small`, `Medium`, `Large` |
+| `--program-keypair` | Auto-generated | Custom program address |
+| `--skip-deploy` | false | Only initialize MXE account |
+| `--skip-init` | false | Only deploy program |
+
+#### Post-Deployment: Initialize Computation Definitions
+
+After deployment, initialize computation definitions using the same cluster offset:
+
+```typescript
+// Use the cluster offset from deployment (456)
+const clusterOffset = 456;
+
+// Derive accounts
+const computationAccount = getComputationAccAddress(clusterOffset, computationOffset);
+const clusterAccount = getClusterAccAddress(clusterOffset);
+const mxeAccount = getMXEAccAddress(program.programId);
+const mempoolAccount = getMempoolAccAddress(clusterOffset);
+const executingPool = getExecutingPoolAccAddress(clusterOffset);
+```
+
+#### Verify Deployment
+
+```bash
+# Check program deployed successfully
+solana program show <your-program-id> --url <your-rpc-url>
+
+# Check MXE account info
+arcium mxe-info <your-program-id> --rpc-url <your-rpc-url>
+```
+
+#### Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| Transaction dropped | Use reliable RPC (Helius/QuickNode), not default devnet |
+| Out of SOL | `solana airdrop 2 <pubkey> -u devnet` |
+| Partial deployment failed | Use `--skip-deploy` or `--skip-init` to complete missing step |
+| InvalidRecoveryPeersCount | Use `--recovery-set-size 4` (required for devnet) |
+
+#### Key Insights from Arcium Team
+
+> "Recovery set on devnet cluster 456 is set to size 4 - it's mentioned in the deployment docs"
+> — Arihant Bansal | Arcium Team (Jan 20, 2026)
+
+> "Why are you calling initMxe yourself? Please use `arcium deploy` to do so - you should ideally never call it yourself."
+> — Arihant Bansal | Arcium Team (Jan 20, 2026)
+
+**On keygen timing and troubleshooting (Jan 20, 2026):**
+
+| Question | Answer |
+|----------|--------|
+| How long should MXE keygen take? | "A couple mins at max" |
+| Need priority fee for testing? | "Not needed for testing rn" |
+| Anything beyond `requeue-mxe-keygen`? | "No" |
+| Are cluster 456 nodes processing? | "They are processing computations" |
+
+> "I'll check your program ID in the node logs to see what's going on"
+> — Arihant Bansal | Arcium Team (Jan 20, 2026)
+
+**Useful Commands for Debugging:**
+```bash
+# Check MXE account info
+arcium mxe-info <MXE_PROGRAM_ID> -u <RPC_URL>
+
+# Check execpool (pending computations)
+arcium execpool 456 -u <RPC_URL>
+
+# Check mempool
+arcium mempool 456 -u <RPC_URL>
+
+# Requeue keygen if stuck
+arcium requeue-mxe-keygen <MXE_PROGRAM_ID> \
+  --cluster-offset 456 \
+  --keypair-path ~/.config/solana/devnet.json \
+  --rpc-url <RPC_URL>
+```
+
+#### Current Workaround: Demo Encryption Mode
+
+Since MXE keygen is not completing on devnet, the frontend uses a **demo encryption mode**:
+
+1. **Environment Variable Override** (Preferred for production):
+   ```env
+   # Set in frontend/.env.local when you have a valid MXE key
+   NEXT_PUBLIC_MXE_X25519_PUBKEY=<64-hex-chars>
+   ```
+
+2. **Fallback Chain** in `use-encryption.ts`:
+   ```
+   Priority 1: NEXT_PUBLIC_MXE_X25519_PUBKEY environment variable
+   Priority 2: getMXEPublicKey() from Arcium SDK (currently failing)
+   Priority 3: Deterministic demo key (SHA-256 of MXE program ID)
+   ```
+
+3. **Demo Mode Behavior**:
+   - Values are encrypted with RescueCipher using demo shared secret
+   - Encryption format (V2) is production-ready
+   - MPC cluster cannot decrypt (different key material)
+   - Suitable for UI/UX testing, NOT production privacy
+
+**Expected Log Warning:**
+```
+[WARN] [encryption] MXE key fetch failed - using demo mode.
+Reason: { error: "Account does not exist", note: "This is expected on devnet when MXE keygen is not complete." }
+```
+
+#### MXE Deployment (Use CLI, Not Manual Scripts)
+
+**⚠️ DEPRECATED:** The manual initialization script at `frontend/scripts/init-arcium-mxe.ts` should NOT be used. Per Arcium team guidance, use `arcium deploy` instead.
+
+**Correct Approach:**
+```bash
+# Deploy MXE using official CLI (handles initMxePart1, initMxePart2, keygen automatically)
+arcium deploy --cluster-offset 456 --keypair-path ./keys/deployer.json --rpc-url https://api.devnet.solana.com
+```
+
+**Why the manual script failed:**
+- ❌ Part 2 failed with `InvalidRecoveryPeersCount` error
+- Root cause: Recovery set size is 4 on cluster 456, script wasn't configured correctly
+- Solution: Use `arcium deploy` which handles this automatically
+
+**Historical Reference (do not use):**
+- Part 1 TX: `5tab5mT81kQ3ZHuq6fEHcdkozvMj8iWM9a5ra2q9H7LgrUHZmwocNGiA3PPEe2UtZmKMe9AkDva1AVTPNFCfTruK`
+
+#### When Real MXE Keys Are Available
+
+Once MXE is deployed via `arcium deploy`:
+
+1. Run `arcium deploy --cluster-offset 456 ...` (see above)
+2. Get the MXE public key from deployment output or on-chain state
+3. Set `NEXT_PUBLIC_MXE_X25519_PUBKEY` in frontend/.env.local
+4. Restart frontend - demo mode warning will disappear
+
+#### Privacy Implications
+
+| Mode | Privacy Level | MPC Decryption | Production Ready |
+|------|---------------|----------------|------------------|
+| **Demo Mode** | Visual only | ❌ No | ❌ No |
+| **Real MXE Key** | Full encryption | ✅ Yes | ✅ Yes |
+
+**Demo mode provides:**
+- Correct encryption format (V2 pure ciphertext)
+- Working UI/UX for testing
+- Encrypted blobs on-chain (but wrong key material)
+
+**Demo mode lacks:**
+- MPC cluster cannot decrypt values
+- Order matching would fail in production
+- Not suitable for mainnet deployment
+
+#### Production MXE Deployment Guide
+
+**Step 1: Deploy MXE using `arcium deploy` CLI**
+```bash
+# Install Arcium CLI if not already installed
+curl --proto '=https' --tlsv1.2 -sSfL https://install.arcium.com/ | bash
+arcup install
+
+# Deploy MXE to devnet cluster 456
+arcium deploy \
+  --cluster-offset 456 \
+  --keypair-path ~/.config/solana/devnet.json \
+  --rpc-url https://api.devnet.solana.com
+
+# The deploy command handles:
+# 1. initMxePart1 - Creates mxeAccount PDA
+# 2. initMxePart2 - Associates with cluster, configures recovery set (size 4)
+# 3. Triggers keygen - MPC nodes generate x25519 keypair
+```
+
+**Step 2: Retrieve the MXE x25519 Public Key**
+```bash
+# After keygen completes (may take a few minutes), check status:
+CLUSTER_OFFSET=456 npx tsx frontend/scripts/init-arcium-mxe.ts
+
+# The script will output the x25519 key if keygen is complete
+# Example output: NEXT_PUBLIC_MXE_X25519_PUBKEY=a1b2c3d4...
+```
+
+**Step 3: Configure Frontend for Production**
+```bash
+# Add to frontend/.env.local:
+NEXT_PUBLIC_MXE_X25519_PUBKEY=<64-hex-chars-from-step-2>
+NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
+NEXT_PUBLIC_ARCIUM_ENABLED=true
+```
+
+**Step 4: Verify Production Mode**
+```bash
+# Start frontend and check console for:
+# "[INFO] [encryption] Using production Arcium encryption (key source: env)"
+#
+# If you see:
+# "[WARN] [encryption] MXE key fetch failed - using demo mode."
+# Then keygen is not complete or env var is not set correctly.
+```
+
+**Verification Checklist:**
+- [ ] `arcium deploy` completed successfully
+- [ ] Keygen finished (x25519 key is non-zero)
+- [ ] `NEXT_PUBLIC_MXE_X25519_PUBKEY` set in .env.local
+- [ ] Frontend shows "production Arcium encryption" in logs
+- [ ] Test order placement creates 64-byte encrypted blobs on-chain
+
+#### Analysis Findings (January 20, 2026)
+
+**Root Cause Identified: Cluster 123 Does Not Exist**
+
+The existing MXE (`CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE`) was initialized with cluster offset 123, which **does not exist on devnet**. This is why keygen never completes.
+
+**Evidence from `npx tsx frontend/init-mxe.ts`:**
+```
+Cluster Offset: 123  ← INVALID (doesn't exist)
+Cluster ID: FwweBxRZeYYxgiBgk9XuzTLsKbR9RWkDvXiFvazeTJ2H
+Arcium Program: Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
+```
+
+**Valid Devnet Clusters:**
+| Offset | Version | Status |
+|--------|---------|--------|
+| 123 | N/A | ❌ Does NOT exist |
+| 456 | v0.6.3 | ✅ Recommended |
+| 789 | v0.5.1 | ✅ Available |
+
+**Attempted Fixes:**
+1. ❌ `arcium deploy --skip-deploy --cluster-offset 456` - Failed: Arcium MXE account already exists, can't reinitialize
+2. ⚠️ Fresh MXE deployment blocked by CLI/macro compatibility issues
+
+**Resolution Options:**
+
+**Option A: Deploy Fresh MXE (Recommended)**
+```bash
+# 1. Create new Arcium project
+arcium init confidex-mxe-v2 --skip-node-modules-install
+
+# 2. Add encrypted-ixs circuits for DEX operations
+
+# 3. Build with arcium build
+
+# 4. Deploy with correct cluster
+arcium deploy --cluster-offset 456 --recovery-set-size 4 \
+  --keypair-path ~/.config/solana/devnet.json \
+  --rpc-url https://devnet.helius-rpc.com/?api-key=<key>
+```
+
+**Option B: Contact Arcium Team**
+- Contact: Arihant Bansal
+- Request: Delete/reset MXE account for CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
+- Or: Migrate to cluster 456
+
+**Arcium MXE Project Created:**
+
+A proper Arcium MXE project structure has been created at `arcium-mxe/` with:
+- `Arcium.toml` - Cluster configuration
+- `encrypted-ixs/` - Arcis circuits for DEX operations
+- `programs/confidex_mxe/` - Anchor program wrapper
+
+**Build blocked by:**
+- arcium CLI expects specific Anchor version patterns
+- arcium-anchor macros require proper account struct definition
+- Need Arcium team guidance on macro usage for custom structs
 
 ---
 
@@ -613,7 +1152,7 @@ Open interest is still public. Encrypting OI would prevent funding rate predicti
    - Deploy production verifier program
 
 2. **MPC Cluster Selection**
-   - Evaluate devnet clusters (123, 456, 789) for reliability
+   - Use devnet clusters 456 or 789 (NOTE: 123 does NOT exist)
    - Configure failover between clusters
    - Monitor MPC latency and success rates
 
@@ -1031,6 +1570,116 @@ const result = await decrypt(handles, wallet);
 **Docs:** https://docs.inco.org/svm/introduction
 
 **Prize Strategy:** Confidex uses Arcium (stronger cryptographic guarantees). Inco integration is optional stretch goal for additional $2K DeFi prize.
+
+## Encryption Provider Feature Flags (Runtime Switching)
+
+Confidex supports runtime switching between encryption providers (Arcium MPC and Inco TEE) without code changes or redeployment. This enables instant failover and user preference.
+
+### Priority Cascade
+
+The encryption provider is selected based on a 4-level priority cascade:
+
+```
+┌─────────────────────────────────────────────┐
+│  1. ENV_FORCE_PROVIDER                      │  ← Admin emergency override
+│     (NEXT_PUBLIC_FORCE_ENCRYPTION_PROVIDER) │
+├─────────────────────────────────────────────┤
+│  2. User Settings (localStorage)            │  ← Runtime user choice
+│     (preferredEncryptionProvider)           │
+├─────────────────────────────────────────────┤
+│  3. Environment Defaults                    │  ← Build-time config
+│     (NEXT_PUBLIC_ARCIUM_ENABLED, etc.)      │
+├─────────────────────────────────────────────┤
+│  4. Hardcoded Defaults                      │  ← Code fallback
+│     (auto mode: Arcium > Inco > demo)       │
+└─────────────────────────────────────────────┘
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_FORCE_ENCRYPTION_PROVIDER` | - | Force provider (`arcium`, `inco`, `demo`) - overrides all settings |
+| `NEXT_PUBLIC_PREFERRED_ENCRYPTION_PROVIDER` | `auto` | Default preference if user hasn't set one |
+| `NEXT_PUBLIC_ARCIUM_ENABLED` | `true` | Enable/disable Arcium MPC |
+| `NEXT_PUBLIC_INCO_ENABLED` | `false` | Enable/disable Inco TEE |
+| `NEXT_PUBLIC_AUTO_FALLBACK_ENABLED` | `true` | Auto-switch if preferred unavailable |
+
+### User Settings Store
+
+Settings are persisted in localStorage via Zustand with v3 migration:
+
+```typescript
+interface SettingsState {
+  // Encryption provider settings
+  preferredEncryptionProvider: 'auto' | 'arcium' | 'inco';
+  arciumEnabled: boolean;
+  incoEnabled: boolean;
+  autoFallbackEnabled: boolean;
+}
+```
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/stores/settings-store.ts` | Zustand store with provider preferences |
+| `frontend/src/lib/constants.ts` | Environment variable constants |
+| `frontend/src/hooks/use-unified-encryption.ts` | Provider selection logic |
+| `frontend/src/hooks/use-encryption-status.ts` | UI-friendly status hook |
+| `frontend/src/components/settings/encryption-settings.tsx` | Settings panel UI |
+
+### Usage Examples
+
+**Admin Override (Emergency):**
+```bash
+# Force Arcium regardless of user settings
+NEXT_PUBLIC_FORCE_ENCRYPTION_PROVIDER=arcium
+
+# Force Inco
+NEXT_PUBLIC_FORCE_ENCRYPTION_PROVIDER=inco
+
+# Disable all switching (lock to auto)
+NEXT_PUBLIC_ARCIUM_ENABLED=true
+NEXT_PUBLIC_INCO_ENABLED=false
+```
+
+**User Runtime Switching:**
+```typescript
+import { useSettingsStore } from '@/stores/settings-store';
+
+function EncryptionSettings() {
+  const {
+    preferredEncryptionProvider,
+    setPreferredEncryptionProvider,
+  } = useSettingsStore();
+
+  // Switch to Inco
+  setPreferredEncryptionProvider('inco');
+}
+```
+
+**Check Current Status:**
+```typescript
+import { useEncryptionStatus } from '@/hooks/use-encryption-status';
+
+function StatusBadge() {
+  const { provider, isProductionReady, canSwitch } = useEncryptionStatus();
+
+  return (
+    <span>{provider} {isProductionReady ? '✓' : '⚠️'}</span>
+  );
+}
+```
+
+### What's NOT Stored in localStorage
+
+- Private keys
+- MXE public keys
+- Encrypted values
+- Session tokens
+
+Only preference flags are stored locally.
 
 ## ShadowWire (Private Transfers)
 

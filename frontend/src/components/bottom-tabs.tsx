@@ -6,7 +6,7 @@ import { PublicKey } from '@solana/web3.js';
 import { OpenOrders } from './open-orders';
 import { TradeHistory } from './trade-history';
 import { PositionRow, NoPositions } from './position-row';
-import { Funnel, ArrowsClockwise, Lock, X, CaretUp, CaretDown, TrendUp, TrendDown, SpinnerGap } from '@phosphor-icons/react';
+import { Funnel, ArrowsClockwise, Lock, X, CaretUp, CaretDown, TrendUp, TrendDown, SpinnerGap, Eye, EyeSlash } from '@phosphor-icons/react';
 import { ToggleSwitch } from './ui/toggle-switch';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 import { useSolPrice } from '@/hooks/use-pyth-price';
@@ -16,6 +16,7 @@ import {
   buildClosePositionTransaction,
   createHybridEncryptedValue,
   derivePerpMarketPda,
+  fetchPerpMarketData,
 } from '@/lib/confidex-client';
 import { PYTH_SOL_USD_FEED, ARCIUM_PROGRAM_ID } from '@/lib/constants';
 import { toast } from 'sonner';
@@ -285,6 +286,49 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
   );
 };
 
+/**
+ * Check if an encrypted field contains plaintext in the first 8 bytes.
+ * V2 encryption uses pure ciphertext format: [nonce(16) | ciphertext(32) | ephemeral_pubkey(16)]
+ * Some fields (like collateral) may still use hybrid format with plaintext prefix.
+ *
+ * Heuristic: If last 4 bytes of first 8 are all zeros, likely has plaintext (small number).
+ * True encrypted data would have random-looking bytes throughout.
+ */
+function hasPlaintextPrefix(encrypted: Uint8Array): boolean {
+  if (encrypted.length < 8) return false;
+  // Check if bytes 4-7 are all zeros (typical for small numbers in little-endian)
+  // A small value like 64316342 (0x03d563b6) in LE: b6 63 d5 03 00 00 00 00
+  const bytes = encrypted.slice(0, 8);
+  const highBytes = bytes.slice(4, 8);
+  const allZeros = highBytes.every(b => b === 0);
+  // Also check that not ALL bytes are zero (empty value)
+  const lowBytes = bytes.slice(0, 4);
+  const hasValue = lowBytes.some(b => b !== 0);
+  return allZeros && hasValue;
+}
+
+/**
+ * Extract plaintext value from encrypted field (only works for hybrid format)
+ * Format: [plaintext(8) | nonce(8) | ciphertext(32) | ephemeral_pubkey(16)]
+ */
+function getPlaintextFromEncrypted(encrypted: Uint8Array): bigint | null {
+  if (!hasPlaintextPrefix(encrypted)) return null;
+  const bytes = encrypted.slice(0, 8);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, 8);
+  return view.getBigUint64(0, true); // little-endian
+}
+
+/**
+ * Format collateral (in USDC with 6 decimals) to USD
+ * This is the only field that reliably has plaintext in current V2 format
+ */
+function formatCollateral(encrypted: Uint8Array): string | null {
+  const microUsdc = getPlaintextFromEncrypted(encrypted);
+  if (microUsdc === null) return null;
+  const usdc = Number(microUsdc) / 1e6;
+  return `$${usdc.toFixed(2)}`;
+}
+
 // Positions Tab Component
 const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
   const { positions, isClosingPosition, setIsClosingPosition, removePosition } = usePerpetualStore();
@@ -292,6 +336,21 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
   const { price: solPrice } = useSolPrice();
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+
+  // Track which positions have decrypted values visible
+  const [decryptedPositions, setDecryptedPositions] = useState<Set<string>>(new Set());
+
+  const toggleDecryption = (positionId: string) => {
+    setDecryptedPositions(prev => {
+      const next = new Set(prev);
+      if (next.has(positionId)) {
+        next.delete(positionId);
+      } else {
+        next.add(positionId);
+      }
+      return next;
+    });
+  };
 
   // Debug logging for position updates
   log.debug('PositionsTab render', {
@@ -314,6 +373,16 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
         throw new Error('Position not found');
       }
 
+      // Derive perp market PDA from underlying mint (SOL)
+      const underlyingMint = new PublicKey('So11111111111111111111111111111111111111112');
+      const [perpMarketPda] = derivePerpMarketPda(underlyingMint);
+
+      // Fetch market data to get correct collateralVault and feeRecipient
+      const marketData = await fetchPerpMarketData(connection, underlyingMint);
+      if (!marketData) {
+        throw new Error('Failed to fetch perpetual market data');
+      }
+
       // Get current oracle price for exit (convert to micro-dollars: 6 decimals)
       const exitPrice = solPrice ? BigInt(Math.floor(solPrice * 1_000_000)) : BigInt(0);
 
@@ -321,27 +390,73 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       const encryptedCloseSize = position.encryptedSize;
       const encryptedExitPrice = createHybridEncryptedValue(exitPrice);
 
-      // Derive perp market PDA from underlying mint (SOL)
-      const underlyingMint = new PublicKey('So11111111111111111111111111111111111111112');
-      const [perpMarketPda] = derivePerpMarketPda(underlyingMint);
+      // Extract collateral amount from encrypted_collateral (plaintext in first 8 bytes - fallback mode)
+      // In production with MPC, this would be computed from encrypted payout
+      const collateralBuffer = Buffer.from(position.encryptedCollateral.slice(0, 8));
+      const payoutAmount = collateralBuffer.readBigUInt64LE(0);
+      log.debug('Extracted payout amount from encrypted collateral', {
+        payoutAmount: payoutAmount.toString(),
+        rawBytes: Array.from(position.encryptedCollateral.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' '),
+      });
 
-      // Build close position transaction
-      // Note: collateralVault and feeRecipient would come from on-chain market data
-      // For now, using placeholders that would be fetched from the PerpetualMarket account
+      // Validate position.id is a valid base58 string before creating PublicKey
+      log.debug('Creating PublicKey from position.id', {
+        positionId: position.id,
+        positionIdLength: position.id.length,
+        positionIdType: typeof position.id,
+      });
+
+      let positionPda: PublicKey;
+      try {
+        positionPda = new PublicKey(position.id);
+      } catch (pubkeyError) {
+        log.error('Invalid position.id - not a valid base58 string', {
+          positionId: position.id,
+          error: pubkeyError instanceof Error ? pubkeyError.message : String(pubkeyError),
+        });
+        throw new Error(`Invalid position ID format: ${position.id}`);
+      }
+
+      // Build close position transaction with actual market data
       const transaction = await buildClosePositionTransaction({
         connection,
         trader: publicKey,
         perpMarketPda,
-        positionId: BigInt(position.positionId || 0),
-        underlyingMint,
+        positionPda, // Position PDA validated above
         encryptedCloseSize,
         encryptedExitPrice,
         fullClose: true,
-        oraclePriceFeed: PYTH_SOL_USD_FEED,
-        collateralVault: perpMarketPda, // Would be fetched from market account
-        feeRecipient: perpMarketPda, // Would be fetched from market account
+        payoutAmount,
+        oraclePriceFeed: marketData.oraclePriceFeed,
+        collateralVault: marketData.collateralVault,
+        feeRecipient: marketData.feeRecipient,
         arciumProgram: ARCIUM_PROGRAM_ID,
       });
+
+      // Log transaction details for debugging
+      log.debug('Close position transaction details', {
+        positionPda: position.id,
+        perpMarket: perpMarketPda.toBase58(),
+        oracle: marketData.oraclePriceFeed.toBase58(),
+        collateralVault: marketData.collateralVault.toBase58(),
+        feeRecipient: marketData.feeRecipient.toBase58(),
+      });
+
+      // Simulate first to get better error messages
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        if (simulation.value.err) {
+          log.error('Transaction simulation failed:', {
+            err: simulation.value.err,
+            logs: simulation.value.logs,
+          });
+          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.join('\n')}`);
+        }
+        log.debug('Simulation succeeded', { logs: simulation.value.logs });
+      } catch (simError) {
+        log.error('Simulation error:', { error: simError instanceof Error ? simError.message : String(simError) });
+        throw simError;
+      }
 
       // Send transaction
       const signature = await sendTransaction(transaction, connection);
@@ -356,8 +471,14 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
 
       log.info('Position closed', { positionId, signature });
     } catch (error) {
-      log.error('Failed to close position:', { error: error instanceof Error ? error.message : String(error) });
-      toast.error('Failed to close position');
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      log.error('Failed to close position:', { error: errorMessage });
+      // Show more detailed error to user
+      if (errorMessage.includes('Simulation failed')) {
+        toast.error('Transaction simulation failed - check console for details');
+      } else {
+        toast.error(`Failed to close position: ${errorMessage.slice(0, 100)}`);
+      }
     } finally {
       setIsClosingPosition(null);
     }
@@ -390,7 +511,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
           <span className="text-right">Size</span>
           <span className="text-right">Entry Price</span>
           <span className="text-right">Liq. Price</span>
-          <span className="text-right">Unrealized PnL</span>
+          <span className="text-right">Collateral</span>
           <span className="text-right">Actions</span>
         </div>
         <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
@@ -418,7 +539,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
         <span className="text-right">Size</span>
         <span className="text-right">Entry Price</span>
         <span className="text-right">Liq. Price</span>
-        <span className="text-right">Unrealized PnL</span>
+        <span className="text-right">Collateral</span>
         <span className="text-right">Actions</span>
       </div>
 
@@ -426,11 +547,16 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       {positions.map(position => {
         const isLong = position.side === 'long';
         const isClosing = isClosingPosition === position.id;
+        const showDetails = decryptedPositions.has(position.id);
 
         // V2: Risk level is determined by MPC batch liquidation checks
         // We no longer calculate from public thresholds
         const riskLevel = position.riskLevel || 'unknown';
         const isAtRisk = riskLevel === 'warning' || riskLevel === 'critical';
+
+        // V2 encryption: Only collateral has plaintext prefix, other fields are truly encrypted
+        // Size, entry price, and liquidation thresholds require MPC decryption
+        const collateralValue = formatCollateral(position.encryptedCollateral);
 
         return (
           <div
@@ -459,32 +585,73 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
               </span>
             </span>
 
-            {/* Size (Encrypted) */}
+            {/* Size - V2 encrypted, requires MPC */}
             <span className="text-right font-mono flex items-center justify-end gap-1">
-              <Lock size={12} className="text-primary" />
-              <span className="text-muted-foreground">••••••</span>
+              {showDetails ? (
+                <span className="text-muted-foreground italic text-[10px]">MPC encrypted</span>
+              ) : (
+                <>
+                  <Lock size={12} className="text-primary" />
+                  <span className="text-muted-foreground">••••••</span>
+                </>
+              )}
             </span>
 
-            {/* Entry Price (Encrypted) */}
+            {/* Entry Price - V2 encrypted, requires MPC */}
             <span className="text-right font-mono flex items-center justify-end gap-1">
-              <Lock size={12} className="text-primary" />
-              <span className="text-muted-foreground">••••••</span>
+              {showDetails ? (
+                <span className="text-muted-foreground italic text-[10px]">MPC encrypted</span>
+              ) : (
+                <>
+                  <Lock size={12} className="text-primary" />
+                  <span className="text-muted-foreground">••••••</span>
+                </>
+              )}
             </span>
 
-            {/* Liquidation Price (V2: Encrypted) */}
+            {/* Liquidation Price - V2 encrypted, requires MPC */}
             <span className={`text-right font-mono flex items-center justify-end gap-1 ${isAtRisk ? 'text-rose-400/80' : ''}`}>
-              <Lock size={12} className="text-primary" />
-              <span className="text-muted-foreground">••••••</span>
+              {showDetails ? (
+                <span className="text-muted-foreground italic text-[10px]">MPC encrypted</span>
+              ) : (
+                <>
+                  <Lock size={12} className="text-primary" />
+                  <span className="text-muted-foreground">••••••</span>
+                </>
+              )}
             </span>
 
-            {/* Unrealized PnL (Encrypted) */}
+            {/* Collateral (readable) / Unrealized PnL (requires MPC) */}
             <span className="text-right font-mono flex items-center justify-end gap-1">
-              <Lock size={12} className="text-primary" />
-              <span className="text-muted-foreground">••••••</span>
+              {showDetails ? (
+                collateralValue ? (
+                  <span className="text-white/80" title="Collateral (margin)">
+                    {collateralValue}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground italic text-[10px]">MPC encrypted</span>
+                )
+              ) : (
+                <>
+                  <Lock size={12} className="text-primary" />
+                  <span className="text-muted-foreground">••••••</span>
+                </>
+              )}
             </span>
 
             {/* Actions */}
-            <span className="text-right">
+            <span className="text-right flex items-center justify-end gap-1">
+              <button
+                onClick={() => toggleDecryption(position.id)}
+                className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                title={showDetails ? 'Hide details' : 'Show details'}
+              >
+                {showDetails ? (
+                  <EyeSlash size={16} />
+                ) : (
+                  <Eye size={16} />
+                )}
+              </button>
               <button
                 onClick={() => handleClosePosition(position.id)}
                 disabled={isClosing}

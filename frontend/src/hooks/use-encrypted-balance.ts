@@ -155,27 +155,37 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
   );
 
   /**
-   * Check if user can afford an amount (simulated MPC comparison)
-   * In production, this would be done via Arcium encrypted comparison
+   * Check if user can afford an amount
+   *
+   * For the user's OWN balance, we can perform this check client-side
+   * because the user has the decryption key (via their encryption context).
+   *
+   * This is NOT the same as on-chain MPC comparisons which are needed for:
+   * - Comparing two different users' encrypted values (e.g., order matching)
+   * - Comparing user values against on-chain state they didn't encrypt
+   *
+   * For balance checks, the flow is:
+   * 1. User's encrypted balance is stored on-chain
+   * 2. User decrypts their own balance locally using their session key
+   * 3. Comparison happens client-side with the decrypted value
+   *
+   * Privacy is maintained because:
+   * - The encrypted balance on-chain reveals nothing
+   * - Only the user can decrypt their own balance
+   * - The comparison result stays local
    */
   const canAfford = useCallback(
     async (amount: bigint, token: 'SOL' | 'USDC'): Promise<boolean> => {
+      // Use locally decrypted balance (decrypted during refresh())
+      // This is the user's own balance, so client-side comparison is appropriate
       const balance = token === 'SOL' ? balances.sol : balances.usdc;
 
-      if (ENCRYPTION_VERSION === 1) {
-        // Dev mode: direct comparison
-        return balance >= amount;
-      }
-
-      // Production mode: would use Arcium MPC comparison
-      // For now, simulate by using decrypted values
-      // TODO: Replace with actual Arcium compare_encrypted CPI
-      log.debug('Simulating MPC balance comparison');
-      log.debug('  Required:', { toString: amount.toString() });
-      log.debug('  Available:', { toString: balance.toString() });
-
-      // Simulate MPC latency
-      await new Promise(resolve => setTimeout(resolve, 100));
+      log.debug('Balance check (client-side decryption):', {
+        token,
+        required: amount.toString(),
+        available: balance.toString(),
+        sufficient: balance >= amount,
+      });
 
       return balance >= amount;
     },

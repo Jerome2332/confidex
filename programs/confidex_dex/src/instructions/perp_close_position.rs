@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 use crate::cpi::arcium::{
     calculate_pnl_sync, calculate_funding_sync, add_encrypted, sub_encrypted, EncryptedU64
@@ -14,7 +15,7 @@ pub struct ClosePosition<'info> {
         seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
         bump = perp_market.bump,
     )]
-    pub perp_market: Account<'info, PerpetualMarket>,
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
 
     #[account(
         mut,
@@ -22,14 +23,14 @@ pub struct ClosePosition<'info> {
             ConfidentialPosition::SEED,
             trader.key().as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id
+            &position.position_seed.to_le_bytes()
         ],
         bump = position.bump,
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
         constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
         constraint = position.is_open() @ ConfidexError::PositionNotOpen
     )]
-    pub position: Account<'info, ConfidentialPosition>,
+    pub position: Box<Account<'info, ConfidentialPosition>>,
 
     /// CHECK: Pyth oracle for mark price / exit price
     #[account(
@@ -37,16 +38,22 @@ pub struct ClosePosition<'info> {
     )]
     pub oracle: AccountInfo<'info>,
 
-    /// CHECK: Trader's confidential collateral token account (C-SPL USDC)
-    #[account(mut)]
-    pub trader_collateral_account: AccountInfo<'info>,
+    /// Trader's USDC token account
+    /// NOTE: Using standard SPL token transfer as fallback until C-SPL SDK is available.
+    #[account(
+        mut,
+        constraint = trader_collateral_account.mint == perp_market.quote_mint @ ConfidexError::InvalidMint,
+        constraint = trader_collateral_account.owner == trader.key() @ ConfidexError::InvalidOwner
+    )]
+    pub trader_collateral_account: Account<'info, TokenAccount>,
 
-    /// CHECK: Market's confidential collateral vault (C-SPL USDC)
+    /// Market's collateral vault (USDC)
+    /// NOTE: Using standard SPL token vault as fallback until C-SPL SDK is available.
     #[account(
         mut,
         constraint = collateral_vault.key() == perp_market.collateral_vault @ ConfidexError::InvalidVault
     )]
-    pub collateral_vault: AccountInfo<'info>,
+    pub collateral_vault: Account<'info, TokenAccount>,
 
     /// CHECK: Fee recipient account
     #[account(
@@ -55,11 +62,21 @@ pub struct ClosePosition<'info> {
     )]
     pub fee_recipient: AccountInfo<'info>,
 
+    /// CHECK: Vault authority PDA - seeds = ["vault", perp_market]
+    #[account(
+        seeds = [b"vault", perp_market.key().as_ref()],
+        bump
+    )]
+    pub vault_authority: AccountInfo<'info>,
+
     #[account(mut)]
     pub trader: Signer<'info>,
 
     /// CHECK: Arcium program for MPC calculations
     pub arcium_program: AccountInfo<'info>,
+
+    /// SPL Token program for collateral transfer
+    pub token_program: Program<'info, Token>,
 }
 
 /// Parameters for closing a position
@@ -73,10 +90,20 @@ pub struct ClosePositionParams {
     pub encrypted_exit_price: [u8; 64],
     /// Whether to close the full position
     pub full_close: bool,
+    /// Payout amount in USDC (for SPL token transfer fallback)
+    /// NOTE: This is plaintext until C-SPL SDK is available.
+    /// For full close, this should be the original collateral amount.
+    /// In production with MPC, this would be computed encrypted.
+    pub payout_amount: u64,
 }
 
 pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Result<()> {
     let clock = Clock::get()?;
+
+    // Get keys before mutable borrows
+    let perp_market_key = ctx.accounts.perp_market.key();
+    let vault_authority_bump = ctx.bumps.vault_authority;
+
     let perp_market = &mut ctx.accounts.perp_market;
     let position = &mut ctx.accounts.position;
 
@@ -155,8 +182,35 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
     // Update position's realized PnL
     position.encrypted_realized_pnl = encrypted_pnl;
 
-    // TODO: Transfer payout from vault to trader via C-SPL CPI
-    // Amount = payout (calculated above)
+    // Transfer collateral back to trader (SPL Token fallback)
+    // NOTE: In production with MPC, payout_amount would be computed from encrypted payout.
+    // For now, we use the plaintext payout_amount passed by the frontend.
+    if params.payout_amount > 0 {
+        let vault_authority_seeds = &[
+            b"vault" as &[u8],
+            perp_market_key.as_ref(),
+            &[vault_authority_bump],
+        ];
+        let signer_seeds = &[&vault_authority_seeds[..]];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.collateral_vault.to_account_info(),
+                    to: ctx.accounts.trader_collateral_account.to_account_info(),
+                    authority: ctx.accounts.vault_authority.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            params.payout_amount,
+        )?;
+
+        msg!(
+            "Transferred {} USDC from vault to trader",
+            params.payout_amount
+        );
+    }
 
     // TODO: Calculate and transfer fees to fee_recipient
     // Fee = size * taker_fee_bps / 10000

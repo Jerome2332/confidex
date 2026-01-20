@@ -1,0 +1,24 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+yarn.lock
+pnpm-lock.yaml
+package-lock.json
+
+# Anchor
+.anchor/
+test-ledger/
+
+# Arcium
+build/
+*.arcis
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store

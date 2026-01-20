@@ -670,8 +670,204 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
 ---
 
-## 11. Revision History
+## 11. Wallet Transaction Warnings
+
+### 11.1 Why Wallets Show "Transaction Reverted" Warnings
+
+When users sign Confidex transactions, their wallet (Phantom, Solflare, etc.) may display warnings such as:
+- "This transaction reverted during simulation"
+- "Unknown" program instructions
+- Raw data blobs instead of human-readable amounts
+
+**This is expected behavior for privacy-preserving transactions.**
+
+#### Technical Explanation
+
+| Issue | Cause | Why It's Normal |
+|-------|-------|-----------------|
+| **"Reverted during simulation"** | Arcium MPC operations cannot be simulated locally | MPC requires actual cluster execution; simulation fails but real tx succeeds |
+| **"Unknown" program** | Wallet doesn't have Confidex IDL | Custom Anchor programs aren't recognized by wallets |
+| **Raw data instead of amounts** | Order values are 64-byte encrypted blobs | Privacy feature - even wallets can't see your trade details |
+| **No balance change preview** | Token transfers happen inside program | SPL transfers show in explorer after confirmation |
+
+#### What Users Should Know
+
+1. **The transaction will succeed** when submitted, even if simulation fails
+2. **Privacy is working correctly** - encrypted values cannot be decoded by the wallet
+3. **Check Solana Explorer** after confirmation to verify the transaction
+4. **Only you can decrypt** your position values using the Confidex UI
+
+### 11.2 Comparison: Traditional DEX vs Confidex
+
+| Wallet Display | Traditional DEX | Confidex |
+|----------------|-----------------|----------|
+| Program name | "Swap 100 USDC for 0.5 SOL" | "Unknown" |
+| Amount preview | "You will receive ~0.5 SOL" | Raw encrypted data |
+| Balance changes | "+0.5 SOL, -100 USDC" | Not shown (private) |
+| Simulation | Succeeds | Fails (MPC not simulatable) |
+
+### 11.3 User Guidance
+
+Include the following in user-facing documentation and tooltips:
+
+> **Note:** Your wallet may show a "simulation failed" warning for Confidex transactions. This is expected because our privacy-preserving MPC operations cannot be simulated locally. The transaction will succeed when submitted to the network.
+
+---
+
+## 12. Encryption Settings UI
+
+### 12.1 Overview
+
+The encryption settings panel allows users to configure their preferred encryption provider at runtime without requiring code changes or page refreshes.
+
+### 12.2 Settings Panel Location
+
+```
+/settings
+├── Preferences
+├── RPC Selection
+├── Export Data
+└── Encryption Settings  ← NEW
+```
+
+### 12.3 Panel Layout
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              ENCRYPTION SETTINGS                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ⚠️ Admin Override Active (if ENV_FORCE_PROVIDER set)           │
+│  Provider forced to [arcium] via environment variable.          │
+│  User settings are ignored.                                      │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ● Active Provider                                               │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  🟢  Arcium MPC                           [ Production ]    ││
+│  │      Key source: MXE                                        ││
+│  └─────────────────────────────────────────────────────────────┘│
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Preferred Provider                                              │
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  Auto (Best Available)                              ▼       ││
+│  └─────────────────────────────────────────────────────────────┘│
+│  System automatically selects the best available provider        │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Provider Status                                                 │
+│  ┌──────────────────────┐  ┌──────────────────────┐            │
+│  │  🔐 Arcium           │  │  ☁️  Inco            │            │
+│  │  ✓ Enabled           │  │  ✗ Not configured   │            │
+│  └──────────────────────┘  └──────────────────────┘            │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Provider Settings                                               │
+│                                                                  │
+│  Enable Arcium MPC          ────────────────────────  [✓]      │
+│  Multi-party computation encryption                              │
+│                                                                  │
+│  Enable Inco TEE            ────────────────────────  [ ]      │
+│  Trusted execution environment                                   │
+│                                                                  │
+│  Auto Fallback              ────────────────────────  [✓]      │
+│  Switch to backup if preferred unavailable                       │
+│                                                                  │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ℹ️ Settings are saved locally and take effect immediately.     │
+│     Encryption keys and sensitive data are never stored in      │
+│     your browser.                                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 12.4 Component Specification
+
+#### EncryptionSettings Component
+
+**File:** `frontend/src/components/settings/encryption-settings.tsx`
+
+```typescript
+interface EncryptionSettingsProps {
+  // No props - uses global state
+}
+
+// Sub-components:
+// - Toggle: Individual enable/disable switches
+// - StatusBadge: Provider status indicator (Production/Demo/Testing)
+// - ProviderCard: Provider info with status
+```
+
+#### useEncryptionStatus Hook
+
+**File:** `frontend/src/hooks/use-encryption-status.ts`
+
+```typescript
+interface EncryptionStatus {
+  provider: 'arcium' | 'inco' | 'demo';
+  isProductionReady: boolean;
+  keySource: 'mxe' | 'env' | 'demo' | 'inco' | null;
+  arciumStatus: 'ready' | 'demo' | 'unavailable';
+  incoStatus: 'ready' | 'unavailable';
+  preferredProvider: 'auto' | 'arcium' | 'inco';
+  canSwitch: boolean;
+  isInitialized: boolean;
+  statusMessage: string;
+}
+```
+
+### 12.5 User Interactions
+
+| Action | Result | Persistence |
+|--------|--------|-------------|
+| Change preferred provider | Immediate provider switch (if available) | localStorage |
+| Toggle Arcium/Inco | Enables/disables for selection | localStorage |
+| Toggle auto-fallback | Changes fallback behavior | localStorage |
+| Admin override active | Settings disabled, warning shown | N/A (env-based) |
+
+### 12.6 Status Indicators
+
+| Status | Icon | Color | Meaning |
+|--------|------|-------|---------|
+| Production Ready | ✓ | `emerald-500` | Real encryption with MXE key |
+| Demo Mode | ⚠️ | `yellow-500` | Encryption with demo key |
+| Unavailable | ✗ | `rose-500` | Provider not configured |
+| Initializing | ○ | `white/20` | Loading state |
+
+### 12.7 Settings Store Integration
+
+The encryption settings are part of the unified settings store:
+
+```typescript
+// stores/settings-store.ts
+const STORE_VERSION = 3; // v3 adds encryption settings
+
+interface SettingsState {
+  // ... existing settings
+
+  // Encryption provider settings (v3)
+  preferredEncryptionProvider: 'auto' | 'arcium' | 'inco';
+  arciumEnabled: boolean;
+  incoEnabled: boolean;
+  autoFallbackEnabled: boolean;
+}
+```
+
+Migration handles upgrades from v2:
+- v1 → v2: Added settlement settings
+- v2 → v3: Added encryption provider settings
+
+---
+
+## 13. Revision History
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | Jan 10, 2026 | Zac | Initial document |
+| 1.1 | Jan 20, 2026 | Zac | Added encryption settings UI and provider selection |

@@ -19,9 +19,10 @@ import {
   CaretDown,
   CaretRight,
   Lightning,
+  Chats,
 } from '@phosphor-icons/react';
 
-type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'programs';
+type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'programs' | 'faq';
 
 interface NavItem {
   id: SectionId;
@@ -38,6 +39,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'flow', label: 'Data Flow', icon: <GitBranchIcon size={16} /> },
   { id: 'security', label: 'Security Model', icon: <ShieldChevronIcon size={16} /> },
   { id: 'programs', label: 'Programs & IDs', icon: <CodeIcon size={16} /> },
+  { id: 'faq', label: 'FAQ', icon: <Chats size={16} /> },
 ];
 
 const CodeBlock: FC<{ children: string }> = ({ children }) => (
@@ -856,6 +858,166 @@ Bytes 48-63: Ephemeral pubkey  → MPC key routing
                 </div>
               </div>
             </ExpandableSection>
+          </section>
+
+          {/* FAQ Section */}
+          <section id="faq" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <Chats size={36} />
+              Frequently Asked Questions
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              Common questions about wallet warnings, privacy features, and trading on Confidex.
+            </p>
+
+            <div className="space-y-3">
+              {/* Wallet Warning FAQ */}
+              <ExpandableSection title='Why does my wallet show "Transaction reverted during simulation"?' defaultOpen>
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    This warning is <strong className="text-white">expected</strong> for Confidex transactions and does not mean your transaction will fail.
+                  </p>
+                  <p>
+                    Confidex uses Arcium MPC (Multi-Party Computation) for encrypted order matching.
+                    MPC operations require actual network execution and cannot be simulated locally by your wallet.
+                  </p>
+                  <p className="text-emerald-400/80">
+                    Your transaction will succeed when submitted to the network.
+                  </p>
+                </div>
+              </ExpandableSection>
+
+              {/* Unknown Program FAQ */}
+              <ExpandableSection title='Why does my wallet show "Unknown" for program instructions?'>
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    Wallets like Phantom and Solflare need an IDL (Interface Definition Language) to decode
+                    transaction instructions into human-readable format.
+                  </p>
+                  <p>
+                    Since Confidex is a custom program, wallets display raw data instead of parsed instructions.
+                    This is normal for any new Solana program that wallets haven&apos;t integrated yet.
+                  </p>
+                </div>
+              </ExpandableSection>
+
+              {/* Hidden Amounts FAQ */}
+              <ExpandableSection title="Why can't I see the amounts in my wallet confirmation?">
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    <strong className="text-white">This is privacy working as intended.</strong>
+                  </p>
+                  <p>
+                    Your order amounts, prices, and position sizes are encrypted as 64-byte ciphertext blobs
+                    using Arcium MPC encryption. Not even your wallet can decrypt these values.
+                  </p>
+                  <p>
+                    Only you can see your actual position values in the Confidex UI after decryption with your keys.
+                  </p>
+                </div>
+              </ExpandableSection>
+
+              {/* Encrypted vs Public FAQ */}
+              <ExpandableSection title="What data is encrypted vs public in my positions?">
+                <div className="space-y-3 text-sm text-white/70">
+                  <p><strong className="text-white">Encrypted (Private):</strong></p>
+                  <ul className="list-disc list-inside ml-2 text-white/60">
+                    <li>Position size</li>
+                    <li>Entry price</li>
+                    <li>Collateral amount</li>
+                    <li>Liquidation thresholds</li>
+                    <li>Realized PnL</li>
+                  </ul>
+                  <p className="mt-2"><strong className="text-white">Public (Required for protocol):</strong></p>
+                  <ul className="list-disc list-inside ml-2 text-white/60">
+                    <li>Position side (Long/Short) - needed for funding direction</li>
+                    <li>Leverage - needed for risk management</li>
+                    <li>Market - needed for routing</li>
+                    <li>Your wallet address - inherent to blockchain</li>
+                  </ul>
+                </div>
+              </ExpandableSection>
+
+              {/* Verify Transaction FAQ */}
+              <ExpandableSection title="How can I verify my transaction succeeded?">
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    After confirming the transaction in your wallet:
+                  </p>
+                  <ol className="list-decimal list-inside ml-2 space-y-1 text-white/60">
+                    <li>Wait for the confirmation toast in Confidex</li>
+                    <li>Check the Positions tab - your new position will appear</li>
+                    <li>Click the transaction signature to view on Solana Explorer</li>
+                    <li>On Explorer, you&apos;ll see the SPL token transfer for collateral</li>
+                  </ol>
+                </div>
+              </ExpandableSection>
+
+              {/* MPC Latency FAQ */}
+              <ExpandableSection title="Why do some operations take a few seconds?">
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    Confidex uses MPC (Multi-Party Computation) for encrypted operations like:
+                  </p>
+                  <ul className="list-disc list-inside ml-2 text-white/60">
+                    <li>Price comparisons for order matching</li>
+                    <li>PnL calculations on close</li>
+                    <li>Liquidation eligibility checks</li>
+                  </ul>
+                  <p className="mt-2">
+                    MPC operations take ~500ms as they require coordination between multiple nodes
+                    in the Arcium network. This is the cost of true privacy - no single party
+                    ever sees your plaintext values.
+                  </p>
+                </div>
+              </ExpandableSection>
+
+              {/* Collateral Visibility FAQ */}
+              <ExpandableSection title="Why is my collateral amount visible on Explorer?">
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    Currently, collateral transfers use standard SPL tokens as a fallback while
+                    the C-SPL (Confidential SPL) SDK is being finalized.
+                  </p>
+                  <p>
+                    This means the collateral transfer amount is visible on-chain, but your
+                    position size, entry price, and liquidation thresholds remain fully encrypted.
+                  </p>
+                  <p className="text-amber-400/80">
+                    Full collateral privacy will be enabled when C-SPL launches on devnet (Q1 2026).
+                  </p>
+                </div>
+              </ExpandableSection>
+
+              {/* Eligibility Proof FAQ */}
+              <ExpandableSection title="What is the eligibility proof?">
+                <div className="space-y-3 text-sm text-white/70">
+                  <p>
+                    Before trading, you generate a zero-knowledge (ZK) proof that proves you&apos;re
+                    not on the exchange&apos;s blacklist - without revealing your identity.
+                  </p>
+                  <p>
+                    This proof is generated client-side in ~2-3 seconds using Noir circuits and
+                    verified on-chain via Sunspot&apos;s Groth16 verifier.
+                  </p>
+                  <p className="text-white/50">
+                    The proof only needs to be generated once per wallet address.
+                  </p>
+                </div>
+              </ExpandableSection>
+            </div>
+
+            {/* Warning Note */}
+            <div className="mt-6 bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
+              <div className="flex items-start gap-2 text-sm text-amber-400/80">
+                <span className="shrink-0 mt-0.5">⚠</span>
+                <p>
+                  <strong>Note:</strong> Wallet warnings about &quot;simulation failed&quot; are expected
+                  for privacy-preserving transactions. Your transactions will succeed when submitted.
+                </p>
+              </div>
+            </div>
           </section>
 
           {/* Footer */}

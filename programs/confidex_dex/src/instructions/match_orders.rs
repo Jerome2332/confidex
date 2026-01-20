@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::cpi::arcium::{
     calculate_encrypted_fill, compare_encrypted_prices, add_encrypted,
-    queue_compare_prices, queue_calculate_fill, MxeCpiAccounts, USE_REAL_MPC,
+    queue_compare_prices, MxeCpiAccounts,
 };
 use crate::error::ConfidexError;
 use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, Side, TradingPair};
@@ -96,9 +96,8 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
         ConfidexError::OrdersNotMatchable
     );
 
-    // Check if we should use async MPC flow
-    let use_async_mpc = USE_REAL_MPC
-        && ctx.accounts.mxe_config.is_some()
+    // Check if async MPC accounts are provided (required for production)
+    let use_async_mpc = ctx.accounts.mxe_config.is_some()
         && ctx.accounts.mpc_request.is_some();
 
     if use_async_mpc {
@@ -118,7 +117,7 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
         let sell_order_key = sell_order.key();
 
         let queued = queue_compare_prices(
-            Some(mxe_accounts),
+            mxe_accounts,
             &buy_order.encrypted_price,
             &sell_order.encrypted_price,
             &crate::ID,  // callback to this program

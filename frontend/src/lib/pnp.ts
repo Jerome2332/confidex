@@ -942,25 +942,85 @@ export function calculatePotentialWinnings(
 /**
  * Confidex-specific: Create market with C-SPL collateral
  * Enables privacy-preserving prediction markets
+ *
+ * IMPLEMENTATION STATUS: Blocked on C-SPL SDK (expected Q1 2026)
+ *
+ * Architecture when C-SPL is available:
+ * 1. Creator encrypts liquidity amount via Arcium RescueCipher
+ * 2. C-SPL confidential transfer moves encrypted USDC to market vault
+ * 3. PNP SDK creates market with encrypted collateral reference
+ * 4. YES/NO token mints are created (supplies remain visible - AMM requirement)
+ * 5. Market prices remain public (Pythagorean bonding curve is inherently public)
+ *
+ * Privacy guarantees:
+ * - Initial liquidity amount: PRIVATE (encrypted via Arcium)
+ * - Creator identity: PUBLIC (on-chain requirement)
+ * - Market prices: PUBLIC (AMM bonding curve)
+ * - Individual positions: PRIVATE (via use-private-predictions.ts wrapper)
+ * - Deposits/withdrawals: PRIVATE (via ShadowWire or C-SPL)
+ *
+ * Why partial privacy is still valuable:
+ * - Prevents front-running based on position sizes
+ * - Hides betting activity from chain observers
+ * - Allows anonymous participation via ShadowWire deposits
+ *
+ * @param connection - Solana connection
+ * @param question - Market question
+ * @param endTime - When market closes for trading
+ * @param encryptedLiquidity - Arcium-encrypted initial liquidity (64 bytes)
+ * @param cUsdcMint - Confidential USDC mint (C-SPL token)
+ * @param wallet - Wallet adapter for signing
+ * @returns Created market metadata (supplies hidden until resolution)
  */
 export async function createConfidentialMarket(
   connection: Connection,
   question: string,
   endTime: Date,
-  encryptedLiquidity: Uint8Array, // Encrypted initial liquidity
-  cUsdcMint: PublicKey, // Confidential USDC mint
+  encryptedLiquidity: Uint8Array, // Encrypted initial liquidity via Arcium
+  cUsdcMint: PublicKey, // Confidential USDC mint (C-SPL)
   wallet: WalletAdapter
 ): Promise<PredictionMarket> {
-  console.log('[PNP] Creating confidential prediction market:', {
+  log.info('[PNP] Creating confidential prediction market:', {
     question: question.substring(0, 50) + '...',
     endTime,
     collateral: cUsdcMint.toBase58(),
+    liquidityBlobSize: encryptedLiquidity.length,
   });
 
-  // This would integrate with both PNP SDK and Arcium
-  // The liquidity amount remains encrypted throughout
+  // Validate encrypted liquidity format (64 bytes = V2 Arcium format)
+  if (encryptedLiquidity.length !== 64) {
+    throw new Error(
+      `Invalid encrypted liquidity format. Expected 64 bytes (V2 Arcium), got ${encryptedLiquidity.length}`
+    );
+  }
 
-  // TODO: Implement when Arcium + PNP integration is available
+  // BLOCKED: C-SPL SDK not yet available
+  // When available, implementation will:
+  //
+  // 1. Build C-SPL confidential transfer instruction:
+  //    const cspl = await import('@arcium-hq/cspl');
+  //    const transferIx = await cspl.buildConfidentialTransfer({
+  //      from: wallet.publicKey,
+  //      to: marketVaultPda,
+  //      encryptedAmount: encryptedLiquidity,
+  //      mint: cUsdcMint,
+  //    });
+  //
+  // 2. Call PNP SDK createMarket with C-SPL collateral:
+  //    const pnpClient = new PNPClient(connection.rpcEndpoint, wallet);
+  //    const market = await pnpClient.market.createMarket({
+  //      question,
+  //      endTime: BigInt(Math.floor(endTime.getTime() / 1000)),
+  //      baseMint: cUsdcMint, // C-SPL mint instead of regular USDC
+  //      initialLiquidity: BigInt(0), // Actual amount encrypted
+  //      encryptedLiquidityRef: encryptedLiquidity, // For MPC validation
+  //    });
+  //
+  // 3. Return market with hidden supply info
+
+  // For now, return a placeholder that indicates the feature is pending
+  log.warn('[PNP] C-SPL integration pending - returning mock market');
+
   const marketId = PublicKey.unique();
   const yesTokenMint = PublicKey.unique();
   const noTokenMint = PublicKey.unique();
@@ -972,17 +1032,17 @@ export async function createConfidentialMarket(
     yesToken: {
       mint: yesTokenMint,
       symbol: 'YES',
-      supply: BigInt(0), // Hidden
+      supply: BigInt(0), // Hidden until C-SPL available
       price: 0.5,
     },
     noToken: {
       mint: noTokenMint,
       symbol: 'NO',
-      supply: BigInt(0), // Hidden
+      supply: BigInt(0), // Hidden until C-SPL available
       price: 0.5,
     },
     collateralMint: cUsdcMint,
-    totalLiquidity: BigInt(0), // Hidden
+    totalLiquidity: BigInt(0), // Hidden - encrypted via Arcium
     endTime,
     resolved: false,
     resolvable: true,

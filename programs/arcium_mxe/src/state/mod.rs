@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 /// Arcium Program ID (devnet)
-/// From @arcium-hq/client v0.6.2
+/// From @arcium-hq/client v0.6.3
 /// Base58: Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
 pub const ARCIUM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
     0x92, 0x6f, 0x09, 0xaa, 0x6d, 0x48, 0x7d, 0xe2,
@@ -17,7 +17,7 @@ pub struct MxeConfig {
     pub authority: Pubkey,
     /// Arcium cluster ID for this MXE
     pub cluster_id: Pubkey,
-    /// Cluster offset (123, 456, or 789 on devnet)
+    /// Cluster offset (456 or 789 on devnet - NOTE: 123 does NOT exist)
     pub cluster_offset: u16,
     /// Arcium program ID for CPI
     pub arcium_program: Pubkey,

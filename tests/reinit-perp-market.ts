@@ -49,7 +49,8 @@ const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr');
 // Pyth Oracle (devnet SOL/USD)
 const PYTH_SOL_USD_FEED = new PublicKey('J83w4HKfqxwcq3BEMMkPFSppX3gqekLyLJBexebFVkix');
 
-// Arcium cluster (devnet offset 123)
+// Arcium cluster (devnet offset 456 - NOTE: 123 does NOT exist)
+// Reference: https://docs.arcium.com/developers/deployment
 const ARCIUM_CLUSTER = PublicKey.default; // Will be derived or set to default
 
 // PDA seeds

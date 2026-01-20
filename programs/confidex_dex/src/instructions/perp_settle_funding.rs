@@ -28,7 +28,7 @@ pub struct SettleFunding<'info> {
             ConfidentialPosition::SEED,
             position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id
+            &position.position_seed.to_le_bytes()
         ],
         bump = position.bump,
         constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
