@@ -73,88 +73,97 @@ export function CircleAnimation({ type, title, className = '' }: CircleAnimation
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
   const timeRef = useRef({ time: 0, lastTime: 0 });
-  const animateFnRef = useRef<((timestamp: number) => void) | null>(null);
 
   // Create animation function once on mount/type change
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) {
-      console.warn('[CircleAnimation] No canvas ref');
-      return;
-    }
-
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      console.warn('[CircleAnimation] No canvas context');
-      return;
-    }
-
-    // Reset time state when type changes
-    timeRef.current = { time: 0, lastTime: 0 };
-
-    const getTime = () => timeRef.current.time;
-    const setTime = (t: number) => { timeRef.current.time = t; };
-    const getLastTime = () => timeRef.current.lastTime;
-    const setLastTime = (t: number) => { timeRef.current.lastTime = t; };
-
-    // Create the animation function for this type
-    switch (type) {
-      case 'sphere-scan':
-        animateFnRef.current = createSphereScan(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'crystalline-refraction':
-        animateFnRef.current = createCrystallineRefraction(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'sonar-sweep':
-        animateFnRef.current = createSonarSweep(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'helix-scanner':
-        animateFnRef.current = createHelixScanner(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'interconnecting-waves':
-        animateFnRef.current = createInterconnectingWaves(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'cylindrical-analysis':
-        animateFnRef.current = createCylindricalAnalysis(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'voxel-matrix-morph':
-        animateFnRef.current = createVoxelMatrixMorph(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'phased-array-emitter':
-        animateFnRef.current = createPhasedArrayEmitter(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      case 'crystalline-cube-refraction':
-        animateFnRef.current = createCrystallineCubeRefraction(ctx, getTime, setTime, getLastTime, setLastTime);
-        break;
-      default:
-        console.warn('[CircleAnimation] Unknown animation type:', type);
-        return;
-    }
-
-    let isRunning = true;
-
-    function loop(timestamp: number) {
-      if (!isRunning || !animateFnRef.current) return;
-      try {
-        animateFnRef.current(timestamp);
-      } catch (err) {
-        console.error('[CircleAnimation] Animation error:', err);
-        isRunning = false;
+    // Small delay to ensure canvas is fully mounted in DOM
+    const timeoutId = setTimeout(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) {
+        console.warn('[CircleAnimation] No canvas ref');
         return;
       }
-      animationRef.current = requestAnimationFrame(loop);
-    }
 
-    // Start the animation loop
-    animationRef.current = requestAnimationFrame(loop);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        console.warn('[CircleAnimation] No canvas context');
+        return;
+      }
+
+      // Reset time state when type changes
+      timeRef.current = { time: 0, lastTime: 0 };
+
+      const getTime = () => timeRef.current.time;
+      const setTime = (t: number) => { timeRef.current.time = t; };
+      const getLastTime = () => timeRef.current.lastTime;
+      const setLastTime = (t: number) => { timeRef.current.lastTime = t; };
+
+      // Create the animation function for this type
+      let animateFn: ((timestamp: number) => void) | null = null;
+
+      switch (type) {
+        case 'sphere-scan':
+          animateFn = createSphereScan(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'crystalline-refraction':
+          animateFn = createCrystallineRefraction(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'sonar-sweep':
+          animateFn = createSonarSweep(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'helix-scanner':
+          animateFn = createHelixScanner(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'interconnecting-waves':
+          animateFn = createInterconnectingWaves(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'cylindrical-analysis':
+          animateFn = createCylindricalAnalysis(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'voxel-matrix-morph':
+          animateFn = createVoxelMatrixMorph(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'phased-array-emitter':
+          animateFn = createPhasedArrayEmitter(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        case 'crystalline-cube-refraction':
+          animateFn = createCrystallineCubeRefraction(ctx, getTime, setTime, getLastTime, setLastTime);
+          break;
+        default:
+          console.warn('[CircleAnimation] Unknown animation type:', type);
+          return;
+      }
+
+      if (!animateFn) return;
+
+      let isRunning = true;
+      let rafId: number | null = null;
+
+      function loop(timestamp: number) {
+        if (!isRunning || !animateFn) return;
+        try {
+          animateFn(timestamp);
+        } catch (err) {
+          console.error('[CircleAnimation] Animation error:', err);
+          isRunning = false;
+          return;
+        }
+        rafId = requestAnimationFrame(loop);
+      }
+
+      // Start the animation loop
+      rafId = requestAnimationFrame(loop);
+
+      // Store cleanup reference
+      animationRef.current = rafId;
+    }, 0);
 
     return () => {
-      isRunning = false;
+      clearTimeout(timeoutId);
       if (animationRef.current !== null) {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = null;
       }
-      animateFnRef.current = null;
     };
   }, [type]);
 
