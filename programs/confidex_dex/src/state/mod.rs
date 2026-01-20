@@ -2,6 +2,7 @@ pub mod exchange;
 pub mod order;
 pub mod pair;
 pub mod user_balance;
+pub mod trader_eligibility;
 
 // Perpetuals state
 pub mod perp_market;
@@ -16,10 +17,11 @@ pub use exchange::*;
 pub use order::*;
 pub use pair::*;
 pub use user_balance::*;
+pub use trader_eligibility::*;
 
 // Perpetuals exports
 pub use perp_market::*;
-pub use position::*;
+pub use position::*; // Also exports LiquidationBatchRequest
 pub use funding::*;
 pub use liquidation::*;
 

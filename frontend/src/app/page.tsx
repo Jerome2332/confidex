@@ -23,7 +23,7 @@ export default function LandingPage() {
     {
       icon: Lock,
       title: 'Encrypted Orders',
-      description: 'Order amounts and prices are encrypted using Arcium MPC. No one can see your trading strategy.',
+      description: 'Order amounts and prices are fully encrypted using V2 pure ciphertext format. No one can see your trading strategy.',
       tech: 'Arcium MPC',
     },
     {
@@ -34,22 +34,22 @@ export default function LandingPage() {
     },
     {
       icon: EyeClosed,
-      title: 'Private Settlement',
-      description: 'Trades settle using confidential tokens. Your balances remain private on-chain.',
-      tech: 'C-SPL Tokens',
+      title: 'Encrypted Liquidations',
+      description: 'Liquidation thresholds are encrypted via MPC batch verification. Entry prices cannot be reverse-engineered.',
+      tech: 'V2 Privacy',
     },
     {
       icon: ShieldCheck,
       title: 'MEV Protection',
-      description: 'Encrypted orders prevent front-running and sandwich attacks. Trade without information leakage.',
+      description: 'Encrypted orders, hash-based IDs, and coarse timestamps prevent front-running and activity correlation.',
       tech: 'Dark Pool',
     },
   ];
 
   const stats = [
-    { label: 'Privacy Guarantee', value: '100%', description: 'Encrypted by default' },
+    { label: 'Privacy Level', value: 'V2', description: 'Pure ciphertext format' },
     { label: 'Proof Generation', value: '<3s', description: 'Client-side ZK' },
-    { label: 'MPC Latency', value: '~500ms', description: 'Order matching' },
+    { label: 'MPC Batch Check', value: '10 pos', description: 'Liquidation verification' },
   ];
 
   const techStack = [
@@ -272,12 +272,12 @@ export default function LandingPage() {
               </div>
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <Fingerprint size={20} className="text-white" />
+                  <EyeClosed size={20} className="text-white" />
                 </div>
                 <div>
-                  <h4 className="font-normal mb-1 text-white">Regulatory Ready</h4>
+                  <h4 className="font-normal mb-1 text-white">V2 Pure Ciphertext</h4>
                   <p className="text-sm text-white/60 font-light">
-                    ZK compliance proofs satisfy KYC/AML requirements without compromising user privacy — accountability without surveillance.
+                    No plaintext prefix — order amounts, prices, and liquidation thresholds are fully encrypted. Entry prices cannot be derived.
                   </p>
                 </div>
               </div>
@@ -286,20 +286,20 @@ export default function LandingPage() {
                   <Lock size={20} className="text-white" />
                 </div>
                 <div>
-                  <h4 className="font-normal mb-1 text-white">Institutional Grade</h4>
+                  <h4 className="font-normal mb-1 text-white">Anti-Correlation</h4>
                   <p className="text-sm text-white/60 font-light">
-                    Dark pool functionality enables large block trades without market impact — critical for institutional adoption.
+                    Hash-based IDs prevent sequential tracking. Hour-precision timestamps reduce temporal correlation attacks.
                   </p>
                 </div>
               </div>
               <div className="flex gap-4">
                 <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <EyeClosed size={20} className="text-white" />
+                  <Fingerprint size={20} className="text-white" />
                 </div>
                 <div>
-                  <h4 className="font-normal mb-1 text-white">Composable Privacy</h4>
+                  <h4 className="font-normal mb-1 text-white">Regulatory Ready</h4>
                   <p className="text-sm text-white/60 font-light">
-                    Built on Solana&apos;s ecosystem primitives (Arcium, Noir, C-SPL, ShadowWire) for maximum interoperability.
+                    ZK compliance proofs satisfy KYC/AML requirements without compromising user privacy — accountability without surveillance.
                   </p>
                 </div>
               </div>

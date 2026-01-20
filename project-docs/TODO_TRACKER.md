@@ -203,5 +203,10 @@ These require the Arcium C-SPL (Confidential SPL) SDK which is not yet released 
 
 ## Changelog
 
+- **2026-01-20:** ZK Eligibility Verification fully working end-to-end
+  - Fixed stack overflow by splitting into two-instruction pattern: `verify_eligibility` + `open_position`
+  - Regenerated Groth16 proof with `sunspot prove` to match deployed verifier
+  - Fixed discriminator mismatch in frontend (`0xa5, 0x0a, 0x92, 0xdd, 0x07, 0xf4, 0xef, 0x14`)
+  - Successful on-chain position: `5ZJY4pB216CUHWgova6wePJMBzqpysc7BMZbXfFAr5QDdcweNKuTHHgHNHAEftRKwgTuiKqLBw21ZSMAfxgReE8t`
 - **2026-01-19:** Completed 8 actionable TODOs (Oracle + MPC + ZK Verifier)
 - **2026-01-19:** Initial documentation of 24 TODOs across codebase

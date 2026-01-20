@@ -28,7 +28,7 @@ pub struct SettleFunding<'info> {
             ConfidentialPosition::SEED,
             position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id.to_le_bytes()
+            &position.position_id
         ],
         bump = position.bump,
         constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
@@ -66,7 +66,7 @@ pub fn handler(ctx: Context<SettleFunding>) -> Result<()> {
 
     // Skip if no funding to settle
     if funding_delta == 0 {
-        msg!("No funding to settle for position {} #{}",
+        msg!("No funding to settle for position {} #{:?}",
             position.trader, position.position_id);
         return Ok(());
     }
@@ -106,14 +106,14 @@ pub fn handler(ctx: Context<SettleFunding>) -> Result<()> {
     // Update position's entry cumulative funding to current
     // This marks the funding as "settled" for this position
     position.entry_cumulative_funding = current_cumulative_funding;
-    position.last_updated = clock.unix_timestamp;
+    position.last_updated_hour = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
 
     // After MPC settles funding, the liquidation threshold may need updating
     // Mark threshold as needing re-verification
     position.threshold_verified = false;
 
     msg!(
-        "Funding settled for position {} #{}: delta={}, direction={}",
+        "Funding settled for position {} #{:?}: delta={}, direction={}",
         position.trader,
         position.position_id,
         funding_delta,
@@ -135,7 +135,7 @@ pub fn handler(ctx: Context<SettleFunding>) -> Result<()> {
 
 #[event]
 pub struct FundingSettled {
-    pub position_id: u64,
+    pub position_id: [u8; 16],
     pub trader: Pubkey,
     pub market: Pubkey,
     /// Cumulative funding delta (scaled by 1e18)

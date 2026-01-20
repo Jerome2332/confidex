@@ -26,7 +26,8 @@ interface OpenOrder {
   amount: string; // Encrypted - shows placeholder
   price: string; // Encrypted - shows placeholder
   filled: string;
-  status: 'open' | 'partial' | 'matching';
+  // V2: Simplified status - Active (open/partial/pending) or Inactive (filled/cancelled)
+  status: 'open' | 'partial' | 'pending';
   mpcStatus?: 'queued' | 'comparing' | 'matched' | 'settling' | 'complete';
   createdAt: Date;
 }
@@ -51,8 +52,9 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
     amount: '***', // Encrypted - show placeholder
     price: '***',  // Encrypted - show placeholder
     filled: `${order.filledPercent}%`,
-    status: order.status === 'partial' ? 'partial' : order.status === 'matching' ? 'matching' : 'open',
-    mpcStatus: order.status === 'matching' ? 'comparing' : order.status === 'filled' ? 'complete' : undefined,
+    // V2: Use simplified Active/Inactive status model
+    status: order.status === 'partial' ? 'partial' : order.status === 'pending' ? 'pending' : 'open',
+    mpcStatus: order.status === 'pending' ? 'comparing' : order.status === 'filled' ? 'complete' : undefined,
     createdAt: order.createdAt,
   }));
 

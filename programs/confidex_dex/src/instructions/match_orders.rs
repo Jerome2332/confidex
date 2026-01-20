@@ -32,11 +32,11 @@ pub struct MatchOrders<'info> {
         seeds = [
             ConfidentialOrder::SEED,
             buy_order.maker.as_ref(),
-            &buy_order.order_id.to_le_bytes()
+            &buy_order.order_id
         ],
         bump = buy_order.bump,
         constraint = buy_order.side == Side::Buy @ ConfidexError::InvalidOrderSide,
-        constraint = buy_order.is_open() @ ConfidexError::OrderNotOpen,
+        constraint = buy_order.is_active() @ ConfidexError::OrderNotOpen,
         constraint = buy_order.eligibility_proof_verified @ ConfidexError::EligibilityNotVerified
     )]
     pub buy_order: Account<'info, ConfidentialOrder>,
@@ -46,11 +46,11 @@ pub struct MatchOrders<'info> {
         seeds = [
             ConfidentialOrder::SEED,
             sell_order.maker.as_ref(),
-            &sell_order.order_id.to_le_bytes()
+            &sell_order.order_id
         ],
         bump = sell_order.bump,
         constraint = sell_order.side == Side::Sell @ ConfidexError::InvalidOrderSide,
-        constraint = sell_order.is_open() @ ConfidexError::OrderNotOpen,
+        constraint = sell_order.is_active() @ ConfidexError::OrderNotOpen,
         constraint = sell_order.eligibility_proof_verified @ ConfidexError::EligibilityNotVerified
     )]
     pub sell_order: Account<'info, ConfidentialOrder>,
@@ -128,20 +128,24 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
         )?;
 
         // Store pending match state for callback validation
+        // V2: Use is_matching flag instead of Matching status
         buy_order.pending_match_request = queued.request_id;
         sell_order.pending_match_request = queued.request_id;
-        buy_order.status = OrderStatus::Matching;
-        sell_order.status = OrderStatus::Matching;
+        buy_order.is_matching = true;
+        sell_order.is_matching = true;
+
+        // Coarse timestamp for privacy
+        let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
 
         emit!(MatchQueued {
             buy_order_id: buy_order.order_id,
             sell_order_id: sell_order.order_id,
             request_id: queued.request_id,
-            timestamp: clock.unix_timestamp,
+            timestamp: coarse_time,
         });
 
         msg!(
-            "Match queued via async MPC: buy={} sell={} request_id={:?}",
+            "Match queued via async MPC: buy={:?} sell={:?} request_id={:?}",
             buy_order.order_id,
             sell_order.order_id,
             &queued.request_id[0..8]
@@ -185,24 +189,26 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
     )?;
 
     // Update order states
+    // V2: Use Active/Inactive status with internal tracking
     buy_order.encrypted_filled = new_buy_filled;
     sell_order.encrypted_filled = new_sell_filled;
 
     if buy_fully_filled {
-        buy_order.status = OrderStatus::Filled;
+        buy_order.status = OrderStatus::Inactive;  // V2: Filled -> Inactive
         pair.open_order_count = pair.open_order_count.saturating_sub(1);
-    } else {
-        buy_order.status = OrderStatus::PartiallyFilled;
     }
+    // V2: No "PartiallyFilled" status - remains Active
 
     if sell_fully_filled {
-        sell_order.status = OrderStatus::Filled;
+        sell_order.status = OrderStatus::Inactive;  // V2: Filled -> Inactive
         pair.open_order_count = pair.open_order_count.saturating_sub(1);
-    } else {
-        sell_order.status = OrderStatus::PartiallyFilled;
     }
+    // V2: No "PartiallyFilled" status - remains Active
 
     // TODO: Execute confidential settlement via C-SPL or ShadowWire
+
+    // Coarse timestamp for privacy
+    let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
 
     emit!(TradeExecuted {
         buy_order_id: buy_order.order_id,
@@ -210,11 +216,11 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
         buyer: buy_order.maker,
         seller: sell_order.maker,
         pair: pair.key(),
-        timestamp: clock.unix_timestamp,
+        timestamp: coarse_time,
         // Note: No amounts or prices emitted for privacy
     });
 
-    msg!("Trade executed: buy order {} matched with sell order {}",
+    msg!("Trade executed: buy order {:?} matched with sell order {:?}",
          buy_order.order_id, sell_order.order_id);
 
     Ok(())
@@ -222,19 +228,25 @@ pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
 
 #[event]
 pub struct TradeExecuted {
-    pub buy_order_id: u64,
-    pub sell_order_id: u64,
+    /// Hash-based order ID (no sequential correlation)
+    pub buy_order_id: [u8; 16],
+    /// Hash-based order ID (no sequential correlation)
+    pub sell_order_id: [u8; 16],
     pub buyer: Pubkey,
     pub seller: Pubkey,
     pub pair: Pubkey,
+    /// Coarse timestamp (hour precision)
     pub timestamp: i64,
     // Note: No amounts or prices for privacy
 }
 
 #[event]
 pub struct MatchQueued {
-    pub buy_order_id: u64,
-    pub sell_order_id: u64,
+    /// Hash-based order ID (no sequential correlation)
+    pub buy_order_id: [u8; 16],
+    /// Hash-based order ID (no sequential correlation)
+    pub sell_order_id: [u8; 16],
     pub request_id: [u8; 32],
+    /// Coarse timestamp (hour precision)
     pub timestamp: i64,
 }

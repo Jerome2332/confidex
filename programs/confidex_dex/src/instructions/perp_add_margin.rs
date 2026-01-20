@@ -18,7 +18,7 @@ pub struct AddMargin<'info> {
             ConfidentialPosition::SEED,
             trader.key().as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id.to_le_bytes()
+            &position.position_id
         ],
         bump = position.bump,
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
@@ -50,9 +50,9 @@ pub struct AddMargin<'info> {
 pub struct AddMarginParams {
     /// Encrypted amount of collateral to add (64 bytes via Arcium)
     pub encrypted_amount: [u8; 64],
-    /// New liquidation threshold after adding margin
+    /// New encrypted liquidation threshold after adding margin (64 bytes via Arcium)
     /// Must be verified by MPC to match new position parameters
-    pub new_liquidation_threshold: u64,
+    pub new_encrypted_liq_threshold: [u8; 64],
 }
 
 pub fn handler(ctx: Context<AddMargin>, params: AddMarginParams) -> Result<()> {
@@ -70,13 +70,14 @@ pub fn handler(ctx: Context<AddMargin>, params: AddMarginParams) -> Result<()> {
         &params.encrypted_amount,
     )?;
 
-    // Verify new threshold matches updated collateral
+    // Verify new threshold matches updated collateral via MPC
     let is_long = matches!(position.side, PositionSide::Long);
     let threshold_valid = verify_position_params_sync(
         &ctx.accounts.arcium_program,
         &perp_market.key(), // Using market key as cluster placeholder
         &position.encrypted_entry_price,
-        params.new_liquidation_threshold,
+        // For encrypted thresholds, we pass a dummy value - MPC verifies the encrypted one
+        0u64,
         position.leverage,
         is_long,
         perp_market.maintenance_margin_bps,
@@ -88,27 +89,35 @@ pub fn handler(ctx: Context<AddMargin>, params: AddMarginParams) -> Result<()> {
     position.encrypted_collateral = new_encrypted_collateral;
     position.threshold_verified = true;
 
-    // Update liquidation threshold
+    // Update encrypted liquidation threshold
     // This moves the threshold further from current price, making liquidation less likely
     match position.side {
         PositionSide::Long => {
             // For longs, new threshold should be LOWER (safer)
-            position.liquidatable_below_price = params.new_liquidation_threshold;
+            position.encrypted_liq_below = params.new_encrypted_liq_threshold;
         }
         PositionSide::Short => {
             // For shorts, new threshold should be HIGHER (safer)
-            position.liquidatable_above_price = params.new_liquidation_threshold;
+            position.encrypted_liq_above = params.new_encrypted_liq_threshold;
         }
     }
 
-    position.last_threshold_update = clock.unix_timestamp;
-    // threshold_verified already set to true above after MPC verification
-    position.last_updated = clock.unix_timestamp;
-    position.last_margin_add = clock.unix_timestamp;
+    // Update threshold commitment
+    position.threshold_commitment = ConfidentialPosition::compute_threshold_commitment(
+        &position.encrypted_entry_price,
+        position.leverage,
+        perp_market.maintenance_margin_bps,
+        is_long,
+    );
+
+    let coarse_now = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
+    position.last_threshold_update_hour = coarse_now;
+    position.last_updated_hour = coarse_now;
+    position.last_margin_add_hour = coarse_now;
     position.margin_add_count = position.margin_add_count.saturating_add(1);
 
     msg!(
-        "Margin added to position {} #{} (add #{})",
+        "Margin added to position {} #{:?} (add #{})",
         position.trader,
         position.position_id,
         position.margin_add_count

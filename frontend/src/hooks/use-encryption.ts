@@ -23,6 +23,16 @@ const MXE_PROGRAM_ID = new PublicKey(
   'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE'
 );
 
+/**
+ * Encryption format version
+ * V1 (HYBRID): [plaintext (8) | nonce (8) | ciphertext (32) | ephemeral_pubkey (16)]
+ * V2 (PURE):   [nonce (16) | ciphertext (32) | ephemeral_pubkey (16)]
+ *
+ * V2 provides full privacy - no plaintext visible on-chain.
+ * Requires MPC for all validations (balance checks, etc.)
+ */
+const ENCRYPTION_VERSION = 2;
+
 // Encryption context for Arcium
 interface EncryptionContext {
   mxePublicKey: Uint8Array;
@@ -151,38 +161,62 @@ export function useEncryption(): UseEncryptionReturn {
       // The value is passed as an array of bigints
       const encrypted = context.cipher.encrypt([value], nonce);
 
-      // HYBRID FORMAT (for on-chain balance validation + MPC matching):
-      // [plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
-      //
-      // Why plaintext is included:
-      // - On-chain balance validation requires knowing the order amount/price
-      // - Until C-SPL encrypted balances are live, we can't do encrypted balance checks
-      // - The plaintext allows balance escrow; MPC uses ciphertext for price comparison
-      //
-      // Privacy guarantees:
-      // - Order amounts are visible on-chain (necessary for balance validation)
-      // - MPC still uses encrypted values for price comparison (no price leak during matching)
-      // - Full privacy will be achieved when C-SPL enables encrypted balance operations
       const result = new Uint8Array(64);
 
-      // Bytes 0-7: plaintext value (for on-chain balance validation)
-      const plaintextBytes = serializeLE(value, 8);
-      result.set(plaintextBytes, 0);
+      if (ENCRYPTION_VERSION === 2) {
+        // PURE CIPHERTEXT FORMAT (V2):
+        // [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+        //
+        // Full privacy - no plaintext visible on-chain.
+        // All validations (balance checks, price comparisons) done via MPC.
+        //
+        // Privacy guarantees:
+        // - Order amounts are encrypted (private)
+        // - Order prices are encrypted (private)
+        // - MPC performs all comparisons without revealing values
 
-      // Bytes 8-15: truncated nonce (for MPC decryption)
-      result.set(nonce.slice(0, 8), 8);
+        // Bytes 0-15: full nonce (for MPC decryption)
+        result.set(nonce, 0);
 
-      // Bytes 16-47: ciphertext (for MPC price comparison)
-      if (encrypted.length > 0 && encrypted[0].length >= 32) {
-        result.set(new Uint8Array(encrypted[0].slice(0, 32)), 16);
+        // Bytes 16-47: ciphertext (for MPC operations)
+        if (encrypted.length > 0 && encrypted[0].length >= 32) {
+          result.set(new Uint8Array(encrypted[0].slice(0, 32)), 16);
+        } else {
+          // Fallback: serialize the encrypted value directly
+          const ctBytes = serializeLE(BigInt(encrypted[0]?.[0] || 0), 32);
+          result.set(ctBytes, 16);
+        }
+
+        // Bytes 48-63: truncated ephemeral public key (for MPC decryption routing)
+        result.set(context.ephemeralPublicKey.slice(0, 16), 48);
       } else {
-        // Fallback: serialize the encrypted value directly
-        const ctBytes = serializeLE(BigInt(encrypted[0]?.[0] || 0), 32);
-        result.set(ctBytes, 16);
-      }
+        // HYBRID FORMAT (V1 - legacy):
+        // [plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+        //
+        // Why plaintext is included:
+        // - On-chain balance validation requires knowing the order amount/price
+        // - Until C-SPL encrypted balances are live, we can't do encrypted balance checks
+        // - The plaintext allows balance escrow; MPC uses ciphertext for price comparison
 
-      // Bytes 48-63: truncated ephemeral public key (for MPC decryption routing)
-      result.set(context.ephemeralPublicKey.slice(0, 16), 48);
+        // Bytes 0-7: plaintext value (for on-chain balance validation)
+        const plaintextBytes = serializeLE(value, 8);
+        result.set(plaintextBytes, 0);
+
+        // Bytes 8-15: truncated nonce (for MPC decryption)
+        result.set(nonce.slice(0, 8), 8);
+
+        // Bytes 16-47: ciphertext (for MPC price comparison)
+        if (encrypted.length > 0 && encrypted[0].length >= 32) {
+          result.set(new Uint8Array(encrypted[0].slice(0, 32)), 16);
+        } else {
+          // Fallback: serialize the encrypted value directly
+          const ctBytes = serializeLE(BigInt(encrypted[0]?.[0] || 0), 32);
+          result.set(ctBytes, 16);
+        }
+
+        // Bytes 48-63: truncated ephemeral public key (for MPC decryption routing)
+        result.set(context.ephemeralPublicKey.slice(0, 16), 48);
+      }
 
       return result;
     },
@@ -199,14 +233,37 @@ export function useEncryption(): UseEncryptionReturn {
         throw new Error('Invalid encrypted value length');
       }
 
-      // HYBRID FORMAT:
-      // [plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+      if (ENCRYPTION_VERSION === 2) {
+        // PURE CIPHERTEXT FORMAT (V2):
+        // [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+        //
+        // Client-side decryption requires the full RescueCipher decrypt flow.
+        // Extract nonce and ciphertext, then decrypt.
+        const nonce = encrypted.slice(0, 16);
+        const ciphertext = encrypted.slice(16, 48);
 
-      // For client-side decryption, we can just read the plaintext directly
-      // (This is used for displaying user's own order values)
-      const plaintext = deserializeLE(encrypted.slice(0, 8));
+        // Convert ciphertext bytes back to the format RescueCipher expects
+        // Note: RescueCipher.decrypt expects an array of Uint8Array chunks
+        try {
+          const decrypted = context.cipher.decrypt([ciphertext] as unknown as number[][], nonce);
+          if (decrypted && decrypted.length > 0) {
+            return BigInt(decrypted[0]);
+          }
+        } catch (decryptError) {
+          log.warn('RescueCipher decryption failed, value may be from different session', { decryptError });
+        }
 
-      return plaintext;
+        // Fallback: return 0 if decryption fails (can happen if encrypted with different key)
+        return BigInt(0);
+      } else {
+        // HYBRID FORMAT (V1 - legacy):
+        // [plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+        //
+        // For client-side decryption, we can just read the plaintext directly
+        // (This is used for displaying user's own order values)
+        const plaintext = deserializeLE(encrypted.slice(0, 8));
+        return plaintext;
+      }
     },
     [context]
   );

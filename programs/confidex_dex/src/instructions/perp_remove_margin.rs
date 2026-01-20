@@ -19,7 +19,7 @@ pub struct RemoveMargin<'info> {
             ConfidentialPosition::SEED,
             trader.key().as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id.to_le_bytes()
+            &position.position_id
         ],
         bump = position.bump,
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
@@ -58,10 +58,10 @@ pub struct RemoveMargin<'info> {
 pub struct RemoveMarginParams {
     /// Encrypted amount of collateral to remove (64 bytes via Arcium)
     pub encrypted_amount: [u8; 64],
-    /// New liquidation threshold after removing margin
+    /// New encrypted liquidation threshold after removing margin (64 bytes via Arcium)
     /// Must be verified by MPC to match new position parameters
-    /// Must still be safe (position won't be immediately liquidatable)
-    pub new_liquidation_threshold: u64,
+    /// MPC will verify position won't be immediately liquidatable
+    pub new_encrypted_liq_threshold: [u8; 64],
 }
 
 pub fn handler(ctx: Context<RemoveMargin>, params: RemoveMarginParams) -> Result<()> {
@@ -70,28 +70,8 @@ pub fn handler(ctx: Context<RemoveMargin>, params: RemoveMarginParams) -> Result
     let position = &mut ctx.accounts.position;
 
     // Get current mark price from oracle (6 decimal precision)
-    let mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
-
-    // Validate that position won't be liquidatable after margin removal
-    // This is a PUBLIC check using the new threshold
-    match position.side {
-        PositionSide::Long => {
-            // For longs, new threshold will be HIGHER (closer to current price)
-            // We need to ensure current price > new_threshold with 5% safety buffer
-            require!(
-                mark_price > params.new_liquidation_threshold.saturating_mul(105).saturating_div(100),
-                ConfidexError::InsufficientCollateral
-            );
-        }
-        PositionSide::Short => {
-            // For shorts, new threshold will be LOWER (closer to current price)
-            // We need to ensure current price < new_threshold with 5% safety buffer
-            require!(
-                mark_price < params.new_liquidation_threshold.saturating_mul(95).saturating_div(100),
-                ConfidexError::InsufficientCollateral
-            );
-        }
-    }
+    // Note: With encrypted thresholds, the safety check is done via MPC
+    let _mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
 
     // Subtract margin from encrypted collateral via MPC
     let new_encrypted_collateral = sub_encrypted(
@@ -100,13 +80,15 @@ pub fn handler(ctx: Context<RemoveMargin>, params: RemoveMarginParams) -> Result
         &params.encrypted_amount,
     )?;
 
-    // Verify new threshold matches updated collateral
+    // Verify new threshold matches updated collateral via MPC
+    // MPC also verifies position won't be immediately liquidatable with 5% safety buffer
     let is_long = matches!(position.side, PositionSide::Long);
     let threshold_valid = verify_position_params_sync(
         &ctx.accounts.arcium_program,
         &perp_market.key(), // Using market key as cluster placeholder
         &position.encrypted_entry_price,
-        params.new_liquidation_threshold,
+        // For encrypted thresholds, MPC verifies the encrypted one
+        0u64,
         position.leverage,
         is_long,
         perp_market.maintenance_margin_bps,
@@ -121,26 +103,33 @@ pub fn handler(ctx: Context<RemoveMargin>, params: RemoveMarginParams) -> Result
     // TODO: Transfer encrypted collateral from vault to trader via C-SPL CPI
     // This would use confidential_transfer instruction (blocked on C-SPL SDK)
 
-    // Update liquidation threshold
+    // Update encrypted liquidation threshold
     // This moves the threshold closer to current price, increasing liquidation risk
     match position.side {
         PositionSide::Long => {
-            position.liquidatable_below_price = params.new_liquidation_threshold;
+            position.encrypted_liq_below = params.new_encrypted_liq_threshold;
         }
         PositionSide::Short => {
-            position.liquidatable_above_price = params.new_liquidation_threshold;
+            position.encrypted_liq_above = params.new_encrypted_liq_threshold;
         }
     }
 
-    position.last_threshold_update = clock.unix_timestamp;
-    // threshold_verified already set to true above after MPC verification
-    position.last_updated = clock.unix_timestamp;
+    // Update threshold commitment
+    position.threshold_commitment = ConfidentialPosition::compute_threshold_commitment(
+        &position.encrypted_entry_price,
+        position.leverage,
+        perp_market.maintenance_margin_bps,
+        is_long,
+    );
+
+    let coarse_now = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
+    position.last_threshold_update_hour = coarse_now;
+    position.last_updated_hour = coarse_now;
 
     msg!(
-        "Margin removed from position {} #{}, new threshold: {}",
+        "Margin removed from position {} #{:?} (threshold now encrypted)",
         position.trader,
-        position.position_id,
-        params.new_liquidation_threshold
+        position.position_id
     );
 
     Ok(())

@@ -1,8 +1,9 @@
 'use client';
 
 import { FC, useState } from 'react';
-import { Lock, Warning, X, Plus, Minus, SpinnerGap, TrendUp, TrendDown } from '@phosphor-icons/react';
+import { Lock, Warning, X, Plus, Minus, SpinnerGap, TrendUp, TrendDown, Shield, ShieldCheck } from '@phosphor-icons/react';
 import { PerpPosition, usePerpetualStore } from '@/stores/perpetuals-store';
+import { EncryptedValue, LiquidationStatus } from './encrypted-value';
 
 interface PositionRowProps {
   position: PerpPosition;
@@ -30,19 +31,14 @@ export const PositionRow: FC<PositionRowProps> = ({
   const isClosing = isClosingPosition === position.id;
   const isModifyingMargin = isAddingMargin === position.id || isRemovingMargin === position.id;
 
-  // Calculate distance to liquidation price
-  const liquidationPrice = isLong
-    ? position.liquidatableBelowPrice
-    : position.liquidatableAbovePrice;
+  // V2 Privacy: Liquidation thresholds are now encrypted
+  // Risk level is determined by MPC batch liquidation checks
+  // We can still show risk indicators based on MPC results without revealing the threshold
 
-  const distanceToLiquidation = markPrice && liquidationPrice
-    ? isLong
-      ? ((markPrice - liquidationPrice) / markPrice) * 100
-      : ((liquidationPrice - markPrice) / markPrice) * 100
-    : null;
-
-  const isAtRisk = distanceToLiquidation !== null && distanceToLiquidation < 10;
-  const isHighRisk = distanceToLiquidation !== null && distanceToLiquidation < 5;
+  // Use risk level from position (determined by MPC batch liquidation check)
+  const riskLevel = position.riskLevel || 'unknown';
+  const isAtRisk = riskLevel === 'warning' || riskLevel === 'critical';
+  const isHighRisk = riskLevel === 'critical';
 
   if (compact) {
     return (
@@ -187,16 +183,34 @@ export const PositionRow: FC<PositionRowProps> = ({
           </span>
         </div>
 
-        {/* Liquidation Price (Public) */}
+        {/* Liquidation Price (V2: Encrypted) */}
         <div className="flex justify-between">
           <span className="text-muted-foreground">Liq. Price</span>
-          <span className={`font-mono ${isHighRisk ? 'text-rose-400/80' : isAtRisk ? 'text-white/80' : 'text-foreground'}`}>
-            ${liquidationPrice.toFixed(2)}
-          </span>
+          <div className="flex items-center gap-1">
+            <Lock size={12} className="text-primary" />
+            <span className="font-mono text-muted-foreground">••••••</span>
+            {position.thresholdVerified && (
+              <span title="Verified via MPC">
+                <ShieldCheck size={12} className="text-emerald-400/80" />
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Liquidation Warning */}
+      {/* Liquidation Risk Status */}
+      {position.thresholdVerified && (
+        <div className="mt-2">
+          <LiquidationStatus
+            markPrice={markPrice || 0}
+            isLong={isLong}
+            riskLevel={riskLevel}
+            thresholdVerified={position.thresholdVerified}
+          />
+        </div>
+      )}
+
+      {/* Liquidation Warning (V2: Based on MPC risk level, not public threshold) */}
       {isAtRisk && (
         <div className={`mt-2 p-2 rounded text-xs flex items-center gap-2 ${
           isHighRisk
@@ -206,8 +220,8 @@ export const PositionRow: FC<PositionRowProps> = ({
           <Warning size={12} className="shrink-0" />
           <span>
             {isHighRisk
-              ? `Position at high risk! ${distanceToLiquidation?.toFixed(1)}% from liquidation.`
-              : `Position approaching liquidation: ${distanceToLiquidation?.toFixed(1)}% away.`}
+              ? 'Position at high risk! MPC verification indicates critical margin.'
+              : 'Position approaching liquidation based on MPC verification.'}
           </span>
         </div>
       )}

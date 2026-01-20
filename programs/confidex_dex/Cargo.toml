@@ -11,6 +11,7 @@ name = "confidex_dex"
 [features]
 default = ["devnet"]
 devnet = []
+debug = []  # Enable verbose logging (DO NOT use in production - leaks sensitive data)
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []

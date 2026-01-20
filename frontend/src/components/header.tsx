@@ -8,6 +8,7 @@ import { WalletButton } from '@/components/wallet-button';
 import { NavDropdown } from '@/components/nav-dropdown';
 import { SettingsPanel } from '@/components/settings-panel';
 import { MarketTicker } from '@/components/market-ticker';
+import { PrivacyBadge, usePrivacyLevel } from '@/components/privacy-indicator';
 
 interface HeaderProps {
   showMarketTicker?: boolean;
@@ -35,6 +36,7 @@ const navLinks = [
 export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
   const [showSettings, setShowSettings] = useState(false);
   const pathname = usePathname();
+  const privacyLevel = usePrivacyLevel();
 
   return (
     <>
@@ -47,6 +49,8 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
             <span className="text-[10px] bg-white/10 text-white/80 px-1.5 py-0.5 rounded font-medium border border-white/20">
               DEVNET
             </span>
+            {/* V2 Privacy Badge */}
+            <PrivacyBadge level={privacyLevel} />
           </Link>
 
           {/* Navigation */}

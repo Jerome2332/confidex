@@ -50,12 +50,13 @@ pub enum SettlementMethod {
 }
 
 /// Settlement request for a matched trade
+/// V2: Uses hash-based order IDs for privacy (no sequential correlation)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct SettlementRequest {
-    /// Buy order ID
-    pub buy_order_id: u64,
-    /// Sell order ID
-    pub sell_order_id: u64,
+    /// Buy order ID (hash-based, 16 bytes)
+    pub buy_order_id: [u8; 16],
+    /// Sell order ID (hash-based, 16 bytes)
+    pub sell_order_id: [u8; 16],
     /// Buyer's wallet
     pub buyer: Pubkey,
     /// Seller's wallet
@@ -70,7 +71,7 @@ pub struct SettlementRequest {
     pub encrypted_fill_price: [u8; 64],
     /// Selected settlement method
     pub method: SettlementMethod,
-    /// Timestamp
+    /// Timestamp (coarse - hour precision)
     pub created_at: i64,
 }
 

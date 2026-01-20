@@ -179,7 +179,11 @@ export const MpcIndicator: FC<{
     complete: { icon: Check, label: 'Complete', color: 'text-emerald-400' },
   };
 
-  const { icon: Icon, label, color, animate } = config[status] || config.queued;
+  const statusConfig = config[status] || config.queued;
+  const Icon = statusConfig.icon;
+  const label = statusConfig.label;
+  const color = statusConfig.color;
+  const animate = 'animate' in statusConfig ? statusConfig.animate : false;
 
   return (
     <div className={cn('flex items-center gap-1 text-[10px]', color, className)}>

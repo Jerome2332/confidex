@@ -6,9 +6,16 @@ export type PositionSide = 'long' | 'short';
 export type PositionStatus = 'open' | 'closing' | 'closed' | 'liquidated' | 'auto_deleveraged';
 export type MarginMode = 'cross' | 'isolated';
 
+/**
+ * Risk level determined by MPC batch liquidation checks
+ * V2: Risk is computed via MPC without revealing liquidation threshold
+ */
+export type RiskLevel = 'safe' | 'warning' | 'critical' | 'unknown';
+
 export interface PerpPosition {
   id: string;
-  positionId: number;
+  /** V2: Hash-based position ID (16 bytes hex string) */
+  positionId: string;
   market: PublicKey;
   marketSymbol: string;
   trader: PublicKey;
@@ -19,16 +26,20 @@ export interface PerpPosition {
   encryptedEntryPrice: Uint8Array;
   encryptedCollateral: Uint8Array;
   encryptedRealizedPnl: Uint8Array;
-  // Public liquidation thresholds
-  liquidatableBelowPrice: number;
-  liquidatableAbovePrice: number;
+  // V2: Encrypted liquidation thresholds (no longer public)
+  encryptedLiqBelow: Uint8Array;
+  encryptedLiqAbove: Uint8Array;
+  /** V2: MPC-determined risk level (replaces public threshold calculation) */
+  riskLevel: RiskLevel;
   thresholdVerified: boolean;
   // Funding
   entryCumulativeFunding: bigint;
   pendingFunding: bigint;
   // Status
   status: PositionStatus;
+  /** V2: Coarse timestamp (hour precision) */
   createdAt: Date;
+  /** V2: Coarse timestamp (hour precision) */
   lastUpdated: Date;
   partialCloseCount: number;
   autoDeleveragePriority: number;
@@ -122,6 +133,10 @@ interface PerpetualState {
   // Position history
   positionHistory: PerpPosition[];
 
+  // Bottom tab control (for auto-switching to Positions after opening)
+  bottomTab: 'balances' | 'positions' | 'open-orders' | 'trade-history' | 'order-history';
+  setBottomTab: (tab: 'balances' | 'positions' | 'open-orders' | 'trade-history' | 'order-history') => void;
+
   // Estimated liquidation price calculation
   estimateLiquidationPrice: (
     side: PositionSide,
@@ -214,6 +229,10 @@ export const usePerpetualStore = create<PerpetualState>()(
 
       // Position history
       positionHistory: [],
+
+      // Bottom tab control
+      bottomTab: 'open-orders',
+      setBottomTab: (bottomTab) => set({ bottomTab }),
 
       // Estimated liquidation price calculation
       // For longs: liq_price = entry_price * (1 - 1/leverage + maintenance_margin)

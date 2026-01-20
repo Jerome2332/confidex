@@ -10,6 +10,7 @@ use crate::state::{
 /// Auto-Deleverage (ADL) instruction
 /// Used when insurance fund is depleted and profitable positions must be force-closed
 /// to cover losses from underwater liquidations
+/// Uses Box<Account<>> to move large account data to heap (avoids stack overflow)
 #[derive(Accounts)]
 pub struct AutoDeleverage<'info> {
     #[account(
@@ -17,7 +18,7 @@ pub struct AutoDeleverage<'info> {
         seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
         bump = perp_market.bump,
     )]
-    pub perp_market: Account<'info, PerpetualMarket>,
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
 
     /// The underwater position being liquidated (bankrupt)
     #[account(
@@ -26,13 +27,13 @@ pub struct AutoDeleverage<'info> {
             ConfidentialPosition::SEED,
             bankrupt_position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &bankrupt_position.position_id.to_le_bytes()
+            &bankrupt_position.position_id
         ],
         bump = bankrupt_position.bump,
         constraint = bankrupt_position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
         constraint = bankrupt_position.is_open() @ ConfidexError::PositionNotOpen
     )]
-    pub bankrupt_position: Account<'info, ConfidentialPosition>,
+    pub bankrupt_position: Box<Account<'info, ConfidentialPosition>>,
 
     /// The profitable counter-position being deleveraged
     #[account(
@@ -41,7 +42,7 @@ pub struct AutoDeleverage<'info> {
             ConfidentialPosition::SEED,
             target_position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &target_position.position_id.to_le_bytes()
+            &target_position.position_id
         ],
         bump = target_position.bump,
         constraint = target_position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
@@ -49,14 +50,14 @@ pub struct AutoDeleverage<'info> {
         // Target must be opposite side of bankrupt position
         constraint = target_position.side != bankrupt_position.side @ ConfidexError::InvalidOrderSide
     )]
-    pub target_position: Account<'info, ConfidentialPosition>,
+    pub target_position: Box<Account<'info, ConfidentialPosition>>,
 
     #[account(
         seeds = [LiquidationConfig::SEED],
         bump = liquidation_config.bump,
         constraint = liquidation_config.adl_enabled @ ConfidexError::Unauthorized
     )]
-    pub liquidation_config: Account<'info, LiquidationConfig>,
+    pub liquidation_config: Box<Account<'info, LiquidationConfig>>,
 
     /// CHECK: Pyth oracle for current mark price
     #[account(
@@ -159,18 +160,18 @@ pub fn handler(ctx: Context<AutoDeleverage>) -> Result<()> {
 
     // Mark bankrupt position as auto-deleveraged
     bankrupt_position.status = PositionStatus::AutoDeleveraged;
-    bankrupt_position.last_updated = clock.unix_timestamp;
+    bankrupt_position.last_updated_hour = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
 
     // Update target position (partial close via ADL)
     // The actual encrypted size reduction happens via MPC
-    target_position.last_updated = clock.unix_timestamp;
+    target_position.last_updated_hour = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
     target_position.partial_close_count = target_position.partial_close_count.saturating_add(1);
 
     // Update liquidation stats
     // Note: In production, this would be a separate counter update
 
     msg!(
-        "ADL executed: bankrupt position {} #{} covered by target position {} #{}",
+        "ADL executed: bankrupt position {} #{:?} covered by target position {} #{:?}",
         bankrupt_position.trader,
         bankrupt_position.position_id,
         target_position.trader,
@@ -192,9 +193,9 @@ pub fn handler(ctx: Context<AutoDeleverage>) -> Result<()> {
 
 #[event]
 pub struct AutoDeleverageExecuted {
-    pub bankrupt_position_id: u64,
+    pub bankrupt_position_id: [u8; 16],
     pub bankrupt_trader: Pubkey,
-    pub target_position_id: u64,
+    pub target_position_id: [u8; 16],
     pub target_trader: Pubkey,
     pub market: Pubkey,
     pub timestamp: i64,

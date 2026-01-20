@@ -124,6 +124,18 @@ pub mod confidex_dex {
         instructions::admin::update_perp_market_config_handler(ctx, params)
     }
 
+    // === ZK Verification (Layer 1 of Three-Layer Privacy) ===
+
+    /// Verify trader eligibility via ZK proof (blacklist non-membership)
+    /// This must be called before opening positions - stores result in TraderEligibility account
+    /// The ZK proof proves the trader is not on the blacklist without revealing their identity
+    pub fn verify_eligibility(
+        ctx: Context<VerifyEligibility>,
+        params: VerifyEligibilityParams,
+    ) -> Result<()> {
+        instructions::verify_eligibility::handler(ctx, params)
+    }
+
     // === Perpetuals Instructions ===
 
     /// Initialize a perpetual futures market
@@ -219,10 +231,32 @@ pub mod confidex_dex {
 
     // === Liquidation Instructions ===
 
-    /// Liquidate an underwater position
+    /// Queue batch liquidation check via MPC
+    /// Checks up to 10 positions in a single MPC call for efficiency
+    /// Required before liquidation since thresholds are now encrypted
+    pub fn check_liquidation_batch<'info>(
+        ctx: Context<'_, '_, 'info, 'info, CheckLiquidationBatch<'info>>,
+        params: CheckLiquidationBatchParams,
+    ) -> Result<()> {
+        instructions::check_liquidation_batch::handler(ctx, params)
+    }
+
+    /// Callback for batch liquidation check results from MPC
+    pub fn liquidation_batch_callback(
+        ctx: Context<LiquidationBatchCallback>,
+        params: LiquidationBatchCallbackParams,
+    ) -> Result<()> {
+        instructions::check_liquidation_batch::callback_handler(ctx, params)
+    }
+
+    /// Liquidate an underwater position (V2: requires prior MPC batch verification)
+    /// The batch_request must have verified this position is liquidatable via MPC
     /// Anyone can call this - incentivized by liquidation bonus
-    pub fn liquidate_position(ctx: Context<LiquidatePosition>) -> Result<()> {
-        instructions::perp_liquidate::handler(ctx)
+    pub fn liquidate_position(
+        ctx: Context<LiquidatePosition>,
+        params: LiquidatePositionParams,
+    ) -> Result<()> {
+        instructions::perp_liquidate::handler(ctx, params)
     }
 
     /// Auto-deleverage when insurance fund is depleted

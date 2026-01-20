@@ -12,14 +12,35 @@ When planning work on this project, follow the guidelines in [docs/spec.md](docs
 
 ## Development Standards
 
-**NO SHORTCUTS OR BYPASSES.** This is a production-grade platform, not a hackathon demo. Every feature must be implemented correctly:
+**⚠️ NO SHORTCUTS OR BYPASSES - STRICT ENFORCEMENT ⚠️**
 
-- **ZK Verification:** Real Groth16 proofs via Sunspot - no simulated/fake proofs
-- **MPC Operations:** Real Arcium cluster integration - no mock computations
-- **Encryption:** Proper RescueCipher with actual MXE keys - no demo modes
-- **Settlement:** Production-ready ShadowWire/C-SPL integration
+This is a production-grade platform, not a hackathon demo. Every feature must be implemented correctly. **NEVER** implement workarounds, simulations, or bypasses for any of the following:
 
-The ZK verification alongside MPC and encrypted balances is our competitive advantage. Cutting corners defeats the purpose of the project.
+### Mandatory Three-Layer Privacy Architecture
+
+| Layer | Technology | Requirement | Status |
+|-------|------------|-------------|--------|
+| **Layer 1: Compliance** | Noir ZK Proofs | Real Groth16 proofs via Sunspot | MANDATORY |
+| **Layer 2: Execution** | Arcium MPC | Real Cerberus protocol matching | MANDATORY |
+| **Layer 3: Settlement** | C-SPL Tokens | Confidential transfers | MANDATORY |
+
+### Strict Requirements
+
+- **ZK Verification:** Real Groth16 proofs via Sunspot - **NO** simulated/fake proofs, **NO** skipping verification, **NO** placeholder proofs
+- **MPC Operations:** Real Arcium cluster integration - **NO** mock computations, **NO** plaintext fallbacks
+- **Encryption:** Proper RescueCipher with actual MXE keys - **NO** demo modes, **NO** plaintext-in-ciphertext hacks
+- **Settlement:** Production-ready ShadowWire/C-SPL integration - **NO** public token transfers as permanent solution
+- **Eligibility Proofs:** The 388-byte ZK proof MUST be verified on-chain via Sunspot verifier CPI - this is NON-NEGOTIABLE
+
+### Why This Matters
+
+The ZK verification alongside MPC and encrypted balances is our **competitive advantage** and the core value proposition of Confidex. Cutting corners:
+1. Defeats the purpose of the project
+2. Disqualifies us from hackathon prizes requiring real privacy
+3. Creates a false sense of security for users
+4. Makes the codebase inconsistent and harder to upgrade
+
+**If you encounter stack overflow or other technical constraints, fix the root cause (optimize code, reduce allocations) rather than removing privacy features.**
 
 ## Project Overview
 
@@ -98,14 +119,48 @@ pnpm test:coverage              # Run tests with coverage
 - **UserAccount** (66 bytes): Optional tracking, eligibility verification status
 
 ### Cross-Program Invocations
-- **Sunspot verifier:** Verify Groth16 proof (388 bytes proof + 32 bytes witness)
+- **Sunspot verifier:** Verify Groth16 proof (324 bytes proof + 44 bytes witness)
 - **Arcium adapter:** `encrypt_value`, `compare_encrypted`, `add/sub/mul_encrypted`
 - **C-SPL:** `confidential_transfer`, `deposit_confidential`, `withdraw_confidential`
 
 ## Critical Constraints
 
-### Cryptographic Requirements
-- **MUST use Groth16 via Sunspot** - NOT Barretenberg (proofs too large for Solana)
+### Cryptographic Requirements - Groth16 via Sunspot (MANDATORY)
+
+**Why Groth16?** (Source: Solana Foundation, Aztec Privacy Hackathon Telegram, Jan 2026)
+
+> "If you want to verify Noir on Solana, you won't use Barretenberg at all. You'll need to only use the Groth16 backend by Sunspot."
+> — Cat | Solana Foundation
+
+> "HONK proofs are too large to verify on Solana. Groth16 proofs are faster and cheaper to verify."
+> — Cat | Solana Foundation
+
+**Key Technical Constraints:**
+
+| Constraint | Requirement | Reason |
+|------------|-------------|--------|
+| **Proof Backend** | Sunspot Groth16 ONLY | Barretenberg/HONK proofs too large for Solana |
+| **Proof Size** | 388 bytes (Groth16) | HONK proofs are 10-100x larger |
+| **Verifier** | gnark-solana (via Sunspot) | Only verifier compatible with Solana CU limits |
+| **WASM Backend** | NOT compatible | WASM `makeProof` output does NOT match Sunspot format |
+| **Compute Units** | ~200K CU for verification | Must fit within Solana transaction limits |
+
+**DO NOT:**
+- Use `backend_barretenberg` for proof generation
+- Use WASM-generated proofs directly on-chain
+- Assume byte-for-byte compatibility between backends
+- Skip verification due to proof size issues
+
+**Sunspot Workflow:**
+```bash
+sunspot compile circuits/eligibility/  # Generate Solana verifier from Noir circuit
+sunspot setup                          # Generate proving/verification keys
+sunspot deploy                         # Deploy verifier program to Solana
+```
+
+**Reference:** https://github.com/zk-nalloc/zk-nalloc (research on ZK constraints)
+
+### Additional Cryptographic Requirements
 - **Noir version lock:** 1.0.0-beta.13 (Sunspot compatibility)
 - **ZK hash function:** Poseidon (ZK-friendly)
 
@@ -320,9 +375,11 @@ The Arcium MPC integration is now fully wired up and deployed to devnet. This en
 | `programs/confidex_dex/src/cpi/arcium.rs` | CPI infrastructure, program IDs, queue functions (spot + perps) |
 | `programs/confidex_dex/src/instructions/mpc_callback.rs` | Callback receivers for MPC results |
 | `programs/confidex_dex/src/instructions/match_orders.rs` | Spot order matching with async MPC flow |
-| `programs/confidex_dex/src/instructions/perp_open_position.rs` | Perp position opening with MPC threshold verification |
+| `programs/confidex_dex/src/instructions/perp_open_position.rs` | Perp position opening with encrypted thresholds |
 | `programs/confidex_dex/src/instructions/perp_close_position.rs` | Perp close with MPC PnL/funding calculation |
-| `programs/confidex_dex/src/instructions/perp_liquidate.rs` | Liquidation with MPC eligibility check |
+| `programs/confidex_dex/src/instructions/perp_liquidate.rs` | Liquidation with MPC batch verification |
+| `programs/confidex_dex/src/instructions/check_liquidation_batch.rs` | **NEW:** Batch liquidation check via MPC |
+| `programs/confidex_dex/src/state/position.rs` | Position struct with encrypted thresholds, hash-based IDs |
 | `programs/confidex_dex/src/state/pending_match.rs` | PendingMatch account for tracking computations |
 | `programs/arcium_mxe/src/instructions/callback.rs` | MXE callback handler with CPI to DEX |
 | `frontend/src/hooks/use-encryption.ts` | Client-side RescueCipher encryption |
@@ -343,8 +400,9 @@ The Arcium MPC integration is now fully wired up and deployed to devnet. This en
 
 | Operation | Input | Output | Use Case |
 |-----------|-------|--------|----------|
-| `VerifyPositionParams` | encrypted collateral/size/entry + claimed threshold | bool (valid) | Open position - verify liquidation threshold |
-| `CheckLiquidation` | encrypted collateral/size/entry + mark price | bool (liquidate) | Liquidation eligibility check |
+| `VerifyPositionParams` | encrypted entry + leverage/mm_bps | bool (valid) | Open position - verify encrypted threshold |
+| `BatchLiquidationCheck` | up to 10 encrypted thresholds + mark price | bool[10] | **NEW:** Batch liquidation eligibility |
+| `CheckLiquidation` | encrypted collateral/size/entry + mark price | bool (liquidate) | Single position liquidation check |
 | `CalculatePnL` | encrypted size/entry + exit price | u64 + is_loss bool | Close position / liquidation PnL |
 | `CalculateFunding` | encrypted size + funding rate/delta | u64 + is_paying bool | Position funding settlement |
 
@@ -405,7 +463,7 @@ onPriceCompareComplete((event) => {
 
 ### Current State (January 2026)
 
-Confidex implements a **hybrid privacy model** that provides meaningful privacy guarantees while working within current infrastructure limitations.
+Confidex implements a **full privacy model** for perpetuals with V2 pure ciphertext encryption. The key privacy enhancements:
 
 #### What's Implemented
 
@@ -414,65 +472,138 @@ Confidex implements a **hybrid privacy model** that provides meaningful privacy 
 | **ZK Eligibility Proofs** | ✅ Live | Full privacy - blacklist membership proven without revealing address |
 | **RescueCipher Encryption** | ✅ Live | Order values encrypted with X25519 + Arcium cipher |
 | **MPC Price Comparison** | ✅ Live | Encrypted price matching via Arcium Cerberus protocol |
+| **Encrypted Liquidation Thresholds** | ✅ Live | Prevents entry price reverse-engineering |
+| **Hash-Based Position IDs** | ✅ Live | Prevents activity correlation via sequential IDs |
+| **Coarse Timestamps** | ✅ Live | Hour precision reduces temporal correlation |
+| **MPC Batch Liquidation Checks** | ✅ Live | Efficient batch verification (up to 10 positions) |
 | **Automated Crank Service** | ✅ Live | Backend service auto-matches orders on devnet |
 | **Async MPC Flow** | ✅ Live | Production callback-based MPC execution |
+| **SPL Token Collateral Transfer** | ✅ Live | Real USDC moved to vault (C-SPL fallback) |
 
-#### Current Encryption Format (Hybrid)
+#### Recent Deployment (January 20, 2026)
+
+**Deploy TX:** `5R4vHzBEsVkJBQZLMEBp9aRamZjEpvsbtwyEVGZhF2JvdcRGXWFWMqCdLPJkqxZuckBJr1Voa3Mcnh1WaBXC547p`
+
+**Changes:**
+- Added SPL token transfer for collateral in `open_position` instruction
+- Collateral now actually moves from trader → vault (was TODO before)
+- Temporary fallback until C-SPL SDK available (collateral amount visible on-chain)
+
+**Privacy Analysis (Previous Position TX: `3Hvw9xQmBGseHdoj2bW5wAPPNuLVXQU2Z6V6xPazg75UFJpK3NLmNfYMEfJYdkeLcDrZY4knpPgwBBExUWvWiGkW`):**
+
+| Data Point | Visible On-Chain | Privacy Status |
+|------------|------------------|----------------|
+| Position size | `[u8; 64]` encrypted blob | ✅ Private |
+| Entry price | `[u8; 64]` encrypted blob | ✅ Private |
+| Collateral | `[u8; 64]` encrypted blob | ✅ Private |
+| Liquidation threshold | `[u8; 64]` encrypted blob | ✅ Private |
+| Trader address | `3At42GGyP1aQuTmtr1YuDBzmwfnS2br6W5cLrdWGLVbm` | ⚠️ Public (inherent) |
+| Position side | `Long` | ⚠️ Public (required) |
+| Leverage | `10x` | ⚠️ Public (required) |
+| Collateral amount (fallback) | u64 in instruction data | ⚠️ Public (C-SPL fallback) |
+| Oracle price | `139.817414` | ⚠️ Public (logged) |
+
+**What's Hidden:**
+- Order amounts and prices (64-byte encrypted blobs)
+- Liquidation thresholds (prevents entry price reverse-engineering)
+- Position ID now hash-based (was sequential `#2` in old TX)
+
+**What's Still Visible (by design):**
+- Trader pubkey (inherent to Solana)
+- Side/leverage (needed for funding/risk calculations)
+- Collateral amount (temporary - visible until C-SPL)
+- Oracle price (public market data)
+
+#### V2 Encryption Format (Pure Ciphertext)
 
 ```
-[plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+[nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
 ```
 
-**Why hybrid?** On-chain balance validation requires plaintext amounts until C-SPL encrypted balances are available.
+**No plaintext prefix.** All values are fully encrypted. MPC handles all comparisons and calculations.
 
 | Bytes | Content | Purpose |
 |-------|---------|---------|
-| 0-7 | Plaintext value | On-chain balance validation & escrow |
-| 8-15 | Truncated nonce | MPC decryption |
-| 16-47 | Ciphertext | MPC encrypted price comparison |
+| 0-15 | Nonce | MPC decryption seed |
+| 16-47 | Ciphertext | MPC encrypted value |
 | 48-63 | Ephemeral pubkey | MPC key routing |
 
-#### Privacy Guarantees Today
+#### Privacy Guarantees (Perpetuals)
 
 | Data | Visibility | Rationale |
 |------|------------|-----------|
-| Order amounts | On-chain (visible) | Required for balance validation |
-| Order prices | On-chain (visible) | Required for cost calculation |
-| **Price comparison result** | **MPC (private)** | Matching logic hidden from observers |
-| **Trade execution timing** | **Private** | Cannot predict which orders will match |
+| Position size | **Encrypted (private)** | V2 pure ciphertext |
+| Entry price | **Encrypted (private)** | V2 pure ciphertext |
+| Collateral (encrypted) | **Encrypted (private)** | V2 pure ciphertext |
+| Collateral amount (transfer) | **Public (fallback)** | SPL transfer until C-SPL ready |
+| **Liquidation threshold** | **Encrypted (private)** | **NEW: MPC batch verification** |
+| Position side (long/short) | Public | Required for funding direction |
+| Leverage | Public | Required for risk management |
+| Position ID | Hash-based | **NEW: No sequential correlation** |
+| Timestamps | Hour precision | **NEW: Reduces temporal correlation** |
 | User eligibility | ZK (private) | Blacklist status never revealed |
 
-**Key insight:** Even with visible order values, the MPC price comparison prevents front-running because observers cannot determine which orders will match until after MPC execution.
+**Key privacy improvement:** Liquidation thresholds are now encrypted. Previously, public thresholds ($133) allowed reverse-engineering entry price (~$140) via `entry ≈ threshold / 0.95`.
 
-### Phase 2: Full Order Privacy (C-SPL Dependency)
+#### MPC Batch Liquidation Flow
 
-When C-SPL confidential tokens launch on devnet, we can achieve full order privacy:
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Liquidation    │     │   DEX Program   │     │  Arcium MPC     │
+│     Bot         │     │                 │     │                 │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ 1. Fetch open   │────▶│ 2. Create batch │────▶│ 3. For each:    │
+│    positions    │     │    check request│     │    decrypt(liq) │
+│                 │     │    (up to 10)   │     │    compare(mark)│
+│                 │     │                 │     │                 │
+│ 5. Execute      │◀────│ 4. Callback     │◀────│    Return       │
+│    liquidation  │     │    with results │     │    bool[]       │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
 
-#### Required Changes
+**Efficiency:** 10 positions per MPC call (~500ms total) instead of 10 separate calls (~5s total).
 
-1. **Encrypted Balances**
-   - Replace `UserConfidentialBalance.balance: u64` with `encrypted_balance: [u8; 64]`
-   - Use MPC for balance comparisons: `encrypted_balance >= encrypted_cost`
+#### Position Account Structure (V2)
 
-2. **Pure Ciphertext Format**
-   ```
-   [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
-   ```
-   No plaintext needed - MPC handles all comparisons.
+```rust
+pub struct ConfidentialPosition {
+    // Identity (96 bytes)
+    pub trader: Pubkey,                     // 32 bytes
+    pub market: Pubkey,                     // 32 bytes
+    pub position_id: [u8; 16],              // Hash-based (no sequential leak)
+    pub created_at_hour: i64,               // Hour precision
+    pub last_updated_hour: i64,             // Hour precision
 
-3. **Encrypted Settlement**
-   - C-SPL `confidential_transfer` for order fills
-   - Encrypted fee calculations via MPC
+    // Public parameters
+    pub side: PositionSide,                 // Long/Short (needed for funding)
+    pub leverage: u8,                       // 1-20x
 
-#### Privacy After C-SPL
+    // Encrypted core data (256 bytes)
+    pub encrypted_size: [u8; 64],           // Pure ciphertext
+    pub encrypted_entry_price: [u8; 64],    // Pure ciphertext
+    pub encrypted_collateral: [u8; 64],     // Pure ciphertext
+    pub encrypted_realized_pnl: [u8; 64],   // Pure ciphertext
 
-| Data | Visibility |
-|------|------------|
-| Order amounts | Encrypted (private) |
-| Order prices | Encrypted (private) |
-| User balances | Encrypted (private) |
-| Trade amounts | Encrypted (private) |
-| Eligibility | ZK (private) |
+    // Encrypted liquidation thresholds (128 bytes)
+    pub encrypted_liq_below: [u8; 64],      // For longs - MPC verified
+    pub encrypted_liq_above: [u8; 64],      // For shorts - MPC verified
+    pub threshold_commitment: [u8; 32],     // hash(entry, leverage, mm_bps, side)
+
+    // ... status fields
+}
+// Total SIZE: 561 bytes
+```
+
+### Phase 2: Encrypted Open Interest (Future)
+
+Open interest is still public. Encrypting OI would prevent funding rate prediction:
+
+| Current | Future |
+|---------|--------|
+| `total_long_open_interest: u64` | `encrypted_long_oi: [u8; 64]` |
+| `total_short_open_interest: u64` | `encrypted_short_oi: [u8; 64]` |
+
+**Requires:** MPC funding rate calculation from encrypted OI.
 
 ### Phase 3: Production Hardening
 
@@ -491,30 +622,23 @@ When C-SPL confidential tokens launch on devnet, we can achieve full order priva
    - Fallback: ShadowWire for anonymous withdrawals
    - Inco Lightning as alternative TEE option
 
-### Architecture Evolution
+### Architecture (Current V2)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         CURRENT (Hybrid Privacy)                        │
+│                    CURRENT (V2 - Full Perpetuals Privacy)               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  User                    On-Chain                    MPC                │
 │  ────                    ────────                    ───                │
 │  ZK proof ───────────────► Verify eligibility                           │
-│  Plaintext amount ───────► Balance check/escrow                         │
-│  Ciphertext ─────────────► Store ──────────────────► Price comparison   │
-│                                                      (encrypted)        │
-└─────────────────────────────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         FUTURE (Full Privacy with C-SPL)                │
-├─────────────────────────────────────────────────────────────────────────┤
-│  User                    On-Chain                    MPC                │
-│  ────                    ────────                    ───                │
-│  ZK proof ───────────────► Verify eligibility                           │
-│  Ciphertext only ────────► Store ──────────────────► Balance check      │
-│                                  ──────────────────► Price comparison   │
-│                                  ──────────────────► Settlement calc    │
-│                          C-SPL transfer ◄──────────── Fill amounts      │
+│  Encrypted values ───────► Store encrypted ─────────► Threshold verify  │
+│  Position nonce ─────────► Hash-based ID                                │
+│                          Coarse timestamps                              │
+│                                                                         │
+│  Liquidation flow:       Batch request ────────────► Compare encrypted  │
+│                          (up to 10)                   liq thresholds    │
+│                          ◄─────────────────────────── bool[] results    │
+│                          Execute if result[i]=true                      │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 

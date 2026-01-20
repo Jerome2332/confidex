@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::hash::hash;
 
 /// Position side (long or short)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -16,12 +17,14 @@ pub enum PositionStatus {
     Closed,
     Liquidated,
     AutoDeleveraged,
+    /// Pending MPC verification of liquidation eligibility
+    PendingLiquidationCheck,
 }
 
 /// Confidential perpetual position account
 /// Core position data (size, entry price, collateral, PnL) is encrypted via Arcium
-/// Liquidation thresholds are PUBLIC to enable liquidation without revealing position details
-/// Size: 8 (discriminator) + 425 = 433 bytes
+/// Liquidation thresholds are now ENCRYPTED for full privacy
+/// Size: 8 (discriminator) + 553 = 561 bytes
 #[account]
 pub struct ConfidentialPosition {
     /// Position owner's public key
@@ -30,14 +33,16 @@ pub struct ConfidentialPosition {
     /// Perpetual market this position belongs to
     pub market: Pubkey,
 
-    /// Sequential position ID
-    pub position_id: u64,
+    /// Hash-based position ID (derived from trader + market + nonce)
+    /// Prevents activity correlation via sequential IDs
+    pub position_id: [u8; 16],
 
-    /// Unix timestamp when position was opened
-    pub created_at: i64,
+    /// Coarse timestamp when position was opened (hour precision)
+    /// Reduces temporal correlation attacks
+    pub created_at_hour: i64,
 
-    /// Unix timestamp of last update
-    pub last_updated: i64,
+    /// Coarse timestamp of last update (hour precision)
+    pub last_updated_hour: i64,
 
     /// Position side (PUBLIC: needed for funding direction)
     pub side: PositionSide,
@@ -59,18 +64,22 @@ pub struct ConfidentialPosition {
     /// Encrypted accumulated realized PnL (64 bytes via Arcium)
     pub encrypted_realized_pnl: [u8; 64],
 
-    // === PUBLIC LIQUIDATION THRESHOLDS ===
-    // These MUST be public for the liquidation engine to work
-    // They are verified by MPC to match the encrypted position data
+    // === ENCRYPTED LIQUIDATION THRESHOLDS (128 bytes) ===
+    // These are now ENCRYPTED for full privacy
+    // Liquidation eligibility is verified via MPC batch checks
 
-    /// Mark price below which longs can be liquidated (in quote decimals)
-    pub liquidatable_below_price: u64,
+    /// Encrypted mark price below which longs can be liquidated (64 bytes via Arcium)
+    pub encrypted_liq_below: [u8; 64],
 
-    /// Mark price above which shorts can be liquidated (in quote decimals)
-    pub liquidatable_above_price: u64,
+    /// Encrypted mark price above which shorts can be liquidated (64 bytes via Arcium)
+    pub encrypted_liq_above: [u8; 64],
 
-    /// Unix timestamp of last threshold update
-    pub last_threshold_update: i64,
+    /// Commitment hash for threshold verification: hash(entry_price || leverage || mm_bps || side)
+    /// Used to verify threshold wasn't tampered with
+    pub threshold_commitment: [u8; 32],
+
+    /// Coarse timestamp of last threshold update (hour precision)
+    pub last_threshold_update_hour: i64,
 
     /// Whether MPC has verified the threshold matches position data
     pub threshold_verified: bool,
@@ -98,8 +107,8 @@ pub struct ConfidentialPosition {
 
     // === MARGIN MANAGEMENT ===
 
-    /// Unix timestamp of last margin addition
-    pub last_margin_add: i64,
+    /// Coarse timestamp of last margin addition (hour precision)
+    pub last_margin_add_hour: i64,
 
     /// Number of times margin has been added
     pub margin_add_count: u8,
@@ -112,71 +121,148 @@ impl ConfidentialPosition {
     pub const SIZE: usize = 8 +   // discriminator
         32 +  // trader
         32 +  // market
-        8 +   // position_id
-        8 +   // created_at
-        8 +   // last_updated
+        16 +  // position_id (hash-based)
+        8 +   // created_at_hour
+        8 +   // last_updated_hour
         1 +   // side
         1 +   // leverage
         64 +  // encrypted_size
         64 +  // encrypted_entry_price
         64 +  // encrypted_collateral
         64 +  // encrypted_realized_pnl
-        8 +   // liquidatable_below_price
-        8 +   // liquidatable_above_price
-        8 +   // last_threshold_update
+        64 +  // encrypted_liq_below
+        64 +  // encrypted_liq_above
+        32 +  // threshold_commitment
+        8 +   // last_threshold_update_hour
         1 +   // threshold_verified
         16 +  // entry_cumulative_funding (i128)
         1 +   // status
         1 +   // eligibility_proof_verified
         1 +   // partial_close_count
         8 +   // auto_deleverage_priority
-        8 +   // last_margin_add
+        8 +   // last_margin_add_hour
         1 +   // margin_add_count
         1;    // bump
-    // Total: 433 bytes
+    // Total: 561 bytes
 
     pub const SEED: &'static [u8] = b"position";
+
+    /// Generate a hash-based position ID from trader, market, and nonce
+    /// Uses fixed-size array to avoid heap allocation
+    pub fn generate_position_id(trader: &Pubkey, market: &Pubkey, nonce: &[u8; 8]) -> [u8; 16] {
+        // Use fixed-size array (72 bytes) to avoid Vec allocation
+        let mut data = [0u8; 72];
+        data[..32].copy_from_slice(trader.as_ref());
+        data[32..64].copy_from_slice(market.as_ref());
+        data[64..72].copy_from_slice(nonce);
+        let hash_result = hash(&data);
+        let mut id = [0u8; 16];
+        id.copy_from_slice(&hash_result.as_ref()[..16]);
+        id
+    }
+
+    /// Generate threshold commitment: hash(entry_price_bytes || leverage || mm_bps || side)
+    /// Uses fixed-size array to avoid heap allocation
+    pub fn compute_threshold_commitment(
+        encrypted_entry_price: &[u8; 64],
+        leverage: u8,
+        maintenance_margin_bps: u16,
+        is_long: bool,
+    ) -> [u8; 32] {
+        // Use fixed-size array (68 bytes) to avoid Vec allocation
+        let mut data = [0u8; 68];
+        data[..64].copy_from_slice(encrypted_entry_price);
+        data[64] = leverage;
+        data[65..67].copy_from_slice(&maintenance_margin_bps.to_le_bytes());
+        data[67] = if is_long { 1 } else { 0 };
+        hash(&data).to_bytes()
+    }
+
+    /// Coarsen a timestamp to hour precision (privacy enhancement)
+    pub fn coarse_timestamp(timestamp: i64) -> i64 {
+        // Floor to nearest hour (3600 seconds)
+        (timestamp / 3600) * 3600
+    }
 
     /// Check if position is open and can be modified
     pub fn is_open(&self) -> bool {
         matches!(self.status, PositionStatus::Open)
     }
 
-    /// Check if position can be liquidated based on mark price
-    /// This is a PUBLIC check using public liquidation thresholds
-    pub fn is_liquidatable(&self, mark_price: u64) -> bool {
-        if !self.is_open() || !self.threshold_verified {
-            return false;
-        }
-
-        match self.side {
-            PositionSide::Long => mark_price <= self.liquidatable_below_price,
-            PositionSide::Short => mark_price >= self.liquidatable_above_price,
-        }
+    /// Check if position is pending liquidation verification
+    pub fn is_pending_liquidation_check(&self) -> bool {
+        matches!(self.status, PositionStatus::PendingLiquidationCheck)
     }
 
-    /// Check if position is at risk (approaching liquidation)
-    /// Returns true if price is within 10% of liquidation threshold
-    pub fn is_at_risk(&self, mark_price: u64) -> bool {
-        if !self.is_open() || !self.threshold_verified {
-            return false;
-        }
-
-        match self.side {
-            PositionSide::Long => {
-                // At risk if price is within 10% above liquidation price
-                let risk_threshold = self.liquidatable_below_price
-                    .saturating_mul(110)
-                    .saturating_div(100);
-                mark_price <= risk_threshold
-            }
-            PositionSide::Short => {
-                // At risk if price is within 10% below liquidation price
-                let risk_threshold = self.liquidatable_above_price
-                    .saturating_mul(90)
-                    .saturating_div(100);
-                mark_price >= risk_threshold
-            }
-        }
+    /// Check if position can potentially be liquidated
+    /// With encrypted thresholds, this only checks basic eligibility
+    /// Actual liquidation requires MPC verification
+    pub fn can_be_liquidation_checked(&self) -> bool {
+        self.is_open() && self.threshold_verified
     }
+
+    /// Verify threshold commitment matches stored commitment
+    pub fn verify_threshold_commitment(
+        &self,
+        leverage: u8,
+        maintenance_margin_bps: u16,
+        is_long: bool,
+    ) -> bool {
+        let expected = Self::compute_threshold_commitment(
+            &self.encrypted_entry_price,
+            leverage,
+            maintenance_margin_bps,
+            is_long,
+        );
+        self.threshold_commitment == expected
+    }
+}
+
+/// Batch liquidation check request account
+/// Used to queue multiple positions for MPC liquidation eligibility check
+#[account]
+pub struct LiquidationBatchRequest {
+    /// Request ID for MPC tracking
+    pub request_id: [u8; 32],
+
+    /// Market for all positions in this batch
+    pub market: Pubkey,
+
+    /// Current mark price (public oracle price)
+    pub mark_price: u64,
+
+    /// Number of positions in this batch
+    pub position_count: u8,
+
+    /// Position pubkeys being checked (up to 10)
+    pub positions: [[u8; 32]; 10],
+
+    /// Results from MPC (filled by callback): true = liquidatable
+    pub results: [bool; 10],
+
+    /// Whether MPC has returned results
+    pub completed: bool,
+
+    /// Unix timestamp when batch was created
+    pub created_at: i64,
+
+    /// PDA bump seed
+    pub bump: u8,
+}
+
+impl LiquidationBatchRequest {
+    pub const SIZE: usize = 8 +   // discriminator
+        32 +  // request_id
+        32 +  // market
+        8 +   // mark_price
+        1 +   // position_count
+        320 + // positions (32 * 10)
+        10 +  // results (10 bools)
+        1 +   // completed
+        8 +   // created_at
+        1;    // bump
+    // Total: 421 bytes
+
+    pub const SEED: &'static [u8] = b"liq_batch";
+    pub const MAX_POSITIONS: usize = 10;
 }

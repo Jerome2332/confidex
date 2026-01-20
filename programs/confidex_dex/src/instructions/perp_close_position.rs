@@ -4,11 +4,8 @@ use crate::cpi::arcium::{
     calculate_pnl_sync, calculate_funding_sync, add_encrypted, sub_encrypted, EncryptedU64
 };
 use crate::error::ConfidexError;
-use crate::oracle::{get_sol_usd_price, validate_price_deviation};
+use crate::oracle::get_sol_usd_price;
 use crate::state::{ConfidentialPosition, PerpetualMarket, PositionSide, PositionStatus};
-
-/// Maximum allowed deviation between user exit price and oracle price (1% = 100 bps)
-const MAX_EXIT_PRICE_DEVIATION_BPS: u16 = 100;
 
 #[derive(Accounts)]
 pub struct ClosePosition<'info> {
@@ -25,7 +22,7 @@ pub struct ClosePosition<'info> {
             ConfidentialPosition::SEED,
             trader.key().as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id.to_le_bytes()
+            &position.position_id
         ],
         bump = position.bump,
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
@@ -91,28 +88,16 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
     let funding_delta = current_cumulative_funding
         .saturating_sub(position.entry_cumulative_funding);
 
-    // === ORACLE PRICE VALIDATION ===
+    // === ORACLE PRICE FOR PNL ===
     let is_long = matches!(position.side, PositionSide::Long);
 
     // Fetch current oracle price for SOL/USD
     let oracle_price = get_sol_usd_price(&ctx.accounts.oracle)?;
-    msg!("Oracle SOL/USD price: {} (6 decimals)", oracle_price);
 
-    // Get user-provided exit price from encrypted params (plaintext is in first 8 bytes)
-    let user_exit_price = u64::from_le_bytes(
-        params.encrypted_exit_price[0..8].try_into().unwrap_or([0u8; 8])
-    );
-
-    // Validate user exit price is within acceptable deviation from oracle
-    let price_valid = validate_price_deviation(
-        user_exit_price,
-        oracle_price,
-        MAX_EXIT_PRICE_DEVIATION_BPS,
-    )?;
-
-    require!(price_valid, ConfidexError::InvalidOraclePrice);
-
-    // Use oracle price for PnL calculation (more reliable than user-provided)
+    // PURE CIPHERTEXT FORMAT (V2):
+    // We cannot extract exit price from encrypted params anymore.
+    // Use oracle price directly for PnL calculation via MPC.
+    // The MPC will compute PnL using the encrypted entry price and public oracle price.
     let exit_price = oracle_price;
 
     // 1. Calculate PnL via MPC
@@ -126,8 +111,9 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
         is_long,
     )?;
 
+    #[cfg(feature = "debug")]
     msg!(
-        "MPC calculated PnL: is_profit={}, position={}",
+        "MPC calculated PnL: is_profit={}, position={:?}",
         is_profit,
         position.position_id
     );
@@ -141,8 +127,9 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
         is_long,
     )?;
 
+    #[cfg(feature = "debug")]
     msg!(
-        "MPC calculated funding: is_receiving={}, position={}",
+        "MPC calculated funding: is_receiving={}, position={:?}",
         is_receiving_funding,
         position.position_id
     );
@@ -183,7 +170,7 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
         // For now, we just decrement position count
 
         msg!(
-            "Position fully closed: {} #{} on market {}",
+            "Position fully closed: {} #{:?} on market {}",
             position.trader,
             position.position_id,
             perp_market.key()
@@ -215,7 +202,7 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
         position.threshold_verified = false;
 
         msg!(
-            "Position partially closed: {} #{} on market {} (close #{})",
+            "Position partially closed: {} #{:?} on market {} (close #{})",
             position.trader,
             position.position_id,
             perp_market.key(),
@@ -223,7 +210,7 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
         );
     }
 
-    position.last_updated = clock.unix_timestamp;
+    position.last_updated_hour = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
 
     Ok(())
 }

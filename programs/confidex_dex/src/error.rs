@@ -132,4 +132,13 @@ pub enum ConfidexError {
 
     #[msg("Position is not liquidatable at current price")]
     NotLiquidatable,
+
+    #[msg("Invalid token mint")]
+    InvalidMint,
+
+    #[msg("Invalid account owner")]
+    InvalidOwner,
+
+    #[msg("Invalid collateral amount")]
+    InvalidCollateral,
 }

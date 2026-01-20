@@ -34,6 +34,7 @@ const EXCHANGE_SEED = Buffer.from('exchange');
 const PAIR_SEED = Buffer.from('pair');
 const ORDER_SEED = Buffer.from('order');
 const USER_BALANCE_SEED = Buffer.from('user_balance');
+const TRADER_ELIGIBILITY_SEED = Buffer.from('trader_eligibility');
 const MPC_REQUEST_SEED = Buffer.from('mpc_request');
 const COMPUTATION_SEED = Buffer.from('computation');
 const MXE_CONFIG_SEED_BUF = Buffer.from('mxe_config');
@@ -74,6 +75,17 @@ export enum OrderType {
  */
 export function deriveExchangePda(): [PublicKey, number] {
   return PublicKey.findProgramAddressSync([EXCHANGE_SEED], CONFIDEX_PROGRAM_ID);
+}
+
+/**
+ * Derive Trader Eligibility PDA
+ * Seeds: ["trader_eligibility", trader_pubkey]
+ */
+export function deriveTraderEligibilityPda(trader: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [TRADER_ELIGIBILITY_SEED, trader.toBuffer()],
+    CONFIDEX_PROGRAM_ID
+  );
 }
 
 /**
@@ -981,8 +993,105 @@ export function calculateLiquidationPrice(
   }
 }
 
-// Discriminator for open_position instruction
-const OPEN_POSITION_DISCRIMINATOR = new Uint8Array([0x87, 0x80, 0x15, 0x0e, 0x51, 0x7d, 0x83, 0x07]);
+// Discriminator for open_position instruction (sha256("global:open_position")[0..8])
+const OPEN_POSITION_DISCRIMINATOR = new Uint8Array([0x87, 0x80, 0x2f, 0x4d, 0x0f, 0x98, 0xf0, 0x31]);
+
+// Discriminator for verify_eligibility instruction (sha256("global:verify_eligibility")[0..8])
+const VERIFY_ELIGIBILITY_DISCRIMINATOR = new Uint8Array([0xa5, 0x0a, 0x92, 0xdd, 0x07, 0xf4, 0xef, 0x14]);
+
+/**
+ * Parameters for verify_eligibility instruction
+ */
+export interface VerifyEligibilityParams {
+  connection: Connection;
+  trader: PublicKey;
+  eligibilityProof: Uint8Array;  // 324 bytes - Groth16 ZK proof
+}
+
+/**
+ * Build verify_eligibility transaction
+ * This must be called BEFORE open_position to verify ZK proof of blacklist non-membership
+ *
+ * Account order (from verify_eligibility.rs):
+ * 1. exchange (read) - contains blacklist root
+ * 2. eligibility (init_if_needed, mut) - stores verification result
+ * 3. verifier_program (read) - Sunspot ZK verifier
+ * 4. trader (signer, mut) - pays for account creation
+ * 5. system_program (read)
+ */
+export async function buildVerifyEligibilityTransaction(
+  params: VerifyEligibilityParams
+): Promise<Transaction> {
+  const { connection, trader, eligibilityProof } = params;
+
+  log.debug('Building verify_eligibility transaction...');
+  log.debug('  Trader:', { trader: trader.toString() });
+  log.debug('  Proof size:', { size: eligibilityProof.length });
+
+  // Derive PDAs
+  const [exchangePda] = deriveExchangePda();
+  const [eligibilityPda] = deriveTraderEligibilityPda(trader);
+
+  log.debug('PDAs derived:', {
+    exchange: exchangePda.toString(),
+    eligibility: eligibilityPda.toString(),
+  });
+
+  // Build instruction data
+  // Layout: discriminator(8) + eligibility_proof(324)
+  const dataSize = 8 + 324;
+  const instructionData = Buffer.alloc(dataSize);
+  let offset = 0;
+
+  // Discriminator
+  Buffer.from(VERIFY_ELIGIBILITY_DISCRIMINATOR).copy(instructionData, offset);
+  offset += 8;
+
+  // Eligibility proof (324 bytes for Groth16)
+  const proofPadded = Buffer.alloc(324);
+  Buffer.from(eligibilityProof.slice(0, Math.min(324, eligibilityProof.length))).copy(proofPadded);
+  proofPadded.copy(instructionData, offset);
+
+  const instruction = new TransactionInstruction({
+    keys: [
+      { pubkey: exchangePda, isSigner: false, isWritable: false },
+      { pubkey: eligibilityPda, isSigner: false, isWritable: true },
+      { pubkey: VERIFIER_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: trader, isSigner: true, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    programId: CONFIDEX_PROGRAM_ID,
+    data: instructionData,
+  });
+
+  const transaction = new Transaction();
+  transaction.add(instruction);
+
+  log.debug('Verify eligibility transaction built', { accounts: 5 });
+
+  return transaction;
+}
+
+/**
+ * Check if trader has valid eligibility on-chain
+ */
+export async function checkTraderEligibility(
+  connection: Connection,
+  trader: PublicKey
+): Promise<{ isVerified: boolean; eligibilityPda: PublicKey }> {
+  const [eligibilityPda] = deriveTraderEligibilityPda(trader);
+  const accountInfo = await connection.getAccountInfo(eligibilityPda);
+
+  if (!accountInfo) {
+    return { isVerified: false, eligibilityPda };
+  }
+
+  // Parse TraderEligibility account
+  // Layout: discriminator(8) + trader(32) + is_verified(1) + verified_blacklist_root(32) + ...
+  const isVerified = accountInfo.data[8 + 32] === 1;
+
+  return { isVerified, eligibilityPda };
+}
 
 export interface OpenPositionParams {
   connection: Connection;
@@ -991,11 +1100,15 @@ export interface OpenPositionParams {
   quoteMint: PublicKey;       // USDC mint
   side: PositionSide;
   leverage: number;
-  encryptedSize: Uint8Array;
-  encryptedCollateral: Uint8Array;
-  encryptedEntryPrice: Uint8Array;
-  liquidationThreshold: bigint;
-  eligibilityProof: Uint8Array;
+  encryptedSize: Uint8Array;           // 64 bytes - encrypted position size
+  encryptedEntryPrice: Uint8Array;     // 64 bytes - encrypted entry price
+  positionNonce: Uint8Array;           // 8 bytes - nonce for hash-based position ID
+  collateralAmount: bigint;            // Plaintext collateral for SPL transfer (USDC with 6 decimals)
+                                       // NOTE: Temporary fallback until C-SPL SDK available
+  // REMOVED in V3 (two-instruction pattern):
+  // - encryptedCollateral: derived from collateralAmount on-chain
+  // - encryptedLiqThreshold: computed by MPC from entry_price + leverage
+  // - eligibilityProof: verified separately via verify_eligibility instruction
 }
 
 /**
@@ -1048,16 +1161,22 @@ export async function fetchPerpMarketData(
 /**
  * Build open_position transaction for perpetuals
  *
- * Account order (from perp_open_position.rs):
- * 1. perp_market (mut)
- * 2. funding_state (read)
- * 3. position (init, mut)
- * 4. oracle (read)
- * 5. trader_collateral_account (mut)
- * 6. collateral_vault (mut)
- * 7. trader (signer, mut)
- * 8. arcium_program (read)
- * 9. system_program (read)
+ * V3 Account order (from perp_open_position.rs - two-instruction pattern):
+ * 1. exchange (read) - for blacklist root validation
+ * 2. eligibility (read) - trader's ZK eligibility (must be verified via verify_eligibility first)
+ * 3. perp_market (mut)
+ * 4. funding_state (read)
+ * 5. position (init, mut)
+ * 6. oracle (read)
+ * 7. trader_collateral_account (mut) - trader's USDC ATA
+ * 8. collateral_vault (mut) - market's collateral vault
+ * 9. trader (signer, mut)
+ * 10. arcium_program (read)
+ * 11. token_program (read) - SPL Token program for collateral transfer
+ * 12. system_program (read)
+ *
+ * NOTE: ZK eligibility proof is verified separately via verify_eligibility instruction.
+ * The trader must have a valid TraderEligibility account before calling open_position.
  */
 export async function buildOpenPositionTransaction(
   params: OpenPositionParams
@@ -1070,15 +1189,17 @@ export async function buildOpenPositionTransaction(
     side,
     leverage,
     encryptedSize,
-    encryptedCollateral,
     encryptedEntryPrice,
-    liquidationThreshold,
-    eligibilityProof,
+    positionNonce,
+    collateralAmount,
   } = params;
 
-  log.debug('Building open_position transaction...');
+  log.debug('Building open_position transaction (V3 - two-instruction pattern)...');
+  log.debug('  Trader:', { trader: trader.toString() });
+  log.debug('  Quote mint (USDC):', { quoteMint: quoteMint.toString() });
   log.debug('  Side:', { side: side === PositionSide.Long ? 'Long' : 'Short' });
   log.debug('  Leverage:', { leverage });
+  log.debug('  Collateral amount (USDC micros):', { collateralAmount: collateralAmount.toString() });
 
   // Fetch market data to get position count and oracle
   const marketData = await fetchPerpMarketData(connection, underlyingMint);
@@ -1087,14 +1208,60 @@ export async function buildOpenPositionTransaction(
   }
 
   // Derive PDAs
+  const [exchangePda] = deriveExchangePda();
+  const [eligibilityPda] = deriveTraderEligibilityPda(trader);
   const [perpMarketPda] = derivePerpMarketPda(underlyingMint);
   const [fundingStatePda] = deriveFundingPda(perpMarketPda);
   const [positionPda] = derivePositionPda(trader, perpMarketPda, marketData.positionCount);
 
+  // Check if trader has verified eligibility
+  const eligibilityInfo = await connection.getAccountInfo(eligibilityPda);
+  if (!eligibilityInfo) {
+    throw new Error(
+      `Trader eligibility not verified. Please call verify_eligibility first with a valid ZK proof. ` +
+      `Eligibility PDA: ${eligibilityPda.toString()}`
+    );
+  }
+
   // Get trader's collateral ATA (USDC)
   const traderCollateralAta = await getAssociatedTokenAddress(quoteMint, trader);
 
+  // Check if trader has the USDC ATA and sufficient balance
+  const traderAtaInfo = await connection.getAccountInfo(traderCollateralAta);
+  if (!traderAtaInfo) {
+    throw new Error(
+      `No USDC token account found at ${traderCollateralAta.toString()}. ` +
+      `Please get devnet USDC from a faucet first. ` +
+      `Required: ${Number(collateralAmount) / 1e6} USDC for collateral.`
+    );
+  }
+
+  // Check token balance
+  try {
+    const tokenBalance = await connection.getTokenAccountBalance(traderCollateralAta);
+    const balanceMicros = BigInt(tokenBalance.value.amount);
+    log.debug('Trader USDC balance:', {
+      ata: traderCollateralAta.toString(),
+      balance: tokenBalance.value.uiAmountString,
+      required: (Number(collateralAmount) / 1e6).toFixed(2),
+    });
+
+    if (balanceMicros < collateralAmount) {
+      throw new Error(
+        `Insufficient USDC balance. Have: ${tokenBalance.value.uiAmountString} USDC, ` +
+        `Need: ${(Number(collateralAmount) / 1e6).toFixed(2)} USDC for collateral.`
+      );
+    }
+  } catch (balanceError) {
+    if (balanceError instanceof Error && balanceError.message.includes('Insufficient')) {
+      throw balanceError;
+    }
+    log.warn('Could not verify token balance', { error: balanceError });
+  }
+
   log.debug('PDAs derived:', {
+    exchange: exchangePda.toString(),
+    eligibility: eligibilityPda.toString(),
     perpMarket: perpMarketPda.toString(),
     fundingState: fundingStatePda.toString(),
     position: positionPda.toString(),
@@ -1102,10 +1269,10 @@ export async function buildOpenPositionTransaction(
   });
 
   // Build instruction data
-  // Layout: discriminator(8) + OpenPositionParams serialization
-  // OpenPositionParams: side(1) + leverage(1) + encrypted_size(64) + encrypted_collateral(64) +
-  //                     encrypted_entry_price(64) + liquidation_threshold(8) + eligibility_proof(388)
-  const dataSize = 8 + 1 + 1 + 64 + 64 + 64 + 8 + 388;
+  // V3 Layout: discriminator(8) + side(1) + leverage(1) + collateral_amount(8) + position_nonce(8) +
+  //            encrypted_size(64) + encrypted_entry_price(64)
+  // Total: 8 + 1 + 1 + 8 + 8 + 64 + 64 = 154 bytes
+  const dataSize = 8 + 1 + 1 + 8 + 8 + 64 + 64;
   const instructionData = Buffer.alloc(dataSize);
   let offset = 0;
 
@@ -1121,33 +1288,31 @@ export async function buildOpenPositionTransaction(
   instructionData.writeUInt8(leverage, offset);
   offset += 1;
 
+  // Collateral amount (u64) - plaintext for SPL transfer fallback
+  instructionData.writeBigUInt64LE(collateralAmount, offset);
+  offset += 8;
+
+  // Position nonce (8 bytes) - for hash-based position ID (anti-correlation)
+  Buffer.from(positionNonce).copy(instructionData, offset);
+  offset += 8;
+
   // Encrypted size (64 bytes)
   Buffer.from(encryptedSize).copy(instructionData, offset);
   offset += 64;
 
-  // Encrypted collateral (64 bytes)
-  Buffer.from(encryptedCollateral).copy(instructionData, offset);
-  offset += 64;
-
   // Encrypted entry price (64 bytes)
   Buffer.from(encryptedEntryPrice).copy(instructionData, offset);
-  offset += 64;
-
-  // Liquidation threshold (u64)
-  instructionData.writeBigUInt64LE(liquidationThreshold, offset);
-  offset += 8;
-
-  // Eligibility proof (388 bytes for Groth16)
-  // Note: Actual Groth16 proof is 324 bytes, but instruction expects 388 for future expansion
-  const proofPadded = Buffer.alloc(388);
-  Buffer.from(eligibilityProof.slice(0, Math.min(388, eligibilityProof.length))).copy(proofPadded);
-  proofPadded.copy(instructionData, offset);
 
   // Arcium program ID for MPC verification
   const arciumProgramId = new PublicKey('Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ');
 
+  // SPL Token program for collateral transfer
+  const tokenProgramId = new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA');
+
   const instruction = new TransactionInstruction({
     keys: [
+      { pubkey: exchangePda, isSigner: false, isWritable: false },
+      { pubkey: eligibilityPda, isSigner: false, isWritable: false },
       { pubkey: perpMarketPda, isSigner: false, isWritable: true },
       { pubkey: fundingStatePda, isSigner: false, isWritable: false },
       { pubkey: positionPda, isSigner: false, isWritable: true },
@@ -1156,6 +1321,7 @@ export async function buildOpenPositionTransaction(
       { pubkey: marketData.collateralVault, isSigner: false, isWritable: true },
       { pubkey: trader, isSigner: true, isWritable: true },
       { pubkey: arciumProgramId, isSigner: false, isWritable: false },
+      { pubkey: tokenProgramId, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: CONFIDEX_PROGRAM_ID,
@@ -1165,7 +1331,7 @@ export async function buildOpenPositionTransaction(
   const transaction = new Transaction();
   transaction.add(instruction);
 
-  log.debug('Open position transaction built', { accounts: 9 });
+  log.debug('Open position transaction built (V3)', { accounts: 12 });
 
   return transaction;
 }
@@ -1823,4 +1989,296 @@ export function createHybridEncryptedValue(value: bigint): Uint8Array {
   encrypted.set(valueBuf, 0);
   // Rest is zeros for now (would be filled by Arcium encryption in production)
   return encrypted;
+}
+
+// ============================================================================
+// POSITION FETCHING (V2 - Full Privacy Model)
+// ============================================================================
+
+/**
+ * Position status enum (matching on-chain Rust enum)
+ */
+export enum PositionStatusEnum {
+  Open = 0,
+  Closed = 1,
+  Liquidated = 2,
+  AutoDeleveraged = 3,
+  PendingLiquidationCheck = 4,
+}
+
+/**
+ * ConfidentialPosition account layout (561 bytes total)
+ * V2 with encrypted liquidation thresholds
+ */
+export interface ConfidentialPositionAccount {
+  trader: PublicKey;
+  market: PublicKey;
+  positionId: Uint8Array;       // 16 bytes - hash-based ID
+  createdAtHour: bigint;        // Hour-precision timestamp
+  lastUpdatedHour: bigint;      // Hour-precision timestamp
+  side: PositionSide;           // Long=0, Short=1
+  leverage: number;
+  // Encrypted core data (256 bytes)
+  encryptedSize: Uint8Array;          // 64 bytes
+  encryptedEntryPrice: Uint8Array;    // 64 bytes
+  encryptedCollateral: Uint8Array;    // 64 bytes
+  encryptedRealizedPnl: Uint8Array;   // 64 bytes
+  // Encrypted liquidation thresholds (128 bytes)
+  encryptedLiqBelow: Uint8Array;      // 64 bytes
+  encryptedLiqAbove: Uint8Array;      // 64 bytes
+  thresholdCommitment: Uint8Array;    // 32 bytes
+  lastThresholdUpdateHour: bigint;
+  thresholdVerified: boolean;
+  // Funding
+  entryCumulativeFunding: bigint;     // i128 stored as 16 bytes
+  // Status
+  status: PositionStatusEnum;
+  eligibilityProofVerified: boolean;
+  partialCloseCount: number;
+  // Auto-deleverage
+  autoDeleveragePriority: bigint;
+  // Margin management
+  lastMarginAddHour: bigint;
+  marginAddCount: number;
+  bump: number;
+}
+
+/**
+ * Parse ConfidentialPosition from on-chain account data
+ * Layout matches programs/confidex_dex/src/state/position.rs
+ * Total size: 561 bytes (8 discriminator + 553 data)
+ */
+export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAccount {
+  // Skip 8-byte Anchor discriminator
+  let offset = 8;
+
+  // trader: Pubkey (32 bytes)
+  const trader = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  // market: Pubkey (32 bytes)
+  const market = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  // position_id: [u8; 16] - hash-based ID
+  const positionId = new Uint8Array(data.subarray(offset, offset + 16));
+  offset += 16;
+
+  // created_at_hour: i64 (8 bytes)
+  const createdAtHour = data.readBigInt64LE(offset);
+  offset += 8;
+
+  // last_updated_hour: i64 (8 bytes)
+  const lastUpdatedHour = data.readBigInt64LE(offset);
+  offset += 8;
+
+  // side: u8 enum (1 byte)
+  const side = data.readUInt8(offset) as PositionSide;
+  offset += 1;
+
+  // leverage: u8 (1 byte)
+  const leverage = data.readUInt8(offset);
+  offset += 1;
+
+  // encrypted_size: [u8; 64]
+  const encryptedSize = new Uint8Array(data.subarray(offset, offset + 64));
+  offset += 64;
+
+  // encrypted_entry_price: [u8; 64]
+  const encryptedEntryPrice = new Uint8Array(data.subarray(offset, offset + 64));
+  offset += 64;
+
+  // encrypted_collateral: [u8; 64]
+  const encryptedCollateral = new Uint8Array(data.subarray(offset, offset + 64));
+  offset += 64;
+
+  // encrypted_realized_pnl: [u8; 64]
+  const encryptedRealizedPnl = new Uint8Array(data.subarray(offset, offset + 64));
+  offset += 64;
+
+  // encrypted_liq_below: [u8; 64]
+  const encryptedLiqBelow = new Uint8Array(data.subarray(offset, offset + 64));
+  offset += 64;
+
+  // encrypted_liq_above: [u8; 64]
+  const encryptedLiqAbove = new Uint8Array(data.subarray(offset, offset + 64));
+  offset += 64;
+
+  // threshold_commitment: [u8; 32]
+  const thresholdCommitment = new Uint8Array(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  // last_threshold_update_hour: i64 (8 bytes)
+  const lastThresholdUpdateHour = data.readBigInt64LE(offset);
+  offset += 8;
+
+  // threshold_verified: bool (1 byte)
+  const thresholdVerified = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // entry_cumulative_funding: i128 (16 bytes)
+  // Read as two i64s and combine (low then high)
+  const fundingLow = data.readBigInt64LE(offset);
+  offset += 8;
+  const fundingHigh = data.readBigInt64LE(offset);
+  offset += 8;
+  const entryCumulativeFunding = fundingLow + (fundingHigh << BigInt(64));
+
+  // status: u8 enum (1 byte)
+  const status = data.readUInt8(offset) as PositionStatusEnum;
+  offset += 1;
+
+  // eligibility_proof_verified: bool (1 byte)
+  const eligibilityProofVerified = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // partial_close_count: u8 (1 byte)
+  const partialCloseCount = data.readUInt8(offset);
+  offset += 1;
+
+  // auto_deleverage_priority: u64 (8 bytes)
+  const autoDeleveragePriority = data.readBigUInt64LE(offset);
+  offset += 8;
+
+  // last_margin_add_hour: i64 (8 bytes)
+  const lastMarginAddHour = data.readBigInt64LE(offset);
+  offset += 8;
+
+  // margin_add_count: u8 (1 byte)
+  const marginAddCount = data.readUInt8(offset);
+  offset += 1;
+
+  // bump: u8 (1 byte)
+  const bump = data.readUInt8(offset);
+
+  return {
+    trader,
+    market,
+    positionId,
+    createdAtHour,
+    lastUpdatedHour,
+    side,
+    leverage,
+    encryptedSize,
+    encryptedEntryPrice,
+    encryptedCollateral,
+    encryptedRealizedPnl,
+    encryptedLiqBelow,
+    encryptedLiqAbove,
+    thresholdCommitment,
+    lastThresholdUpdateHour,
+    thresholdVerified,
+    entryCumulativeFunding,
+    status,
+    eligibilityProofVerified,
+    partialCloseCount,
+    autoDeleveragePriority,
+    lastMarginAddHour,
+    marginAddCount,
+    bump,
+  };
+}
+
+/**
+ * Fetch all positions for a trader from on-chain
+ * Uses getProgramAccounts with filters for the trader pubkey
+ *
+ * @param connection - Solana connection
+ * @param trader - Trader's public key
+ * @returns Array of positions with their PDAs
+ */
+export async function fetchUserPositions(
+  connection: Connection,
+  trader: PublicKey
+): Promise<{ pda: PublicKey; position: ConfidentialPositionAccount }[]> {
+  // Note: On-chain account size is 568 bytes (includes Anchor padding)
+  // This differs from the calculated 561 bytes in position.rs due to alignment
+  const POSITION_ACCOUNT_SIZE = 568;
+
+  try {
+    log.debug('Fetching user positions for', { trader: trader.toString() });
+
+    // Use getProgramAccounts with filters:
+    // 1. dataSize: 561 bytes (ConfidentialPosition account size)
+    // 2. memcmp: trader pubkey at offset 8 (after discriminator)
+    const accounts = await connection.getProgramAccounts(CONFIDEX_PROGRAM_ID, {
+      filters: [
+        { dataSize: POSITION_ACCOUNT_SIZE },
+        { memcmp: { offset: 8, bytes: trader.toBase58() } },
+      ],
+    });
+
+    const positions: { pda: PublicKey; position: ConfidentialPositionAccount }[] = [];
+
+    for (const { pubkey, account } of accounts) {
+      try {
+        const position = parseConfidentialPosition(account.data);
+        positions.push({ pda: pubkey, position });
+        log.debug('Parsed position:', {
+          pda: pubkey.toString(),
+          side: position.side === PositionSide.Long ? 'Long' : 'Short',
+          leverage: position.leverage,
+          status: PositionStatusEnum[position.status],
+        });
+      } catch (parseError) {
+        log.error('Failed to parse position account', {
+          pda: pubkey.toString(),
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+        });
+      }
+    }
+
+    log.debug('Fetched positions:', { count: positions.length });
+    return positions;
+  } catch (error) {
+    log.error('Error fetching user positions', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [];
+  }
+}
+
+/**
+ * Fetch open positions only (excludes closed/liquidated)
+ */
+export async function fetchOpenPositions(
+  connection: Connection,
+  trader: PublicKey
+): Promise<{ pda: PublicKey; position: ConfidentialPositionAccount }[]> {
+  const allPositions = await fetchUserPositions(connection, trader);
+  return allPositions.filter(
+    ({ position }) => position.status === PositionStatusEnum.Open
+  );
+}
+
+/**
+ * Fetch a single position by PDA
+ */
+export async function fetchPositionByPda(
+  connection: Connection,
+  positionPda: PublicKey
+): Promise<ConfidentialPositionAccount | null> {
+  try {
+    const accountInfo = await connection.getAccountInfo(positionPda);
+    if (!accountInfo) {
+      log.debug('Position not found:', { pda: positionPda.toString() });
+      return null;
+    }
+    return parseConfidentialPosition(accountInfo.data);
+  } catch (error) {
+    log.error('Error fetching position', {
+      pda: positionPda.toString(),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
+ * Convert hex position ID to display string
+ */
+export function positionIdToString(positionId: Uint8Array): string {
+  return Array.from(positionId)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
 }

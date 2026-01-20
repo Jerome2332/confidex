@@ -17,6 +17,8 @@ import {
   buildPlaceOrderTransaction,
   buildAutoWrapAndPlaceOrderTransaction,
   buildOpenPositionTransaction,
+  buildVerifyEligibilityTransaction,
+  checkTraderEligibility,
   isExchangeInitialized,
   isPairInitialized,
   isPerpMarketInitialized,
@@ -85,6 +87,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     isOpeningPosition,
     setIsOpeningPosition,
     estimateLiquidationPrice,
+    setBottomTab,
   } = usePerpetualStore();
 
   // Local leverage state synced with store
@@ -332,17 +335,53 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       const perpMarketReady = await isPerpMarketInitialized(connection, NATIVE_MINT);
       log.debug('Perp market initialized', { ready: perpMarketReady });
 
-      // Generate eligibility proof
-      toast.info('Generating eligibility proof...', { id: 'proof-gen' });
-      const proofResult = await generateProof();
-      toast.success('Proof generated', { id: 'proof-gen' });
+      // Check if trader already has verified eligibility on-chain
+      const { isVerified: hasEligibility } = await checkTraderEligibility(connection, publicKey);
+
+      if (!hasEligibility) {
+        // Generate eligibility proof and verify on-chain first
+        toast.info('Generating eligibility proof...', { id: 'proof-gen' });
+        const proofResult = await generateProof();
+        toast.success('Proof generated', { id: 'proof-gen' });
+
+        // Build and send verify_eligibility transaction
+        toast.info('Verifying eligibility on-chain...', { id: 'verify-elig' });
+        const verifyTx = await buildVerifyEligibilityTransaction({
+          connection,
+          trader: publicKey,
+          eligibilityProof: proofResult?.proof || new Uint8Array(324),
+        });
+
+        // Add compute budget
+        verifyTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+
+        const { blockhash: verifyBlockhash } = await connection.getLatestBlockhash('confirmed');
+        verifyTx.recentBlockhash = verifyBlockhash;
+        verifyTx.feePayer = publicKey;
+
+        const verifySignature = await sendTransaction(verifyTx, connection, {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+
+        await connection.confirmTransaction({
+          signature: verifySignature,
+          blockhash: verifyBlockhash,
+          lastValidBlockHeight: (await connection.getLatestBlockhash()).lastValidBlockHeight,
+        }, 'confirmed');
+
+        toast.success('Eligibility verified on-chain', { id: 'verify-elig' });
+        log.info('Eligibility verified', { signature: verifySignature });
+      } else {
+        log.info('Trader already has verified eligibility on-chain');
+      }
 
       // Initialize encryption if needed
       if (!isInitialized) {
         await initializeEncryption();
       }
 
-      // Encrypt position values
+      // Encrypt position values (V3: reduced to 2 encrypted fields)
       toast.info('Encrypting position data...', { id: 'encrypt' });
       const sizeLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
       const entryPriceMicros = BigInt(Math.floor(solPrice * 1e6));
@@ -350,16 +389,16 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
       const encryptedSize = await encryptValue(sizeLamports);
       const encryptedEntryPrice = await encryptValue(entryPriceMicros);
-      const encryptedCollateral = await encryptValue(collateralMicros);
+
+      // V3: Generate random position nonce for hash-based ID (anti-correlation)
+      const positionNonce = crypto.getRandomValues(new Uint8Array(8));
+
       toast.success('Position data encrypted', { id: 'encrypt' });
 
-      // Calculate liquidation threshold (public) using the client library
+      // Calculate liquidation price for UI display
       const maintenanceMarginBps = 500; // 5%
       const programSide = positionSide === 'long' ? ProgramPositionSide.Long : ProgramPositionSide.Short;
       const liqPrice = calcLiqPrice(programSide, solPrice, leverage, maintenanceMarginBps);
-      const liqPriceThreshold = BigInt(Math.floor(liqPrice * 1e6));
-
-      // Also use the store's estimator for UI display
       const displayLiqPrice = estimateLiquidationPrice(positionSide, solPrice, leverage, maintenanceMarginBps);
 
       let txSignature: string | null = null;
@@ -378,7 +417,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         const tradingPair = TRADING_PAIRS[0];
         const quoteMint = new PublicKey(tradingPair.quoteMint);
 
-        // Build the open_position transaction
+        // Build the open_position transaction (V3: two-instruction pattern - eligibility verified separately)
         const transaction = await buildOpenPositionTransaction({
           connection,
           trader: publicKey,
@@ -387,10 +426,9 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           side: programSide,
           leverage,
           encryptedSize,
-          encryptedCollateral,
           encryptedEntryPrice,
-          liquidationThreshold: liqPriceThreshold,
-          eligibilityProof: proofResult?.proof || new Uint8Array(324),
+          positionNonce,
+          collateralAmount: collateralMicros,  // Plaintext USDC for SPL transfer (C-SPL fallback)
         });
 
         // Add compute budget for MPC verification
@@ -403,14 +441,52 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = publicKey;
 
+        // Simulate transaction first to get detailed errors
+        try {
+          log.debug('Simulating transaction...');
+          log.debug('Transaction accounts:', {
+            accounts: transaction.instructions[0]?.keys.map((k, i) => `${i}: ${k.pubkey.toString()} (signer: ${k.isSigner}, writable: ${k.isWritable})`),
+          });
+          const simulation = await connection.simulateTransaction(transaction);
+          log.debug('Simulation response:', {
+            err: simulation.value.err,
+            unitsConsumed: simulation.value.unitsConsumed,
+            logsPreview: simulation.value.logs?.slice(0, 5),
+          });
+          if (simulation.value.err) {
+            const errorLogs = simulation.value.logs?.join('\n') || 'No logs';
+            log.error('Transaction simulation failed', {
+              error: JSON.stringify(simulation.value.err),
+              logs: errorLogs,
+            });
+            throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\nLogs: ${errorLogs}`);
+          }
+          log.debug('Simulation passed', { unitsConsumed: simulation.value.unitsConsumed });
+        } catch (simError) {
+          if (simError instanceof Error && simError.message.startsWith('Simulation failed:')) {
+            throw simError;
+          }
+          log.warn('Simulation check failed (continuing anyway)', { error: simError });
+        }
+
         toast.info('Awaiting wallet approval...', { id: 'position-open' });
+
+        // Log transaction details for debugging
+        log.debug('Transaction ready to send', {
+          feePayer: transaction.feePayer?.toString(),
+          recentBlockhash: transaction.recentBlockhash,
+          instructionCount: transaction.instructions.length,
+          signatures: transaction.signatures.length,
+        });
 
         // Send transaction
         try {
+          log.debug('Calling sendTransaction...');
           txSignature = await sendTransaction(transaction, connection, {
-            skipPreflight: false,
+            skipPreflight: true, // We already simulated
             preflightCommitment: 'confirmed',
           });
+          log.debug('sendTransaction returned', { signature: txSignature });
 
           toast.info('Confirming transaction...', { id: 'position-open' });
 
@@ -427,9 +503,24 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
           log.info('Position opened on-chain', { signature: txSignature });
         } catch (txError) {
+          // Log detailed error information
+          const errorMessage = txError instanceof Error ? txError.message : String(txError);
+          const errorName = txError instanceof Error ? txError.name : 'Unknown';
+          log.error('Transaction send failed', {
+            errorName,
+            errorMessage,
+            errorStack: txError instanceof Error ? txError.stack : undefined,
+          });
+
+          // Check for specific wallet errors
+          if (errorMessage.includes('User rejected') || errorMessage.includes('rejected')) {
+            toast.error('Transaction rejected by user', { id: 'position-open' });
+            throw new Error('Transaction rejected');
+          }
+
           // If tx fails, fall back to demo mode with error context
           log.warn('On-chain position failed, using demo mode', {
-            error: txError instanceof Error ? txError.message : String(txError),
+            error: errorMessage,
           });
           toast.info('On-chain tx failed - storing position locally', { id: 'position-open' });
         }
@@ -441,10 +532,15 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       }
 
       // Create position in store (for both real and demo modes)
+      // V3: encryptedCollateral is now derived on-chain from collateralAmount
+      // Create placeholder with plaintext amount in first 8 bytes (matches on-chain format)
+      const encryptedCollateralPlaceholder = new Uint8Array(64);
+      new DataView(encryptedCollateralPlaceholder.buffer).setBigUint64(0, collateralMicros, true);
+
       const positionId = `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const newPosition = {
         id: positionId,
-        positionId: Date.now(),
+        positionId: positionId, // V2: Hash-based ID as hex string
         market: SOL_PERP_MARKET_PDA, // Use actual market PDA
         marketSymbol: 'SOL-PERP',
         trader: publicKey,
@@ -452,10 +548,13 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         leverage,
         encryptedSize,
         encryptedEntryPrice,
-        encryptedCollateral,
+        encryptedCollateral: encryptedCollateralPlaceholder, // V3: placeholder with plaintext amount
         encryptedRealizedPnl: new Uint8Array(64),
-        liquidatableBelowPrice: positionSide === 'long' ? displayLiqPrice : 0,
-        liquidatableAbovePrice: positionSide === 'short' ? displayLiqPrice : Number.MAX_SAFE_INTEGER,
+        // V2: Encrypted liquidation thresholds (no longer public)
+        encryptedLiqBelow: new Uint8Array(64),
+        encryptedLiqAbove: new Uint8Array(64),
+        // V2: Risk level determined by MPC batch liquidation check
+        riskLevel: 'unknown' as const,
         thresholdVerified: txSignature !== null, // True if on-chain tx succeeded
         entryCumulativeFunding: BigInt(0),
         pendingFunding: BigInt(0),
@@ -467,8 +566,30 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       };
 
       // Add to store
-      const { addPosition } = usePerpetualStore.getState();
+      const { addPosition, positions: currentPositions } = usePerpetualStore.getState();
+      log.info('Adding position to store', {
+        positionId,
+        side: positionSide,
+        leverage,
+        currentPositionCount: currentPositions.length,
+      });
       addPosition(newPosition);
+
+      // Verify position was added
+      const { positions: updatedPositions } = usePerpetualStore.getState();
+      log.info('Position added to store', {
+        newPositionCount: updatedPositions.length,
+        positionIds: updatedPositions.map(p => p.id),
+      });
+      console.log('[Position] Added to store:', {
+        id: positionId,
+        side: positionSide,
+        leverage,
+        totalPositions: updatedPositions.length,
+      });
+
+      // Auto-switch to Positions tab so user can see their new position
+      setBottomTab('positions');
 
       if (notifications) {
         const statusText = txSignature ? '' : perpMarketReady ? ' (local)' : ' (demo)';
@@ -476,9 +597,23 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           `${leverage}x ${positionSide.toUpperCase()} position opened${statusText}`,
           {
             id: 'position-open',
-            description: txSignature
-              ? `TX: ${txSignature.slice(0, 8)}... | Liq: $${displayLiqPrice.toFixed(2)}`
-              : `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${displayLiqPrice.toFixed(2)}`,
+            duration: 5000,
+            description: txSignature ? (
+              <div className="flex flex-col gap-1">
+                <span>Size: {amount} SOL @ ${solPrice.toFixed(2)}</span>
+                <span>Est. Liq: ${displayLiqPrice.toFixed(2)}</span>
+                <a
+                  href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline text-primary hover:text-primary/80"
+                >
+                  View on Explorer
+                </a>
+              </div>
+            ) : (
+              `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${displayLiqPrice.toFixed(2)}`
+            ),
           }
         );
       } else {

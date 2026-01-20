@@ -10,6 +10,7 @@ import { Funnel, ArrowsClockwise, Lock, X, CaretUp, CaretDown, TrendUp, TrendDow
 import { ToggleSwitch } from './ui/toggle-switch';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 import { useSolPrice } from '@/hooks/use-pyth-price';
+import { usePositions } from '@/hooks/use-positions';
 import { usePerpetualStore, PerpPosition } from '@/stores/perpetuals-store';
 import {
   buildClosePositionTransaction,
@@ -46,12 +47,17 @@ interface BottomTabsProps {
 }
 
 export const BottomTabs: FC<BottomTabsProps> = ({ defaultHeight = 224 }) => {
-  const [activeTab, setActiveTab] = useState<TabId>('open-orders');
+  // Sync with global store for auto-switching after position open
+  const { bottomTab, setBottomTab } = usePerpetualStore();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [hideSmallBalances, setHideSmallBalances] = useState(false);
   const [filter, setFilter] = useState<FilterOption>('all');
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
   const { connected } = useWallet();
+
+  // Use store tab as the active tab
+  const activeTab = bottomTab;
+  const setActiveTab = setBottomTab;
 
   const filterOptions: { value: FilterOption; label: string }[] = [
     { value: 'all', label: 'All Assets' },
@@ -282,9 +288,18 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
 // Positions Tab Component
 const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
   const { positions, isClosingPosition, setIsClosingPosition, removePosition } = usePerpetualStore();
+  const { isLoading: isLoadingPositions, refresh: refreshPositions } = usePositions();
   const { price: solPrice } = useSolPrice();
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
+
+  // Debug logging for position updates
+  log.debug('PositionsTab render', {
+    positionCount: positions.length,
+    positionIds: positions.map(p => p.id),
+    connected,
+    isLoadingPositions,
+  });
 
   const handleClosePosition = async (positionId: string) => {
     if (!publicKey) {
@@ -361,7 +376,16 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       <div className="h-full">
         {/* Table Header */}
         <div className="grid grid-cols-7 gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/30 bg-secondary/20">
-          <span>Market</span>
+          <span className="flex items-center gap-2">
+            Market
+            <button
+              onClick={() => refreshPositions()}
+              className={`p-0.5 hover:text-foreground transition-colors ${isLoadingPositions ? 'animate-spin' : ''}`}
+              title="Refresh positions"
+            >
+              <ArrowsClockwise size={12} />
+            </button>
+          </span>
           <span className="text-right">Side / Leverage</span>
           <span className="text-right">Size</span>
           <span className="text-right">Entry Price</span>
@@ -370,7 +394,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
           <span className="text-right">Actions</span>
         </div>
         <div className="flex items-center justify-center h-24 text-sm text-muted-foreground">
-          No open positions
+          {isLoadingPositions ? 'Loading positions...' : 'No open positions'}
         </div>
       </div>
     );
@@ -380,7 +404,16 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
     <div className="h-full">
       {/* Table Header */}
       <div className="grid grid-cols-7 gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/30 bg-secondary/20">
-        <span>Market</span>
+        <span className="flex items-center gap-2">
+          Market
+          <button
+            onClick={() => refreshPositions()}
+            className={`p-0.5 hover:text-foreground transition-colors ${isLoadingPositions ? 'animate-spin' : ''}`}
+            title="Refresh positions"
+          >
+            <ArrowsClockwise size={12} />
+          </button>
+        </span>
         <span className="text-right">Side / Leverage</span>
         <span className="text-right">Size</span>
         <span className="text-right">Entry Price</span>
@@ -392,18 +425,12 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       {/* Position Rows */}
       {positions.map(position => {
         const isLong = position.side === 'long';
-        const liquidationPrice = isLong
-          ? position.liquidatableBelowPrice
-          : position.liquidatableAbovePrice;
         const isClosing = isClosingPosition === position.id;
 
-        // Calculate distance to liquidation for warning
-        const distanceToLiq = solPrice && liquidationPrice
-          ? isLong
-            ? ((solPrice - liquidationPrice) / solPrice) * 100
-            : ((liquidationPrice - solPrice) / solPrice) * 100
-          : null;
-        const isAtRisk = distanceToLiq !== null && distanceToLiq < 10;
+        // V2: Risk level is determined by MPC batch liquidation checks
+        // We no longer calculate from public thresholds
+        const riskLevel = position.riskLevel || 'unknown';
+        const isAtRisk = riskLevel === 'warning' || riskLevel === 'critical';
 
         return (
           <div
@@ -444,9 +471,10 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
               <span className="text-muted-foreground">••••••</span>
             </span>
 
-            {/* Liquidation Price (Public) */}
-            <span className={`text-right font-mono ${isAtRisk ? 'text-rose-400/80' : ''}`}>
-              ${liquidationPrice.toFixed(2)}
+            {/* Liquidation Price (V2: Encrypted) */}
+            <span className={`text-right font-mono flex items-center justify-end gap-1 ${isAtRisk ? 'text-rose-400/80' : ''}`}>
+              <Lock size={12} className="text-primary" />
+              <span className="text-muted-foreground">••••••</span>
             </span>
 
             {/* Unrealized PnL (Encrypted) */}

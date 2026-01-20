@@ -430,6 +430,12 @@ fn main(
                       <td className="px-6 py-3">bool</td>
                       <td className="px-6 py-3">Perps position opening</td>
                     </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">BatchLiquidationCheck</td>
+                      <td className="px-6 py-3">up to 10 encrypted thresholds + mark</td>
+                      <td className="px-6 py-3">bool[10]</td>
+                      <td className="px-6 py-3">V2: Batch liquidation check</td>
+                    </tr>
                     <tr>
                       <td className="px-6 py-3 font-mono text-white">CalculatePnL</td>
                       <td className="px-6 py-3">encrypted size/entry + price</td>
@@ -438,6 +444,32 @@ fn main(
                     </tr>
                   </tbody>
                 </table>
+              </div>
+            </div>
+
+            {/* V2 Privacy Improvements */}
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 mb-6">
+              <h3 className="font-medium text-white mb-4 flex items-center gap-2">
+                <ShieldChevronIcon size={20} className="text-emerald-400" />
+                V2 Privacy Enhancements
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-emerald-400 font-medium mb-1">Encrypted Liquidation Thresholds</div>
+                  <div className="text-white/60">Prevents entry price reverse-engineering. Previously public thresholds revealed entry via <code className="text-xs bg-white/10 px-1 rounded">entry ≈ threshold / 0.95</code></div>
+                </div>
+                <div>
+                  <div className="text-emerald-400 font-medium mb-1">Hash-Based IDs</div>
+                  <div className="text-white/60">Order/position IDs are now <code className="text-xs bg-white/10 px-1 rounded">[u8; 16]</code> hashes instead of sequential u64, preventing activity correlation</div>
+                </div>
+                <div>
+                  <div className="text-emerald-400 font-medium mb-1">Coarse Timestamps</div>
+                  <div className="text-white/60">Hour precision (<code className="text-xs bg-white/10 px-1 rounded">timestamp / 3600 * 3600</code>) reduces temporal correlation attacks</div>
+                </div>
+                <div>
+                  <div className="text-emerald-400 font-medium mb-1">Minimal Order Status</div>
+                  <div className="text-white/60">Only Active/Inactive states exposed (was 5 states). Internal <code className="text-xs bg-white/10 px-1 rounded">is_matching</code> flag for MPC tracking</div>
+                </div>
               </div>
             </div>
 
@@ -528,30 +560,31 @@ const encryptedAmount = cipher.encrypt(
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-5">
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-white/40"></div>
+                  <div className="w-2 h-2 rounded-full bg-yellow-400"></div>
                   <h4 className="font-medium text-white">Standard SPL</h4>
                 </div>
-                <div className="text-xs text-white/50 mb-2">Fallback</div>
+                <div className="text-xs text-white/50 mb-2">Active Fallback</div>
                 <p className="text-sm text-white/60">
-                  Token-2022 transfers when privacy providers unavailable. Amounts visible on-chain.
+                  Currently used for perpetual collateral transfers. Amounts visible on-chain until C-SPL SDK available.
                 </p>
               </div>
             </div>
 
-            <ExpandableSection title="Hybrid Encryption Format (Current)">
+            <ExpandableSection title="V2 Pure Ciphertext Format" defaultOpen>
               <p className="text-sm text-white/70 mb-4">
-                Until C-SPL launches, we use a hybrid format that enables MPC operations while supporting on-chain balance validation:
+                V2 uses pure ciphertext with no plaintext prefix. All values are fully encrypted and only MPC can access them:
               </p>
-              <CodeBlock>{`// 64-byte hybrid encrypted value format
-[plaintext (8 bytes) | nonce (8 bytes) | ciphertext (32 bytes) | ephemeral_pk (16 bytes)]
+              <CodeBlock>{`// 64-byte V2 pure ciphertext format
+[nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pk (16 bytes)]
 
-Bytes 0-7:   Plaintext value    → On-chain balance validation
-Bytes 8-15:  Truncated nonce    → MPC decryption key material
-Bytes 16-47: Ciphertext         → MPC encrypted price comparison
-Bytes 48-63: Ephemeral pubkey   → MPC key routing`}</CodeBlock>
+Bytes 0-15:  Nonce             → MPC decryption seed
+Bytes 16-47: Ciphertext        → Fully encrypted value
+Bytes 48-63: Ephemeral pubkey  → MPC key routing
+
+// No plaintext prefix - complete privacy`}</CodeBlock>
               <p className="text-sm text-white/50 mt-4">
-                Even with visible amounts for balance checking, the MPC price comparison prevents front-running
-                because observers cannot predict which orders will match.
+                MPC handles all comparisons and calculations. Order amounts, prices, and liquidation thresholds
+                are never visible on-chain.
               </p>
             </ExpandableSection>
           </section>
@@ -581,7 +614,7 @@ Bytes 48-63: Ephemeral pubkey   → MPC key routing`}</CodeBlock>
             {/* Privacy Matrix */}
             <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden mb-6">
               <div className="px-6 py-4 border-b border-white/10 bg-white/5">
-                <h3 className="font-medium text-white">Privacy Guarantees Matrix</h3>
+                <h3 className="font-medium text-white">Privacy Guarantees Matrix (V2)</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -601,22 +634,52 @@ Bytes 48-63: Ephemeral pubkey   → MPC key routing`}</CodeBlock>
                       <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
                     </tr>
                     <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Order Amounts/Prices</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
+                      <td className="px-6 py-3">V2 pure ciphertext (64 bytes)</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
                       <td className="px-6 py-3">Price Comparison</td>
                       <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
                       <td className="px-6 py-3">MPC Cerberus protocol</td>
                       <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
                     </tr>
                     <tr className="border-b border-white/5">
-                      <td className="px-6 py-3">Match Result</td>
+                      <td className="px-6 py-3">Liquidation Thresholds</td>
                       <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
-                      <td className="px-6 py-3">Cannot predict matches</td>
+                      <td className="px-6 py-3">MPC batch verification</td>
                       <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
                     </tr>
                     <tr className="border-b border-white/5">
-                      <td className="px-6 py-3">Order Amount*</td>
-                      <td className="px-6 py-3 flex items-center gap-2"><Eye size={14} className="text-yellow-400" /> Visible</td>
-                      <td className="px-6 py-3">Required for balance check</td>
-                      <td className="px-6 py-3"><span className="text-yellow-400">Partial</span></td>
+                      <td className="px-6 py-3">Position/Order IDs</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Private</td>
+                      <td className="px-6 py-3">Hash-based (no sequential leak)</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Timestamps</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Coarse</td>
+                      <td className="px-6 py-3">Hour precision only</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Order Status</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><EyeSlash size={14} className="text-emerald-400" /> Minimal</td>
+                      <td className="px-6 py-3">Active/Inactive only (2 states)</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Full Privacy</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Position Side/Leverage</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><Eye size={14} className="text-yellow-400" /> Public</td>
+                      <td className="px-6 py-3">Required for funding/risk</td>
+                      <td className="px-6 py-3"><span className="text-yellow-400">Necessary</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3">Collateral Amount</td>
+                      <td className="px-6 py-3 flex items-center gap-2"><Eye size={14} className="text-yellow-400" /> Public*</td>
+                      <td className="px-6 py-3">SPL token transfer (C-SPL pending)</td>
+                      <td className="px-6 py-3"><span className="text-yellow-400">Temporary</span></td>
                     </tr>
                     <tr>
                       <td className="px-6 py-3">Settlement</td>
@@ -628,7 +691,8 @@ Bytes 48-63: Ephemeral pubkey   → MPC key routing`}</CodeBlock>
                 </table>
               </div>
               <div className="px-6 py-3 bg-white/5 text-xs text-white/50">
-                *Order amounts visible until C-SPL launch enables encrypted balances (Q1 2026)
+                V2 pure ciphertext format: [nonce (16) | ciphertext (32) | ephemeral_pk (16)] — no plaintext prefix<br />
+                *Collateral uses standard SPL transfer as temporary fallback until C-SPL SDK is available
               </div>
             </div>
 
@@ -700,21 +764,83 @@ Bytes 48-63: Ephemeral pubkey   → MPC key routing`}</CodeBlock>
               </div>
             </div>
 
+            {/* Deployment Status */}
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 mb-6">
+              <h3 className="font-medium text-white mb-4 flex items-center gap-2">
+                <CheckCircle size={20} className="text-emerald-400" />
+                Latest Deployment (January 2026)
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <div className="text-white/50 mb-1">Deployment Transaction</div>
+                  <a
+                    href="https://explorer.solana.com/tx/5R4vHzBEsVkJBQZLMEBp9aRamZjEpvsbtwyEVGZhF2JvdcRGXWFWMqCdLPJkqxZuckBJr1Voa3Mcnh1WaBXC547p?cluster=devnet"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-emerald-400 hover:text-emerald-300 font-mono text-xs break-all flex items-center gap-1"
+                  >
+                    5R4vHzBE...WaBXC547p
+                    <ArrowSquareOut size={12} />
+                  </a>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <div className="text-emerald-400 font-medium mb-1">V2 Features Live</div>
+                    <ul className="text-white/60 text-xs space-y-1">
+                      <li>• Encrypted liquidation thresholds</li>
+                      <li>• Hash-based position IDs</li>
+                      <li>• Coarse timestamps (hour precision)</li>
+                      <li>• SPL collateral transfer (C-SPL pending)</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="text-yellow-400 font-medium mb-1">Pending C-SPL</div>
+                    <ul className="text-white/60 text-xs space-y-1">
+                      <li>• Collateral amounts currently visible</li>
+                      <li>• Will use confidential_transfer when available</li>
+                      <li>• Encrypted collateral blob stored for future use</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Account Structures */}
-            <ExpandableSection title="Key Account Structures">
+            <ExpandableSection title="Key Account Structures (V2)">
               <div className="space-y-4">
                 <div>
-                  <div className="text-white font-medium mb-2">ConfidentialOrder (317 bytes)</div>
+                  <div className="text-white font-medium mb-2">ConfidentialOrder (V2 - 321 bytes)</div>
                   <CodeBlock>{`pub struct ConfidentialOrder {
     pub maker: Pubkey,              // Order creator
     pub pair: Pubkey,               // Trading pair
+    pub order_id: [u8; 16],         // V2: Hash-based (no sequential leak)
     pub side: Side,                 // Buy or Sell
-    pub encrypted_amount: [u8; 64], // Arcium encrypted
-    pub encrypted_price: [u8; 64],  // Arcium encrypted
+    pub encrypted_amount: [u8; 64], // V2: Pure ciphertext
+    pub encrypted_price: [u8; 64],  // V2: Pure ciphertext
     pub encrypted_filled: [u8; 64], // Fill tracking
-    pub status: OrderStatus,        // Open|Matching|Filled
+    pub status: OrderStatus,        // V2: Active|Inactive (2 states)
+    pub created_at_hour: i64,       // V2: Coarse timestamp (hour)
+    pub is_matching: bool,          // V2: Internal matching flag
     pub eligibility_proof_verified: bool,
     pub pending_match_request: [u8; 32],
+}`}</CodeBlock>
+                </div>
+                <div>
+                  <div className="text-white font-medium mb-2">ConfidentialPosition (V2 - 561 bytes)</div>
+                  <CodeBlock>{`pub struct ConfidentialPosition {
+    pub trader: Pubkey,
+    pub market: Pubkey,
+    pub position_id: [u8; 16],          // V2: Hash-based ID
+    pub side: PositionSide,             // Long/Short (public)
+    pub leverage: u8,                   // 1-20x (public)
+    pub encrypted_size: [u8; 64],       // V2: Pure ciphertext
+    pub encrypted_entry_price: [u8; 64],// V2: Pure ciphertext
+    pub encrypted_collateral: [u8; 64], // V2: Pure ciphertext
+    pub encrypted_liq_below: [u8; 64],  // V2: Encrypted threshold
+    pub encrypted_liq_above: [u8; 64],  // V2: Encrypted threshold
+    pub threshold_commitment: [u8; 32], // hash(entry, leverage, mm_bps)
+    pub created_at_hour: i64,           // V2: Coarse timestamp
+    pub last_updated_hour: i64,         // V2: Coarse timestamp
 }`}</CodeBlock>
                 </div>
                 <div>

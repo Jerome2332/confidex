@@ -36,16 +36,18 @@ pub struct FinalizeMatch<'info> {
     pub mxe_authority: UncheckedAccount<'info>,
 
     /// Buy order - passed as callback_account_1 from MXE
+    /// V2: Use is_matching flag instead of Matching status
     #[account(
         mut,
-        constraint = buy_order.status == OrderStatus::Matching @ MpcCallbackError::OrderNotMatching
+        constraint = buy_order.is_in_matching() @ MpcCallbackError::OrderNotMatching
     )]
     pub buy_order: Account<'info, ConfidentialOrder>,
 
     /// Sell order - passed as callback_account_2 from MXE
+    /// V2: Use is_matching flag instead of Matching status
     #[account(
         mut,
-        constraint = sell_order.status == OrderStatus::Matching @ MpcCallbackError::OrderNotMatching
+        constraint = sell_order.is_in_matching() @ MpcCallbackError::OrderNotMatching
     )]
     pub sell_order: Account<'info, ConfidentialOrder>,
 
@@ -111,25 +113,29 @@ pub fn finalize_match(
         buy_order.encrypted_filled = encrypted_fill;
         sell_order.encrypted_filled = encrypted_fill;
 
-        // Update statuses
+        // Update statuses - V2: Use Active/Inactive instead of 5 states
         let buy_fully_filled = fill_amount >= buy_amt;
         let sell_fully_filled = fill_amount >= sell_amt;
 
-        buy_order.status = if buy_fully_filled {
-            OrderStatus::Filled
-        } else {
-            OrderStatus::PartiallyFilled
-        };
+        // V2: Only set to Inactive if fully filled, otherwise remain Active
+        if buy_fully_filled {
+            buy_order.status = OrderStatus::Inactive;
+        }
+        // else: remains Active (partially filled)
 
-        sell_order.status = if sell_fully_filled {
-            OrderStatus::Filled
-        } else {
-            OrderStatus::PartiallyFilled
-        };
+        if sell_fully_filled {
+            sell_order.status = OrderStatus::Inactive;
+        }
+        // else: remains Active (partially filled)
 
-        // Clear pending match request
+        // Clear pending match state
         buy_order.pending_match_request = [0u8; 32];
         sell_order.pending_match_request = [0u8; 32];
+        buy_order.is_matching = false;
+        sell_order.is_matching = false;
+
+        // Coarse timestamp for privacy
+        let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
 
         emit!(OrdersMatchedDirect {
             request_id,
@@ -137,7 +143,7 @@ pub fn finalize_match(
             sell_order: sell_order.key(),
             buy_fully_filled,
             sell_fully_filled,
-            timestamp: clock.unix_timestamp,
+            timestamp: coarse_time,
         });
 
         msg!(
@@ -197,21 +203,25 @@ pub fn finalize_match(
             }
         }
     } else {
-        // Prices don't overlap - revert orders to Open status
-        buy_order.status = OrderStatus::Open;
-        sell_order.status = OrderStatus::Open;
+        // Prices don't overlap - orders remain Active (V2: no "Open" status)
+        // Just clear the matching state
         buy_order.pending_match_request = [0u8; 32];
         sell_order.pending_match_request = [0u8; 32];
+        buy_order.is_matching = false;
+        sell_order.is_matching = false;
+
+        // Coarse timestamp for privacy
+        let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
 
         emit!(MatchFailedNoOverlap {
             request_id,
             buy_order: buy_order.key(),
             sell_order: sell_order.key(),
-            timestamp: clock.unix_timestamp,
+            timestamp: coarse_time,
         });
 
         msg!(
-            "No match: prices don't overlap. Orders reverted to Open."
+            "No match: prices don't overlap. Orders remain Active."
         );
     }
 
@@ -283,6 +293,9 @@ pub fn receive_compare_result(
         prices_match
     );
 
+    // Coarse timestamp for privacy
+    let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
+
     if prices_match {
         // Prices overlap - proceed to calculate fill amount
         pending_match.compare_result = Some(true);
@@ -293,7 +306,7 @@ pub fn receive_compare_result(
             buy_order: buy_order.key(),
             sell_order: sell_order.key(),
             prices_match: true,
-            timestamp: clock.unix_timestamp,
+            timestamp: coarse_time,
         });
 
         // In a full implementation, we would now queue the calculate_fill computation
@@ -309,7 +322,7 @@ pub fn receive_compare_result(
             buy_order: buy_order.key(),
             sell_order: sell_order.key(),
             prices_match: false,
-            timestamp: clock.unix_timestamp,
+            timestamp: coarse_time,
         });
     }
 
@@ -388,22 +401,28 @@ pub fn receive_fill_result(
     buy_order.encrypted_filled = encrypted_fill;
     sell_order.encrypted_filled = encrypted_fill;
 
+    // V2: Use Active/Inactive status
     if buy_fully_filled {
-        buy_order.status = OrderStatus::Filled;
-    } else {
-        buy_order.status = OrderStatus::PartiallyFilled;
+        buy_order.status = OrderStatus::Inactive;
     }
+    // else: remains Active (partially filled)
 
     if sell_fully_filled {
-        sell_order.status = OrderStatus::Filled;
-    } else {
-        sell_order.status = OrderStatus::PartiallyFilled;
+        sell_order.status = OrderStatus::Inactive;
     }
+    // else: remains Active (partially filled)
+
+    // Clear matching state
+    buy_order.is_matching = false;
+    sell_order.is_matching = false;
 
     // Mark match as complete
     pending_match.status = PendingMatchStatus::Matched;
     pending_match.fill_result = Some(encrypted_fill);
     pending_match.updated_at = clock.unix_timestamp;
+
+    // Coarse timestamp for privacy
+    let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
 
     emit!(OrdersMatched {
         request_id,
@@ -411,7 +430,7 @@ pub fn receive_fill_result(
         sell_order: sell_order.key(),
         buy_fully_filled,
         sell_fully_filled,
-        timestamp: clock.unix_timestamp,
+        timestamp: coarse_time,
     });
 
     Ok(())

@@ -3,6 +3,12 @@
  *
  * This script simulates an open_position transaction to get detailed error information.
  * Usage: npx ts-node tests/debug-open-position.ts
+ *
+ * ENCRYPTION FORMAT V2 (Pure Ciphertext):
+ * [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+ *
+ * With V2, no plaintext is stored in the encrypted values.
+ * The on-chain code trusts the MPC to validate all encrypted data.
  */
 
 import {
@@ -161,22 +167,43 @@ async function main() {
   instructionData.writeUInt8(10, offset);
   offset += 1;
 
-  // Encrypted size (64 bytes) - dummy hybrid format
-  // First 8 bytes: plaintext size (2 SOL = 2_000_000_000 lamports)
-  const sizeValue = BigInt(2_000_000_000);
-  instructionData.writeBigUInt64LE(sizeValue, offset);
+  // ============================================================================
+  // V2 PURE CIPHERTEXT FORMAT
+  // [nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+  // ============================================================================
+
+  // Generate dummy ephemeral public key (would be X25519 in production)
+  const ephemeralPubkey = crypto.randomBytes(32);
+
+  // Helper to create V2 encrypted value
+  const createV2EncryptedValue = (): Buffer => {
+    const result = Buffer.alloc(64);
+    // Bytes 0-15: nonce (random)
+    crypto.randomBytes(16).copy(result, 0);
+    // Bytes 16-47: ciphertext (random - MPC will decrypt)
+    crypto.randomBytes(32).copy(result, 16);
+    // Bytes 48-63: truncated ephemeral pubkey
+    ephemeralPubkey.slice(0, 16).copy(result, 48);
+    return result;
+  };
+
+  // Encrypted size (64 bytes) - V2 pure ciphertext
+  // Value: 2 SOL = 2_000_000_000 lamports (encrypted, not visible on-chain)
+  const encryptedSize = createV2EncryptedValue();
+  encryptedSize.copy(instructionData, offset);
   offset += 64;
 
-  // Encrypted collateral (64 bytes) - dummy hybrid format
-  // First 8 bytes: plaintext collateral (20 USDC = 20_000_000 in 6 decimals)
-  const collateralValue = BigInt(20_000_000);
-  instructionData.writeBigUInt64LE(collateralValue, offset);
+  // Encrypted collateral (64 bytes) - V2 pure ciphertext
+  // Value: 20 USDC = 20_000_000 (6 decimals) (encrypted, not visible on-chain)
+  const encryptedCollateral = createV2EncryptedValue();
+  encryptedCollateral.copy(instructionData, offset);
   offset += 64;
 
-  // Encrypted entry price (64 bytes) - dummy hybrid format
-  // First 8 bytes: plaintext price (e.g., 140 USD = 140_000_000 in 6 decimals)
-  const entryPrice = BigInt(140_000_000);
-  instructionData.writeBigUInt64LE(entryPrice, offset);
+  // Encrypted entry price (64 bytes) - V2 pure ciphertext
+  // Value: 140 USD = 140_000_000 (6 decimals) (encrypted, not visible on-chain)
+  const entryPrice = BigInt(140_000_000); // Keep for liquidation threshold calc
+  const encryptedEntryPrice = createV2EncryptedValue();
+  encryptedEntryPrice.copy(instructionData, offset);
   offset += 64;
 
   // Liquidation threshold (u64) - calculated as: entry * (1 - 1/leverage + mm_bps/10000)

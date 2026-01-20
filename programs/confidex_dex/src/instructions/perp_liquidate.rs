@@ -2,14 +2,17 @@ use anchor_lang::prelude::*;
 
 use crate::cpi::arcium::{
     check_liquidation_sync, calculate_pnl_sync, calculate_funding_sync,
-    add_encrypted, sub_encrypted, mul_encrypted, encrypt_value, EncryptedU64
+    add_encrypted, sub_encrypted, mul_encrypted, encrypt_value,
+    queue_batch_liquidation_check, BatchLiquidationPositionData, EncryptedU64
 };
 use crate::error::ConfidexError;
 use crate::oracle::get_sol_usd_price;
 use crate::state::{
-    ConfidentialPosition, LiquidationConfig, PerpetualMarket, PositionSide, PositionStatus,
+    ConfidentialPosition, LiquidationBatchRequest, LiquidationConfig,
+    PerpetualMarket, PositionSide, PositionStatus,
 };
 
+/// Uses Box<Account<>> to move large account data to heap (avoids stack overflow)
 #[derive(Accounts)]
 pub struct LiquidatePosition<'info> {
     #[account(
@@ -17,7 +20,7 @@ pub struct LiquidatePosition<'info> {
         seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
         bump = perp_market.bump,
     )]
-    pub perp_market: Account<'info, PerpetualMarket>,
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
 
     #[account(
         mut,
@@ -25,20 +28,31 @@ pub struct LiquidatePosition<'info> {
             ConfidentialPosition::SEED,
             position.trader.as_ref(),
             perp_market.key().as_ref(),
-            &position.position_id.to_le_bytes()
+            &position.position_id
         ],
         bump = position.bump,
         constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
         constraint = position.is_open() @ ConfidexError::PositionNotOpen,
         constraint = position.threshold_verified @ ConfidexError::ThresholdNotVerified
     )]
-    pub position: Account<'info, ConfidentialPosition>,
+    pub position: Box<Account<'info, ConfidentialPosition>>,
+
+    /// Batch liquidation request that contains MPC verification results
+    /// This must have been verified by MPC before liquidation can proceed
+    #[account(
+        mut,
+        seeds = [LiquidationBatchRequest::SEED, batch_request.request_id.as_ref()],
+        bump = batch_request.bump,
+        constraint = batch_request.completed @ ConfidexError::ThresholdNotVerified,
+        constraint = batch_request.market == perp_market.key() @ ConfidexError::InvalidFundingState
+    )]
+    pub batch_request: Box<Account<'info, LiquidationBatchRequest>>,
 
     #[account(
         seeds = [LiquidationConfig::SEED],
         bump = liquidation_config.bump,
     )]
-    pub liquidation_config: Account<'info, LiquidationConfig>,
+    pub liquidation_config: Box<Account<'info, LiquidationConfig>>,
 
     /// CHECK: Pyth oracle for current mark price
     #[account(
@@ -72,45 +86,58 @@ pub struct LiquidatePosition<'info> {
     pub arcium_program: AccountInfo<'info>,
 }
 
-pub fn handler(ctx: Context<LiquidatePosition>) -> Result<()> {
+/// Index of the position within the batch request
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct LiquidatePositionParams {
+    /// Index of this position in the batch request's results array
+    pub batch_index: u8,
+}
+
+pub fn handler(ctx: Context<LiquidatePosition>, params: LiquidatePositionParams) -> Result<()> {
     let clock = Clock::get()?;
-    let perp_market = &mut ctx.accounts.perp_market;
-    let position = &mut ctx.accounts.position;
+    let batch_request = &ctx.accounts.batch_request;
     let liquidation_config = &ctx.accounts.liquidation_config;
 
     // Fetch current mark price from Pyth oracle (6 decimal precision)
     let mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
-    msg!("Oracle mark price for liquidation: {} (6 decimals)", mark_price);
 
-    // Check if position is liquidatable using PUBLIC thresholds
-    // This is the key privacy-preserving check: we only check the public threshold
-    // The actual position size/collateral remains encrypted
+    // PRIVACY ENHANCEMENT (V2): Liquidation eligibility is verified via MPC batch check
+    // The batch_request contains results from MPC comparing encrypted thresholds vs mark price
+    // No public liquidation threshold is exposed
+
+    // Verify the batch was checked at the same mark price (within tolerance)
+    // This prevents stale batch results from being used
+    let price_tolerance = mark_price / 100; // 1% tolerance
     require!(
-        position.is_liquidatable(mark_price),
+        batch_request.mark_price >= mark_price.saturating_sub(price_tolerance)
+            && batch_request.mark_price <= mark_price.saturating_add(price_tolerance),
+        ConfidexError::StaleOraclePrice
+    );
+
+    // Verify this position is in the batch and MPC confirmed liquidation
+    require!(
+        (params.batch_index as usize) < batch_request.position_count as usize,
+        ConfidexError::InvalidAmount
+    );
+
+    // Check that the position pubkey matches the batch entry (before mutable borrow)
+    let position_key_bytes = ctx.accounts.position.key().to_bytes();
+    require!(
+        batch_request.positions[params.batch_index as usize] == position_key_bytes,
+        ConfidexError::OrderOwnerMismatch
+    );
+
+    // Verify MPC confirmed this position is liquidatable
+    require!(
+        batch_request.results[params.batch_index as usize],
         ConfidexError::PositionNotLiquidatable
     );
+
+    // Now take mutable references
+    let perp_market = &mut ctx.accounts.perp_market;
+    let position = &mut ctx.accounts.position;
 
     let is_long = matches!(position.side, PositionSide::Long);
-
-    // === MPC VERIFICATION ===
-    // Double-check liquidation eligibility via MPC using encrypted position data
-    let mpc_confirms_liquidation = check_liquidation_sync(
-        &ctx.accounts.arcium_program,
-        &perp_market.arcium_cluster,
-        &position.encrypted_collateral,
-        &position.encrypted_size,
-        &position.encrypted_entry_price,
-        mark_price,
-        is_long,
-        perp_market.maintenance_margin_bps,
-    )?;
-
-    require!(
-        mpc_confirms_liquidation,
-        ConfidexError::PositionNotLiquidatable
-    );
-
-    msg!("MPC confirmed liquidation eligibility for position {}", position.position_id);
 
     // === MPC CALCULATIONS FOR LIQUIDATION ===
 
@@ -158,7 +185,7 @@ pub fn handler(ctx: Context<LiquidatePosition>) -> Result<()> {
         &[0u8; 32],
         liquidation_config.liquidation_bonus_bps as u64,
     )?;
-    let liquidator_bonus = mul_encrypted(
+    let _liquidator_bonus = mul_encrypted(
         &ctx.accounts.arcium_program,
         &remaining_equity,
         &fee_multiplier,
@@ -171,43 +198,32 @@ pub fn handler(ctx: Context<LiquidatePosition>) -> Result<()> {
         &[0u8; 32],
         liquidation_config.insurance_fund_share_bps as u64,
     )?;
-    let insurance_contribution = mul_encrypted(
+    let _insurance_contribution = mul_encrypted(
         &ctx.accounts.arcium_program,
         &remaining_equity,
         &insurance_multiplier,
     )?;
-
-    msg!(
-        "MPC calculated liquidation amounts for position {}",
-        position.position_id
-    );
 
     // TODO: Transfer collateral distribution via C-SPL CPI:
     // - liquidator_bonus to liquidator
     // - insurance_contribution to insurance fund
     // - remaining to close position (if any positive equity)
 
-    // Mark position as liquidated
+    // Mark position as liquidated with coarse timestamp
+    let coarse_time = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
     position.status = PositionStatus::Liquidated;
-    position.last_updated = clock.unix_timestamp;
+    position.last_updated_hour = coarse_time;
 
     // Update market statistics
     // Note: Actual OI reduction happens via MPC callback since size is encrypted
 
-    // Update liquidation config stats
-    // Note: These would be updated via a separate admin instruction
-    // liquidation_config.total_liquidations += 1;
-    // liquidation_config.last_liquidation_time = clock.unix_timestamp;
-
+    // Log liquidation event (privacy-preserving: hash-based ID, no threshold, no amounts)
     msg!(
-        "Position liquidated: {} #{} on market {} by liquidator {}",
-        position.trader,
-        position.position_id,
-        perp_market.key(),
-        ctx.accounts.liquidator.key()
+        "Position liquidated on market {}",
+        perp_market.key()
     );
 
-    // Emit liquidation event (privacy-preserving: no amounts)
+    // Emit liquidation event (privacy-preserving: no amounts, no threshold, hash-based ID)
     emit!(PositionLiquidated {
         position_id: position.position_id,
         trader: position.trader,
@@ -215,7 +231,7 @@ pub fn handler(ctx: Context<LiquidatePosition>) -> Result<()> {
         liquidator: ctx.accounts.liquidator.key(),
         side: position.side,
         mark_price,
-        timestamp: clock.unix_timestamp,
+        timestamp: coarse_time,
     });
 
     Ok(())
@@ -223,11 +239,14 @@ pub fn handler(ctx: Context<LiquidatePosition>) -> Result<()> {
 
 #[event]
 pub struct PositionLiquidated {
-    pub position_id: u64,
+    /// Hash-based position ID (no sequential correlation)
+    pub position_id: [u8; 16],
     pub trader: Pubkey,
     pub market: Pubkey,
     pub liquidator: Pubkey,
     pub side: PositionSide,
+    /// Public oracle price at liquidation time
     pub mark_price: u64,
+    /// Coarse timestamp (hour precision)
     pub timestamp: i64,
 }

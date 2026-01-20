@@ -56,8 +56,8 @@ pub fn execute_shadowwire_settlement(
     let clock = Clock::get()?;
 
     msg!("ShadowWire settlement initiated");
-    msg!("  Buy order: {}", request.buy_order_id);
-    msg!("  Sell order: {}", request.sell_order_id);
+    msg!("  Buy order: {:?}", request.buy_order_id);
+    msg!("  Sell order: {:?}", request.sell_order_id);
     msg!("  Buyer: {}", request.buyer);
     msg!("  Seller: {}", request.seller);
 
@@ -80,8 +80,11 @@ pub fn execute_shadowwire_settlement(
     let base_fee = base_amount * SHADOWWIRE_FEE_BPS as u64 / 10000;
     let quote_fee = quote_amount * SHADOWWIRE_FEE_BPS as u64 / 10000;
 
-    msg!("  Base transfer: {} (fee: {})", base_amount, base_fee);
-    msg!("  Quote transfer: {} (fee: {})", quote_amount, quote_fee);
+    #[cfg(feature = "debug")]
+    {
+        msg!("  Base transfer: {} (fee: {})", base_amount, base_fee);
+        msg!("  Quote transfer: {} (fee: {})", quote_amount, quote_fee);
+    }
 
     // In production, this would:
     // 1. Create ShadowWire transfer requests via API
@@ -167,19 +170,25 @@ pub fn is_shadowwire_available(base_mint: &Pubkey, quote_mint: &Pubkey) -> bool 
 
 #[event]
 pub struct ShadowWireSettlementInitiated {
-    pub buy_order_id: u64,
-    pub sell_order_id: u64,
+    /// Hash-based order ID (no sequential correlation)
+    pub buy_order_id: [u8; 16],
+    /// Hash-based order ID (no sequential correlation)
+    pub sell_order_id: [u8; 16],
     pub buyer: Pubkey,
     pub seller: Pubkey,
     pub method: SettlementMethod,
+    /// Coarse timestamp (hour precision)
     pub timestamp: i64,
 }
 
 #[event]
 pub struct ShadowWireSettlementCompleted {
-    pub buy_order_id: u64,
-    pub sell_order_id: u64,
+    /// Hash-based order ID (no sequential correlation)
+    pub buy_order_id: [u8; 16],
+    /// Hash-based order ID (no sequential correlation)
+    pub sell_order_id: [u8; 16],
     pub success: bool,
+    /// Coarse timestamp (hour precision)
     pub timestamp: i64,
 }
 
