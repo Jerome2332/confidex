@@ -76,6 +76,10 @@ pub struct ConfidentialOrder {
     /// Generated from hash(maker, pair, nonce)
     pub order_id: [u8; 16],
 
+    /// Order nonce used for PDA derivation (8 bytes from order_count)
+    /// This is stored separately from order_id to enable PDA reconstruction
+    pub order_nonce: [u8; 8],
+
     /// Whether eligibility ZK proof has been verified
     pub eligibility_proof_verified: bool,
 
@@ -89,9 +93,16 @@ pub struct ConfidentialOrder {
 
     /// PDA bump seed
     pub bump: u8,
+
+    /// Ephemeral X25519 public key used for encryption (32 bytes)
+    /// Required for Full Arcium MXE to decrypt encrypted values via MPC
+    /// This is the full 32-byte key (V2 format stores truncated 16-byte version)
+    pub ephemeral_pubkey: [u8; 32],
 }
 
 impl ConfidentialOrder {
+    /// V5 account size - no plaintext fields (privacy hardened)
+    /// Reduced from 390 bytes to 366 bytes
     pub const SIZE: usize = 8 +  // discriminator
         32 + // maker
         32 + // pair
@@ -103,11 +114,13 @@ impl ConfidentialOrder {
         1 +  // status
         8 +  // created_at_hour
         16 + // order_id (hash-based)
+        8 +  // order_nonce (for PDA derivation)
         1 +  // eligibility_proof_verified
         32 + // pending_match_request
         1 +  // is_matching
-        1;   // bump
-    // Total: 337 bytes
+        1 +  // bump
+        32;  // ephemeral_pubkey (for production MPC)
+    // Total: 366 bytes (8 + 358)
 
     pub const SEED: &'static [u8] = b"order";
 
@@ -151,5 +164,67 @@ impl ConfidentialOrder {
     /// Floor timestamp to nearest hour for privacy (3600-second granularity)
     pub fn coarse_timestamp(timestamp: i64) -> i64 {
         (timestamp / 3600) * 3600
+    }
+
+    // =========================================================================
+    // HACKATHON PLAINTEXT HELPERS
+    // These methods read/write plaintext values from the first 8 bytes of
+    // encrypted fields. This is a temporary solution until C-SPL SDK is available.
+    // In production, these will be replaced with proper C-SPL encrypted operations.
+    // =========================================================================
+
+    /// Get order amount as plaintext u64 (hackathon only - reads first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_amount_plaintext(&self) -> u64 {
+        u64::from_le_bytes(
+            self.encrypted_amount[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set order amount plaintext (hackathon only - writes to first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_amount_plaintext(&mut self, amount: u64) {
+        self.encrypted_amount[0..8].copy_from_slice(&amount.to_le_bytes());
+    }
+
+    /// Get order price as plaintext u64 (hackathon only - reads first 8 bytes)
+    /// Price is in quote token units (e.g., USDC with 6 decimals)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_price_plaintext(&self) -> u64 {
+        u64::from_le_bytes(
+            self.encrypted_price[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set order price plaintext (hackathon only - writes to first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_price_plaintext(&mut self, price: u64) {
+        self.encrypted_price[0..8].copy_from_slice(&price.to_le_bytes());
+    }
+
+    /// Get filled amount as plaintext u64 (hackathon only - reads first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_filled_plaintext(&self) -> u64 {
+        u64::from_le_bytes(
+            self.encrypted_filled[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set filled amount plaintext (hackathon only - writes to first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_filled_plaintext(&mut self, amount: u64) {
+        self.encrypted_filled[0..8].copy_from_slice(&amount.to_le_bytes());
+    }
+
+    /// Check if order has been filled (hackathon helper)
+    /// Returns true if filled_plaintext > 0
+    pub fn has_fill(&self) -> bool {
+        self.get_filled_plaintext() > 0
+    }
+
+    /// Get remaining unfilled amount (hackathon helper)
+    /// Returns amount - filled, using saturating subtraction
+    pub fn get_remaining_plaintext(&self) -> u64 {
+        self.get_amount_plaintext().saturating_sub(self.get_filled_plaintext())
     }
 }

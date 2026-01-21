@@ -37,9 +37,9 @@ import { LeverageSelector } from './leverage-selector';
 import { FundingDisplay } from './funding-display';
 import { TokenSelector, AVAILABLE_TOKENS } from './token-selector';
 import { NATIVE_MINT } from '@solana/spl-token';
-import Link from 'next/link';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { OrderProgress, useOrderProgress } from './order-progress';
+import { WrapUnwrapModal } from './wrap-unwrap-modal';
 
 type OrderSide = 'buy' | 'sell';
 type PositionSide = 'long' | 'short';
@@ -69,6 +69,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   const [sizePercent, setSizePercent] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
+  const [showWrapModal, setShowWrapModal] = useState(false);
+  const [wrapModalMode, setWrapModalMode] = useState<'wrap' | 'unwrap'>('wrap');
 
   // Order progress tracking for visual feedback
   const { step: orderStep, setStep: setOrderStep, errorMessage: orderError, setError: setOrderError, reset: resetOrderProgress } = useOrderProgress();
@@ -95,7 +97,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
   // Use proof, encryption, and balance hooks
   const { isGenerating, proofReady, lastProof, generateProof } = useProof();
-  const { isInitialized, initializeEncryption, encryptValue } = useEncryption();
+  const { isInitialized, initializeEncryption, encryptValue, getEphemeralPublicKey } = useEncryption();
   const { addOrder, setIsPlacingOrder } = useOrderStore();
   const { balances: wrappedBalances, isLoading: isLoadingBalances, refresh: refreshBalances, canAfford, isEncrypted } = useEncryptedBalance();
   const { balances: tokenBalances, refresh: refreshTokenBalances } = useTokenBalance();
@@ -712,6 +714,13 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
       const encryptedAmount = await encryptValue(amountLamports);
       const encryptedPrice = await encryptValue(priceLamports);
+
+      // Get ephemeral public key for production MPC decryption
+      const ephemeralPubkey = getEphemeralPublicKey();
+      if (!ephemeralPubkey) {
+        throw new Error('Ephemeral public key not available - encryption not initialized');
+      }
+
       setOrderStep('encrypted');
       toast.success('Order encrypted', { id: 'encrypt' });
 
@@ -752,6 +761,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           encryptedAmount,
           encryptedPrice,
           eligibilityProof: proofResult.proof,
+          ephemeralPubkey,
           wrapTokenMint,
           wrapAmount: currentWrapReqs.wrapNeeded,
         });
@@ -768,6 +778,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           encryptedAmount,
           encryptedPrice,
           eligibilityProof: proofResult.proof,
+          ephemeralPubkey,
         });
       }
 
@@ -1043,13 +1054,21 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   const currentFundingInfo = fundingRates.get(selectedMarket);
 
   return (
-    <div className={`flex flex-col h-full ${isSidebar ? 'bg-card' : 'bg-card border border-border rounded-lg'}`}>
+    <div
+      className={`flex flex-col h-full ${isSidebar ? 'bg-card' : 'bg-card border border-border rounded-lg'}`}
+      role="form"
+      aria-label={tradingMode === 'perps' ? 'Perpetuals trading form' : 'Spot trading form'}
+    >
       {/* Order Form Section */}
       <div className="flex-1 flex flex-col">
         {/* Order Type Tabs */}
-        <div className="flex border-b border-border shrink-0">
+        <div className="flex border-b border-border shrink-0" role="tablist" aria-label="Order type selection">
         <button
           onClick={() => setOrderType('market')}
+          role="tab"
+          aria-selected={orderType === 'market'}
+          aria-controls="order-form"
+          id="market-tab"
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
             orderType === 'market'
               ? 'text-foreground border-b-2 border-primary'
@@ -1060,6 +1079,10 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         </button>
         <button
           onClick={() => setOrderType('limit')}
+          role="tab"
+          aria-selected={orderType === 'limit'}
+          aria-controls="order-form"
+          id="limit-tab"
           className={`flex-1 py-2.5 text-sm font-medium transition-colors ${
             orderType === 'limit'
               ? 'text-foreground border-b-2 border-primary'
@@ -1080,11 +1103,17 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       </div>
 
       {/* Buy/Sell Toggle (Spot) or Long/Short Toggle (Perps) */}
-      <div className="flex gap-1 px-3 py-3 shrink-0">
+      <div
+        className="flex gap-1 px-3 py-3 shrink-0"
+        role="group"
+        aria-label={tradingMode === 'spot' ? 'Order side selection' : 'Position direction selection'}
+      >
         {tradingMode === 'spot' ? (
           <>
             <button
               onClick={() => setSide('buy')}
+              aria-pressed={side === 'buy'}
+              aria-label="Buy order"
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
                 side === 'buy'
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
@@ -1095,6 +1124,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             </button>
             <button
               onClick={() => setSide('sell')}
+              aria-pressed={side === 'sell'}
+              aria-label="Sell order"
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors ${
                 side === 'sell'
                   ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
@@ -1108,24 +1139,28 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           <>
             <button
               onClick={() => setPositionSide('long')}
+              aria-pressed={positionSide === 'long'}
+              aria-label="Open long position"
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
                 positionSide === 'long'
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                   : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
-              <TrendUp size={16} />
+              <TrendUp size={16} aria-hidden="true" />
               Long
             </button>
             <button
               onClick={() => setPositionSide('short')}
+              aria-pressed={positionSide === 'short'}
+              aria-label="Open short position"
               className={`flex-1 py-2 text-sm font-medium rounded transition-colors flex items-center justify-center gap-1.5 ${
                 positionSide === 'short'
                   ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                   : 'bg-white/5 text-white/50 hover:text-white border border-white/10'
               }`}
             >
-              <TrendDown size={16} />
+              <TrendDown size={16} aria-hidden="true" />
               Short
             </button>
           </>
@@ -1159,11 +1194,12 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       </div>
 
       {/* Size Input */}
-      <div className="px-3 py-2 space-y-2 shrink-0">
-        <label className="text-xs text-muted-foreground">Size</label>
+      <div className="px-3 py-2 space-y-2 shrink-0" id="order-form" role="tabpanel" aria-labelledby={`${orderType}-tab`}>
+        <label htmlFor="order-size" className="text-xs text-muted-foreground">Size</label>
         <div className="relative">
           <input
             type="number"
+            id="order-size"
             value={amount}
             onChange={(e) => {
               setAmount(e.target.value);
@@ -1176,9 +1212,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             placeholder="0.00"
             step="0.01"
             min="0"
+            aria-label="Order size in SOL"
+            aria-describedby="size-unit"
             className="w-full bg-secondary border border-border rounded px-3 py-2 text-sm pr-16"
           />
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          <span id="size-unit" className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
             SOL
           </span>
         </div>
@@ -1191,17 +1229,23 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             max="100"
             value={sizePercent}
             onChange={(e) => handleSliderChange(parseInt(e.target.value))}
+            aria-label={`Order size percentage: ${sizePercent}%`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={sizePercent}
             className="flex-1 h-1 accent-primary cursor-pointer"
           />
-          <span className="text-xs text-muted-foreground w-10 text-right">{sizePercent}%</span>
+          <span className="text-xs text-muted-foreground w-10 text-right" aria-hidden="true">{sizePercent}%</span>
         </div>
 
         {/* Percentage Presets */}
-        <div className="flex gap-1">
+        <div className="flex gap-1" role="group" aria-label="Quick size percentage options">
           {PERCENTAGE_PRESETS.map(pct => (
             <button
               key={pct}
               onClick={() => handlePercentageClick(pct)}
+              aria-pressed={sizePercent === pct}
+              aria-label={`Set size to ${pct}% of available balance`}
               className={`flex-1 text-xs py-1 rounded border transition-colors ${
                 sizePercent === pct
                   ? 'bg-primary/20 border-primary text-primary'
@@ -1217,18 +1261,21 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       {/* Price Input (Limit only) */}
       {orderType === 'limit' && (
         <div className="px-3 py-2 shrink-0">
-          <label className="text-xs text-muted-foreground">Price</label>
+          <label htmlFor="order-price" className="text-xs text-muted-foreground">Price</label>
           <div className="relative mt-1">
             <input
               type="number"
+              id="order-price"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="0.00"
               step="0.01"
               min="0"
+              aria-label="Limit price in USDC"
+              aria-describedby="price-unit"
               className="w-full bg-secondary border border-border rounded px-3 py-2 text-sm pr-16"
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+            <span id="price-unit" className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
               USDC
             </span>
           </div>
@@ -1236,12 +1283,12 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       )}
 
       {/* Info Rows */}
-      <div className="px-3 py-2 space-y-1.5 text-xs shrink-0">
+      <div className="px-3 py-2 space-y-1.5 text-xs shrink-0" role="region" aria-label="Order details">
         <div className="flex justify-between">
           <span className="text-muted-foreground">
             {tradingMode === 'perps' ? 'Position Value' : 'Order Value'}
           </span>
-          <span className="font-mono">
+          <span className="font-mono" aria-live="polite">
             {orderValue !== null ? `$${orderValue.toFixed(2)}` : 'N/A'}
           </span>
         </div>
@@ -1359,20 +1406,26 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       {/* Account Section - pushed to bottom */}
       {showAccountSection && (
         <div className="border-t border-border p-3 space-y-3 shrink-0 mt-auto">
-          {/* Deposit/Withdraw Buttons */}
+          {/* Wrap/Unwrap Buttons */}
           <div className="flex gap-2">
-            <Link
-              href="/wrap"
+            <button
+              onClick={() => {
+                setWrapModalMode('wrap');
+                setShowWrapModal(true);
+              }}
               className="flex-1 py-2 text-center text-xs font-medium bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors"
             >
-              Deposit
-            </Link>
-            <Link
-              href="/wrap?tab=unwrap"
+              Wrap
+            </button>
+            <button
+              onClick={() => {
+                setWrapModalMode('unwrap');
+                setShowWrapModal(true);
+              }}
               className="flex-1 py-2 text-center text-xs font-medium bg-secondary text-foreground rounded hover:bg-secondary/80 transition-colors border border-border"
             >
-              Withdraw
-            </Link>
+              Unwrap
+            </button>
           </div>
 
           {/* Wallet Balance (Regular SPL tokens) */}
@@ -1439,7 +1492,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             </div>
             {Number(wrappedBalances.sol) === 0 && Number(wrappedBalances.usdc) === 0 && connected && (
               <p className="text-[10px] text-muted-foreground/70 mt-1">
-                Deposit funds above to start trading privately
+                Wrap tokens above to start trading privately
               </p>
             )}
           </div>
@@ -1467,6 +1520,13 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             ? `${(Number(wrapNeeded) / 1e9).toFixed(4)} SOL`
             : `${(Number(wrapNeeded) / 1e6).toFixed(2)} USDC`
         ) : undefined}
+      />
+
+      {/* Wrap/Unwrap Modal */}
+      <WrapUnwrapModal
+        isOpen={showWrapModal}
+        onClose={() => setShowWrapModal(false)}
+        initialMode={wrapModalMode}
       />
     </div>
   );

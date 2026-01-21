@@ -29,6 +29,12 @@ pub enum ConfidexError {
     #[msg("Order does not belong to this user")]
     OrderOwnerMismatch,
 
+    #[msg("Invalid order")]
+    InvalidOrder,
+
+    #[msg("Order is not filled (cannot settle)")]
+    OrderNotFilled,
+
     #[msg("Invalid order side for matching")]
     InvalidOrderSide,
 
@@ -141,4 +147,15 @@ pub enum ConfidexError {
 
     #[msg("Invalid collateral amount")]
     InvalidCollateral,
+
+    // === Migration Errors ===
+
+    #[msg("Invalid account size for migration")]
+    InvalidAccountSize,
+
+    #[msg("Invalid account data")]
+    InvalidAccountData,
+
+    #[msg("Invalid program ID")]
+    InvalidProgramId,
 }

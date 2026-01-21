@@ -13,6 +13,7 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from './theme-provider';
 import { Toaster } from 'sonner';
+import { RPC_ENDPOINT } from '@/lib/constants';
 
 // Import wallet adapter styles
 import '@solana/wallet-adapter-react-ui/styles.css';
@@ -31,12 +32,8 @@ interface ProvidersProps {
 }
 
 export const Providers: FC<ProvidersProps> = ({ children }) => {
-  // Use Helius RPC if available, otherwise devnet
-  const endpoint = useMemo(
-    () =>
-      process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com',
-    []
-  );
+  // Use centralized RPC endpoint (Helius if available, otherwise devnet)
+  const endpoint = useMemo(() => RPC_ENDPOINT, []);
 
   const wallets = useMemo(
     () => [
@@ -55,12 +52,19 @@ export const Providers: FC<ProvidersProps> = ({ children }) => {
               {children}
               <Toaster
                 position="bottom-right"
+                richColors
+                closeButton
+                expand={false}
+                visibleToasts={5}
                 toastOptions={{
                   style: {
-                    background: 'rgba(0, 0, 0, 0.9)',
+                    background: 'rgba(0, 0, 0, 0.95)',
                     border: '1px solid rgba(255, 255, 255, 0.1)',
                     color: 'white',
+                    borderRadius: '12px',
                   },
+                  className: 'font-sans',
+                  descriptionClassName: 'text-white/60',
                 }}
               />
             </WalletModalProvider>

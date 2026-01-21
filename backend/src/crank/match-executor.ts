@@ -2,7 +2,7 @@
  * Match Executor
  *
  * Builds and submits match_orders transactions.
- * Handles retries with exponential backoff.
+ * Handles retries with exponential backoff and proper error classification.
  */
 
 import {
@@ -17,12 +17,19 @@ import {
 } from '@solana/web3.js';
 import { MatchCandidate, MatchResult } from './types.js';
 import { CrankConfig } from './config.js';
+import { withRetry, RetryResult } from '../lib/retry.js';
+import { classifyError, BlockchainError, isRetryable } from '../lib/errors.js';
+import { withTimeout, DEFAULT_TIMEOUTS } from '../lib/timeout.js';
 
-// PDA seeds
+// =============================================================================
+// SHARED CONSTANTS - Source of truth: lib/src/constants.ts
+// TODO: Import from @confidex/sdk when monorepo workspace is configured
+// =============================================================================
 const EXCHANGE_SEED = Buffer.from('exchange');
+const MXE_CONFIG_SEED = Buffer.from('mxe_config');
 const COMPUTATION_SEED = Buffer.from('computation');
 
-// match_orders discriminator (pre-computed sha256("global:match_orders")[0..8])
+// match_orders discriminator: sha256("global:match_orders")[0..8]
 const MATCH_ORDERS_DISCRIMINATOR = new Uint8Array([0x11, 0x01, 0xc9, 0x5d, 0x07, 0x33, 0xfb, 0x86]);
 
 export class MatchExecutor {
@@ -60,10 +67,13 @@ export class MatchExecutor {
 
   /**
    * Derive MXE Config PDA
+   *
+   * Our custom MXE (CB7P5...) uses seeds: [b"mxe_config"]
+   * Derived under our MXE program ID, NOT Arcium core program
    */
   private deriveMxeConfigPda(): PublicKey {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('mxe_config')],
+      [MXE_CONFIG_SEED],
       this.mxeProgramId
     );
     return pda;
@@ -141,7 +151,7 @@ export class MatchExecutor {
   }
 
   /**
-   * Execute a match with retries
+   * Execute a match with retries using the retry utility
    */
   async executeMatch(candidate: MatchCandidate): Promise<MatchResult> {
     const buyPda = candidate.buyOrder.pda.toString();
@@ -149,48 +159,66 @@ export class MatchExecutor {
 
     console.log(`[MatchExecutor] Attempting match: ${buyPda.slice(0, 8)}... <-> ${sellPda.slice(0, 8)}...`);
 
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt < this.maxRetries; attempt++) {
-      try {
+    // Use the withRetry utility for standardized retry behavior
+    const result: RetryResult<string> = await withRetry(
+      async () => {
         const transaction = await this.buildMatchTransaction(candidate);
 
-        const signature = await sendAndConfirmTransaction(
-          this.connection,
-          transaction,
-          [this.crankKeypair],
-          { commitment: 'confirmed' }
+        // Wrap with timeout for transaction confirmation
+        const signature = await withTimeout(
+          sendAndConfirmTransaction(
+            this.connection,
+            transaction,
+            [this.crankKeypair],
+            { commitment: 'confirmed' }
+          ),
+          {
+            timeoutMs: DEFAULT_TIMEOUTS.TRANSACTION,
+            operation: 'sendAndConfirmTransaction',
+          }
         );
 
-        console.log(`[MatchExecutor] Match successful: ${signature}`);
-
-        return {
-          success: true,
-          signature,
-          buyOrderPda: candidate.buyOrder.pda,
-          sellOrderPda: candidate.sellOrder.pda,
-          timestamp: Date.now(),
-        };
-      } catch (error) {
-        lastError = error as Error;
-
-        // Check if it's a retryable error
-        if (this.isRetryable(error)) {
-          const delay = this.baseRetryDelayMs * Math.pow(2, attempt);
-          console.log(`[MatchExecutor] Retry ${attempt + 1}/${this.maxRetries} after ${delay}ms`);
-          await this.sleep(delay);
-          continue;
-        }
-
-        // Non-retryable error, log and return failure
-        console.error(`[MatchExecutor] Non-retryable error:`, this.extractErrorMessage(error));
-        break;
+        return signature;
+      },
+      {
+        maxAttempts: this.maxRetries,
+        initialDelayMs: this.baseRetryDelayMs,
+        maxDelayMs: 10_000, // Cap at 10 seconds
+        backoffMultiplier: 2,
+        jitterFactor: 0.1, // Add 10% jitter
+        maxTimeMs: 30_000, // Total max time 30 seconds
+        isRetryable: (error) => isRetryable(error),
+        onRetry: (error, attempt, delayMs) => {
+          const classified = classifyError(error);
+          console.log(
+            `[MatchExecutor] Retry ${attempt}/${this.maxRetries} after ${delayMs}ms ` +
+            `(${classified.name}: ${classified.message})`
+          );
+        },
       }
+    );
+
+    if (result.success) {
+      console.log(`[MatchExecutor] Match successful: ${result.value}`);
+      return {
+        success: true,
+        signature: result.value,
+        buyOrderPda: candidate.buyOrder.pda,
+        sellOrderPda: candidate.sellOrder.pda,
+        timestamp: Date.now(),
+      };
     }
+
+    // Classify the error for better logging
+    const classified = classifyError(result.error);
+    console.error(
+      `[MatchExecutor] Match failed after ${result.attempts} attempts ` +
+      `(${result.totalTimeMs}ms): ${classified.name} - ${classified.message}`
+    );
 
     return {
       success: false,
-      error: lastError?.message || 'Unknown error',
+      error: classified.message,
       buyOrderPda: candidate.buyOrder.pda,
       sellOrderPda: candidate.sellOrder.pda,
       timestamp: Date.now(),
@@ -201,27 +229,31 @@ export class MatchExecutor {
    * Check if an error is retryable
    */
   private isRetryable(error: unknown): boolean {
-    if (error instanceof SendTransactionError) {
-      const message = error.message.toLowerCase();
-
-      // Retryable errors
-      if (message.includes('blockhash not found')) return true;
-      if (message.includes('timeout')) return true;
-      if (message.includes('rate limit')) return true;
-      if (message.includes('connection')) return true;
-
-      // Non-retryable program errors
-      if (message.includes('custom program error')) return false;
-      if (message.includes('instruction error')) return false;
+    if (!(error instanceof Error)) {
+      return false;
     }
 
-    // Network errors are generally retryable
-    if (error instanceof Error) {
-      const message = error.message.toLowerCase();
-      if (message.includes('econnreset')) return true;
-      if (message.includes('etimedout')) return true;
-      if (message.includes('enotfound')) return true;
-    }
+    const message = error.message.toLowerCase();
+
+    // Non-retryable program errors (check these first)
+    if (message.includes('custom program error')) return false;
+    if (message.includes('instruction error')) return false;
+    if (message.includes('insufficient funds')) return false;
+    if (message.includes('account not found')) return false;
+    if (message.includes('invalid account')) return false;
+
+    // Retryable errors
+    if (message.includes('blockhash not found')) return true;
+    if (message.includes('timeout')) return true;
+    if (message.includes('rate limit')) return true;
+    if (message.includes('connection')) return true;
+    if (message.includes('econnreset')) return true;
+    if (message.includes('etimedout')) return true;
+    if (message.includes('enotfound')) return true;
+    if (message.includes('network')) return true;
+    if (message.includes('socket hang up')) return true;
+    if (message.includes('503')) return true;
+    if (message.includes('429')) return true;
 
     return false;
   }

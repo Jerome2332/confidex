@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::cpi::arcium::{ARCIUM_PROGRAM_ID, ARCIUM_MXE_PROGRAM_ID};
+use crate::cpi::verifier::SUNSPOT_VERIFIER_PROGRAM_ID;
 use crate::error::ConfidexError;
 use crate::state::ExchangeState;
 
@@ -419,5 +421,210 @@ pub fn update_perp_market_config_handler(
 
     msg!("Perp market config updated");
 
+    Ok(())
+}
+
+// ============================================================================
+// Migrate Exchange Account (V4 → V5)
+// ============================================================================
+// This instruction resizes the ExchangeState account from 158 bytes to 262 bytes
+// and initializes the new program ID fields with defaults.
+// ============================================================================
+
+/// Old V4 size for migration validation
+pub const EXCHANGE_V4_SIZE: usize = 158;
+
+#[derive(Accounts)]
+pub struct MigrateExchange<'info> {
+    /// CHECK: We use AccountInfo to handle both old and new sizes
+    /// The exchange account that needs migration
+    #[account(
+        mut,
+        seeds = [ExchangeState::SEED],
+        bump,
+    )]
+    pub exchange: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn migrate_exchange_handler(ctx: Context<MigrateExchange>) -> Result<()> {
+    let exchange_info = &ctx.accounts.exchange;
+    let authority = &ctx.accounts.authority;
+    let system_program = &ctx.accounts.system_program;
+
+    // Get current size
+    let current_size = exchange_info.data_len();
+    msg!("Exchange current size: {} bytes", current_size);
+
+    // Check if already migrated
+    if current_size == ExchangeState::SIZE {
+        msg!("Exchange already at V5 size ({}), no migration needed", ExchangeState::SIZE);
+        return Ok(());
+    }
+
+    // Validate it's the old V4 format
+    require!(
+        current_size == EXCHANGE_V4_SIZE,
+        ConfidexError::InvalidAccountSize
+    );
+
+    // Read existing V4 data before reallocation
+    let v4_data = exchange_info.try_borrow_data()?;
+
+    // Parse existing fields from V4 format (158 bytes total data, 8 byte discriminator)
+    // Skip discriminator (8 bytes)
+    let authority_bytes: [u8; 32] = v4_data[8..40].try_into().map_err(|_| ConfidexError::InvalidAccountData)?;
+    let saved_authority = Pubkey::from(authority_bytes);
+
+    // Verify authority
+    require!(
+        saved_authority == authority.key(),
+        ConfidexError::Unauthorized
+    );
+
+    let fee_recipient_bytes: [u8; 32] = v4_data[40..72].try_into().map_err(|_| ConfidexError::InvalidAccountData)?;
+    let saved_fee_recipient = Pubkey::from(fee_recipient_bytes);
+
+    let maker_fee_bps = u16::from_le_bytes(v4_data[72..74].try_into().map_err(|_| ConfidexError::InvalidAccountData)?);
+    let taker_fee_bps = u16::from_le_bytes(v4_data[74..76].try_into().map_err(|_| ConfidexError::InvalidAccountData)?);
+    let paused = v4_data[76] != 0;
+
+    let mut blacklist_root = [0u8; 32];
+    blacklist_root.copy_from_slice(&v4_data[77..109]);
+
+    let arcium_cluster_bytes: [u8; 32] = v4_data[109..141].try_into().map_err(|_| ConfidexError::InvalidAccountData)?;
+    let saved_arcium_cluster = Pubkey::from(arcium_cluster_bytes);
+
+    let pair_count = u64::from_le_bytes(v4_data[141..149].try_into().map_err(|_| ConfidexError::InvalidAccountData)?);
+    let order_count = u64::from_le_bytes(v4_data[149..157].try_into().map_err(|_| ConfidexError::InvalidAccountData)?);
+    let bump = v4_data[157];
+
+    // Drop borrow before realloc
+    drop(v4_data);
+
+    // Calculate additional space needed
+    let additional_space = ExchangeState::SIZE - current_size;
+    msg!("Reallocating {} additional bytes", additional_space);
+
+    // Calculate additional rent needed
+    let rent = Rent::get()?;
+    let current_rent = rent.minimum_balance(current_size);
+    let new_rent = rent.minimum_balance(ExchangeState::SIZE);
+    let additional_rent = new_rent.saturating_sub(current_rent);
+
+    // Transfer additional rent from authority to exchange
+    if additional_rent > 0 {
+        let cpi_context = CpiContext::new(
+            system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: authority.to_account_info(),
+                to: exchange_info.clone(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, additional_rent)?;
+        msg!("Transferred {} lamports for additional rent", additional_rent);
+    }
+
+    // Realloc the account
+    exchange_info.realloc(ExchangeState::SIZE, false)?;
+    msg!("Account reallocated to {} bytes", ExchangeState::SIZE);
+
+    // Write back all data including new V5 fields
+    let mut data = exchange_info.try_borrow_mut_data()?;
+
+    // Keep the discriminator unchanged (first 8 bytes)
+    // Write existing fields back
+    data[8..40].copy_from_slice(&saved_authority.to_bytes());
+    data[40..72].copy_from_slice(&saved_fee_recipient.to_bytes());
+    data[72..74].copy_from_slice(&maker_fee_bps.to_le_bytes());
+    data[74..76].copy_from_slice(&taker_fee_bps.to_le_bytes());
+    data[76] = if paused { 1 } else { 0 };
+    data[77..109].copy_from_slice(&blacklist_root);
+    data[109..141].copy_from_slice(&saved_arcium_cluster.to_bytes());
+    data[141..149].copy_from_slice(&pair_count.to_le_bytes());
+    data[149..157].copy_from_slice(&order_count.to_le_bytes());
+    data[157] = bump;
+
+    // Write new V5 fields (program IDs)
+    // arcium_program_id at offset 158
+    data[158..190].copy_from_slice(&ARCIUM_PROGRAM_ID.to_bytes());
+    // mxe_program_id at offset 190
+    data[190..222].copy_from_slice(&ARCIUM_MXE_PROGRAM_ID.to_bytes());
+    // verifier_program_id at offset 222
+    data[222..254].copy_from_slice(&SUNSPOT_VERIFIER_PROGRAM_ID.to_bytes());
+
+    msg!("Exchange migrated to V5 format successfully");
+    msg!("New program IDs: arcium={}, mxe={}, verifier={}",
+         ARCIUM_PROGRAM_ID, ARCIUM_MXE_PROGRAM_ID, SUNSPOT_VERIFIER_PROGRAM_ID);
+
+    Ok(())
+}
+
+// ============================================================================
+// Update Program IDs (admin only)
+// ============================================================================
+
+#[derive(Accounts)]
+pub struct UpdateProgramIds<'info> {
+    #[account(
+        mut,
+        seeds = [ExchangeState::SEED],
+        bump = exchange.bump,
+        has_one = authority @ ConfidexError::Unauthorized
+    )]
+    pub exchange: Account<'info, ExchangeState>,
+
+    pub authority: Signer<'info>,
+}
+
+/// Parameters for updating program IDs
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct UpdateProgramIdsParams {
+    /// New Arcium core program ID (None = keep current)
+    pub arcium_program_id: Option<Pubkey>,
+    /// New MXE program ID (None = keep current)
+    pub mxe_program_id: Option<Pubkey>,
+    /// New verifier program ID (None = keep current)
+    pub verifier_program_id: Option<Pubkey>,
+}
+
+pub fn update_program_ids_handler(
+    ctx: Context<UpdateProgramIds>,
+    params: UpdateProgramIdsParams,
+) -> Result<()> {
+    let exchange = &mut ctx.accounts.exchange;
+
+    if let Some(arcium_program_id) = params.arcium_program_id {
+        require!(
+            ExchangeState::validate_program_id(&arcium_program_id),
+            ConfidexError::InvalidProgramId
+        );
+        exchange.arcium_program_id = arcium_program_id;
+        msg!("Arcium program ID updated: {}", arcium_program_id);
+    }
+
+    if let Some(mxe_program_id) = params.mxe_program_id {
+        require!(
+            ExchangeState::validate_program_id(&mxe_program_id),
+            ConfidexError::InvalidProgramId
+        );
+        exchange.mxe_program_id = mxe_program_id;
+        msg!("MXE program ID updated: {}", mxe_program_id);
+    }
+
+    if let Some(verifier_program_id) = params.verifier_program_id {
+        require!(
+            ExchangeState::validate_program_id(&verifier_program_id),
+            ConfidexError::InvalidProgramId
+        );
+        exchange.verifier_program_id = verifier_program_id;
+        msg!("Verifier program ID updated: {}", verifier_program_id);
+    }
+
+    msg!("Program IDs update complete");
     Ok(())
 }

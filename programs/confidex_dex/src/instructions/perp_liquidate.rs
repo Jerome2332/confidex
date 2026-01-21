@@ -6,10 +6,10 @@ use crate::cpi::arcium::{
     queue_batch_liquidation_check, BatchLiquidationPositionData, EncryptedU64
 };
 use crate::error::ConfidexError;
-use crate::oracle::get_sol_usd_price;
+use crate::oracle::get_sol_usd_price_for_liquidation;
 use crate::state::{
     ConfidentialPosition, LiquidationBatchRequest, LiquidationConfig,
-    PerpetualMarket, PositionSide, PositionStatus,
+    PerpetualMarket, PositionSide, PositionStatus, UserConfidentialBalance,
 };
 
 /// Uses Box<Account<>> to move large account data to heap (avoids stack overflow)
@@ -84,6 +84,47 @@ pub struct LiquidatePosition<'info> {
 
     /// CHECK: Arcium program for MPC calculations
     pub arcium_program: AccountInfo<'info>,
+
+    // =========================================================================
+    // HACKATHON: UserConfidentialBalance accounts for interim SPL-based payouts
+    // When C-SPL is available, replace with C-SPL confidential transfers
+    // =========================================================================
+
+    /// Liquidator's quote balance (receives liquidation bonus)
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            liquidator.key().as_ref(),
+            perp_market.quote_mint.as_ref()
+        ],
+        bump = liquidator_balance.bump,
+    )]
+    pub liquidator_balance: Account<'info, UserConfidentialBalance>,
+
+    /// Insurance fund's quote balance (receives insurance share)
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            liquidation_config.insurance_fund.as_ref(),
+            perp_market.quote_mint.as_ref()
+        ],
+        bump = insurance_balance.bump,
+    )]
+    pub insurance_balance: Account<'info, UserConfidentialBalance>,
+
+    /// Trader's quote balance (receives remaining equity if any)
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            position.trader.as_ref(),
+            perp_market.quote_mint.as_ref()
+        ],
+        bump = trader_balance.bump,
+    )]
+    pub trader_balance: Account<'info, UserConfidentialBalance>,
 }
 
 /// Index of the position within the batch request
@@ -98,8 +139,11 @@ pub fn handler(ctx: Context<LiquidatePosition>, params: LiquidatePositionParams)
     let batch_request = &ctx.accounts.batch_request;
     let liquidation_config = &ctx.accounts.liquidation_config;
 
-    // Fetch current mark price from Pyth oracle (6 decimal precision)
-    let mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+    // Fetch current mark price from Pyth oracle with strict validation (6 decimal precision)
+    // This enforces:
+    // - Price freshness < 60 seconds on mainnet (3600s on devnet)
+    // - Confidence interval < 1% on mainnet (10% on devnet)
+    let mark_price = get_sol_usd_price_for_liquidation(&ctx.accounts.oracle)?;
 
     // PRIVACY ENHANCEMENT (V2): Liquidation eligibility is verified via MPC batch check
     // The batch_request contains results from MPC comparing encrypted thresholds vs mark price
@@ -204,10 +248,56 @@ pub fn handler(ctx: Context<LiquidatePosition>, params: LiquidatePositionParams)
         &insurance_multiplier,
     )?;
 
-    // TODO: Transfer collateral distribution via C-SPL CPI:
-    // - liquidator_bonus to liquidator
-    // - insurance_contribution to insurance fund
-    // - remaining to close position (if any positive equity)
+    // ==========================================================================
+    // HACKATHON PAYOUT (Interim until C-SPL SDK available)
+    // Uses plaintext values from first 8 bytes of encrypted fields
+    // In production: Replace with C-SPL confidential_transfer CPI
+    // ==========================================================================
+
+    // Get remaining equity using plaintext helper (hackathon only)
+    let remaining_equity_plaintext = position.get_collateral_plaintext();
+
+    // Calculate liquidator bonus: remaining_equity * liquidation_bonus_bps / 10000
+    let liquidator_bonus = remaining_equity_plaintext
+        .checked_mul(liquidation_config.liquidation_bonus_bps as u64)
+        .ok_or(ConfidexError::ArithmeticOverflow)?
+        .checked_div(10_000)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+
+    // Calculate insurance fund share: remaining_equity * insurance_fund_share_bps / 10000
+    let insurance_share = remaining_equity_plaintext
+        .checked_mul(liquidation_config.insurance_fund_share_bps as u64)
+        .ok_or(ConfidexError::ArithmeticOverflow)?
+        .checked_div(10_000)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+
+    // Calculate trader remainder (can be 0 or positive)
+    let trader_remainder = remaining_equity_plaintext
+        .saturating_sub(liquidator_bonus)
+        .saturating_sub(insurance_share);
+
+    msg!("Liquidation payout: remaining_equity={}, liquidator_bonus={}, insurance_share={}, trader_remainder={}",
+         remaining_equity_plaintext, liquidator_bonus, insurance_share, trader_remainder);
+
+    // Transfer liquidator bonus
+    let liquidator_balance = &mut ctx.accounts.liquidator_balance;
+    let liquidator_current = liquidator_balance.get_balance();
+    liquidator_balance.set_balance(liquidator_current + liquidator_bonus);
+
+    // Transfer insurance fund share
+    let insurance_balance = &mut ctx.accounts.insurance_balance;
+    let insurance_current = insurance_balance.get_balance();
+    insurance_balance.set_balance(insurance_current + insurance_share);
+
+    // Transfer trader remainder (if any positive equity remains)
+    if trader_remainder > 0 {
+        let trader_balance = &mut ctx.accounts.trader_balance;
+        let trader_current = trader_balance.get_balance();
+        trader_balance.set_balance(trader_current + trader_remainder);
+    }
+
+    // Clear position collateral (already distributed)
+    position.set_collateral_plaintext(0);
 
     // Mark position as liquidated with coarse timestamp
     let coarse_time = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);

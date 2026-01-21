@@ -2,6 +2,9 @@
 name = "eligibility"
 type = "bin"
 authors = ["Confidex"]
-compiler_version = ">=0.30.0"
+# IMPORTANT: Pin to exact version for reproducibility
+# This version is required for Sunspot Groth16 compatibility
+# DO NOT change without regenerating verifier and proofs
+compiler_version = "=1.0.0-beta.13"
 
 [dependencies]

@@ -278,8 +278,15 @@ When `USE_REAL_MPC = false`, the system uses simulated MPC that extracts plainte
 ### Cluster Configuration
 
 ```rust
-pub const DEFAULT_CLUSTER_OFFSET: u16 = 123;  // Devnet clusters: 123, 456, 789
+pub const DEFAULT_CLUSTER_OFFSET: u16 = 456;  // Devnet clusters: 456, 789 (NOTE: 123 does NOT exist)
 ```
+
+**Valid Devnet Clusters:**
+| Offset | Version | Status |
+|--------|---------|--------|
+| 123 | N/A | ❌ Does NOT exist |
+| 456 | v0.6.3 | ✅ **Recommended** |
+| 789 | v0.5.1 | ✅ Available |
 
 ## Frontend Integration
 
@@ -386,6 +393,126 @@ Arcium uses the Cerberus MPC protocol which provides:
 | Information leakage | Only boolean results revealed |
 | Malicious nodes | Cerberus N-1 security model |
 | Replay attacks | Unique request IDs with timestamps |
+
+## MPC Integration Test Suite
+
+A comprehensive test suite verifies that all Arcium MPC infrastructure is correctly configured and operational.
+
+### Location
+
+```
+frontend/test-mpc-integration.ts
+```
+
+### Running Tests
+
+```bash
+cd frontend && npx tsx test-mpc-integration.ts
+```
+
+### Test Categories
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| **MXE Account** | 3 | Verifies MXE PDA exists, keygen complete, X25519 key matches |
+| **Encryption** | 7 | Tests full encryption pipeline: key parsing, ECDH, RescueCipher, V2 format |
+| **DEX Program** | 1 | Confirms DEX program is deployed and executable |
+| **Circuits** | 3 | Verifies circuits accessible via GitHub Releases (HTTP 200) |
+| **Cluster** | 2 | Confirms cluster 456 account and Arcium program exist |
+
+### Detailed Test Coverage
+
+| Test | What It Verifies |
+|------|------------------|
+| MXE account exists | MXE PDA initialized at expected address (319 bytes) |
+| Keygen complete | X25519 key at bytes 95-127 is non-zero |
+| Key matches expected | On-chain key matches `MXE_X25519_PUBKEY` constant |
+| Parse MXE public key | Hex string → Uint8Array conversion |
+| Generate ephemeral keypair | X25519 private/public key generation |
+| Compute shared secret | ECDH key agreement with MXE public key |
+| Create RescueCipher | Cipher instantiation from shared secret |
+| Encrypt value | BigInt value → RescueCipher ciphertext |
+| Build V2 blob | 64-byte format: `[nonce(16)\|ciphertext(32)\|ephemeral(16)]` |
+| Validate format | Non-zero, correct length |
+| DEX program deployed | Program exists and is executable |
+| Circuit: compare_prices | HTTP 200 from GitHub Releases |
+| Circuit: calculate_fill | HTTP 200 from GitHub Releases |
+| Circuit: verify_position_params | HTTP 200 from GitHub Releases |
+| Cluster 456 account | Cluster PDA exists (483 bytes) |
+| Arcium program deployed | Core Arcium program is executable |
+
+### Expected Output
+
+```
+============================================================
+   Confidex MPC Integration Test Suite
+============================================================
+
+Configuration:
+  RPC URL: https://api.devnet.solana.com
+  DEX Program: 63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
+  MXE Program: DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+  X25519 Key: 14706bf82ff9e9ce...
+
+--- Test 1: MXE Account Status ---
+✅ MXE account exists (Size: 319 bytes)
+✅ Keygen complete (X25519 key: 14706bf82ff9e9ce...)
+✅ Key matches expected (Keys match!)
+
+--- Test 2: Encryption ---
+✅ Parse MXE public key
+✅ Generate ephemeral keypair
+✅ Compute shared secret
+✅ Create RescueCipher
+✅ Test value
+✅ Generate nonce
+✅ Encrypt value
+✅ Build V2 encrypted blob (Size: 64 bytes)
+✅ Validate encrypted format
+
+--- Test 3: DEX Program Status ---
+✅ DEX program deployed
+
+--- Test 4: Circuit Accessibility ---
+✅ Circuit: compare_prices (HTTP 200)
+✅ Circuit: calculate_fill (HTTP 200)
+✅ Circuit: verify_position_params (HTTP 200)
+
+--- Test 5: Arcium Cluster Status ---
+✅ Cluster 456 account exists (483 bytes)
+✅ Arcium program deployed
+
+============================================================
+   Test Summary
+============================================================
+
+  Passed: 18
+  Failed: 0
+  Total:  18
+
+✅ All tests passed! MPC integration is ready.
+```
+
+### Key Technical Details
+
+| Detail | Value |
+|--------|-------|
+| X25519 key offset in MXE account | Bytes 95-127 (32 bytes) |
+| V2 encryption format | `[nonce(16) \| ciphertext(32) \| ephemeral_pubkey(16)]` |
+| Total encrypted blob size | 64 bytes |
+| RescueCipher input format | Array of BigInts: `cipher.encrypt([value], nonce)` |
+| Cluster account derivation | `getClusterAccAddress(456)` via SDK |
+| Circuit storage | GitHub Releases v0.1.0-circuits |
+
+### When to Run
+
+- After MXE deployment or redeployment
+- After updating encryption constants
+- Before submitting orders to verify infrastructure
+- When debugging MPC-related issues
+- As part of CI/CD pipeline
+
+---
 
 ## Troubleshooting
 

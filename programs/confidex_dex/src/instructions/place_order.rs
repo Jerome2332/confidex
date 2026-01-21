@@ -93,6 +93,7 @@ pub fn handler(
     encrypted_amount: [u8; 64],
     encrypted_price: [u8; 64],
     eligibility_proof: [u8; GROTH16_PROOF_SIZE],
+    ephemeral_pubkey: [u8; 32],
 ) -> Result<()> {
     let exchange = &mut ctx.accounts.exchange;
     let pair = &mut ctx.accounts.pair;
@@ -154,10 +155,14 @@ pub fn handler(
     order.status = OrderStatus::Active;
     order.created_at_hour = coarse_time;
     order.order_id = order_id;
+    order.order_nonce = order_nonce; // Store for PDA reconstruction
     order.eligibility_proof_verified = true;
     order.pending_match_request = [0u8; 32];
     order.is_matching = false;
     order.bump = ctx.bumps.order;
+
+    // Production MPC field: full ephemeral pubkey for Arcium decryption
+    order.ephemeral_pubkey = ephemeral_pubkey;
 
     exchange.order_count = exchange.order_count.checked_add(1)
         .ok_or(ConfidexError::ArithmeticOverflow)?;

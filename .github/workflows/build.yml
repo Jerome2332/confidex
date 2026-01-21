@@ -1,0 +1,176 @@
+# CI Build Workflow - Verifies production builds work
+# Runs on all PRs to ensure deployability
+
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: "20"
+  RUST_VERSION: "1.89.0"
+  SOLANA_VERSION: "1.18.22"
+  ANCHOR_VERSION: "0.29.0"
+
+jobs:
+  # Frontend Production Build
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build production
+        run: pnpm build
+        env:
+          # Production environment variables for build
+          NEXT_PUBLIC_PROGRAM_ID: ${{ vars.NEXT_PUBLIC_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB' }}
+          NEXT_PUBLIC_MXE_PROGRAM_ID: ${{ vars.NEXT_PUBLIC_MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM' }}
+          NEXT_PUBLIC_ARCIUM_ENABLED: "true"
+          NEXT_PUBLIC_NETWORK: "devnet"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/.next
+          retention-days: 7
+
+  # Backend Production Build
+  backend-build:
+    name: Backend Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: backend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build production
+        run: pnpm build
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-build
+          path: backend/dist
+          retention-days: 7
+
+  # Solana Program Build (Release)
+  program-build:
+    name: Program Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
+
+      - name: Build programs (release)
+        run: anchor build
+
+      - name: Verify program artifacts
+        run: |
+          ls -la target/deploy/
+          echo "Program build successful"
+
+      - name: Upload program artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: program-build
+          path: |
+            target/deploy/*.so
+            target/idl/*.json
+          retention-days: 30
+
+  # Build Summary
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: [frontend-build, backend-build, program-build]
+    if: always()
+
+    steps:
+      - name: Check build results
+        run: |
+          if [ "${{ needs.frontend-build.result }}" == "failure" ]; then
+            echo "Frontend build failed"
+            exit 1
+          fi
+          if [ "${{ needs.backend-build.result }}" == "failure" ]; then
+            echo "Backend build failed"
+            exit 1
+          fi
+          if [ "${{ needs.program-build.result }}" == "failure" ]; then
+            echo "Program build failed"
+            exit 1
+          fi
+          echo "All builds passed successfully"

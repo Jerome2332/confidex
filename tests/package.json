@@ -1,12 +1,16 @@
 {
   "name": "confidex-tests",
   "version": "1.0.0",
-  "description": "Integration tests for Confidex",
+  "description": "Integration and E2E tests for Confidex",
+  "type": "module",
   "scripts": {
     "test:zk": "npx ts-node integration/zk_verification.ts",
     "test:trade": "npx ts-node integration/full_trade_flow.ts",
     "test:mpc": "npx ts-node integration/mpc_matching.ts",
-    "test": "npm run test:zk && npm run test:trade && npm run test:mpc"
+    "test:integration": "npm run test:zk && npm run test:trade && npm run test:mpc",
+    "test:e2e": "vitest run --config e2e/vitest.config.ts",
+    "test:e2e:watch": "vitest --config e2e/vitest.config.ts",
+    "test": "npm run test:e2e"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.29.0",
@@ -16,6 +20,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^2.0.0"
   }
 }

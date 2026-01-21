@@ -3,6 +3,8 @@
  *
  * Main orchestrator for automated order matching.
  * Coordinates order monitoring, matching algorithm, and execution.
+ * Includes circuit breaker alerting, error classification, graceful shutdown,
+ * and distributed locking for multi-instance coordination.
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
@@ -12,7 +14,17 @@ import { OrderMonitor } from './order-monitor.js';
 import { MatchingAlgorithm } from './matching-algorithm.js';
 import { OrderStateManager } from './order-state-manager.js';
 import { MatchExecutor } from './match-executor.js';
+import { MpcPoller } from './mpc-poller.js';
+import { SettlementExecutor } from './settlement-executor.js';
 import { CrankStatus, CrankMetrics, CrankStatusResponse } from './types.js';
+import { initAlertManagerFromEnv, AlertManager } from '../lib/alerts.js';
+import { classifyError } from '../lib/errors.js';
+import { DatabaseClient } from '../db/client.js';
+import { DatabaseManager } from '../db/index.js';
+import { DistributedLockService, LOCK_NAMES } from './distributed-lock.js';
+import { logger } from '../lib/logger.js';
+
+const log = logger.crank;
 
 export class CrankService {
   private config: CrankConfig;
@@ -22,6 +34,8 @@ export class CrankService {
   private matchingAlgorithm: MatchingAlgorithm;
   private stateManager: OrderStateManager;
   private matchExecutor: MatchExecutor | null = null;
+  private mpcPoller: MpcPoller | null = null;
+  private settlementExecutor: SettlementExecutor | null = null;
 
   // Service state
   private status: CrankStatus = 'stopped';
@@ -31,6 +45,15 @@ export class CrankService {
   // Circuit breaker
   private consecutiveErrors: number = 0;
   private circuitBreakerActive: boolean = false;
+
+  // Alerting
+  private alertManager: AlertManager;
+
+  // Persistence and distributed locking
+  private db: DatabaseManager | null = null;
+  private lockService: DistributedLockService | null = null;
+  private isShuttingDown: boolean = false;
+  private activeOperations: Set<Promise<unknown>> = new Set();
 
   constructor(config?: CrankConfig) {
     this.config = config || loadCrankConfig();
@@ -47,7 +70,139 @@ export class CrankService {
     this.matchingAlgorithm = new MatchingAlgorithm();
     this.stateManager = new OrderStateManager();
 
+    // Initialize alerting from environment variables
+    this.alertManager = initAlertManagerFromEnv();
+
     this.metrics = this.initializeMetrics();
+
+    // Setup graceful shutdown handlers
+    this.setupShutdownHandlers();
+  }
+
+  /**
+   * Setup process signal handlers for graceful shutdown
+   */
+  private setupShutdownHandlers(): void {
+    const shutdown = async (signal: string) => {
+      log.info({ signal }, 'Received shutdown signal, initiating graceful shutdown');
+      await this.gracefulShutdown();
+      process.exit(0);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT', () => shutdown('SIGINT'));
+
+    // Handle uncaught exceptions
+    process.on('uncaughtException', async (error) => {
+      log.fatal({ error }, 'Uncaught exception');
+      this.alertManager.critical(
+        'Uncaught Exception',
+        `Crank service crashed: ${error.message}`,
+        { stack: error.stack },
+        'uncaught-exception'
+      );
+      await this.gracefulShutdown();
+      process.exit(1);
+    });
+
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', async (reason) => {
+      log.error({ reason }, 'Unhandled rejection');
+      this.alertManager.error(
+        'Unhandled Rejection',
+        `Unhandled promise rejection: ${reason}`,
+        { reason: String(reason) },
+        'unhandled-rejection'
+      );
+    });
+  }
+
+  /**
+   * Initialize the persistence layer
+   */
+  private initializePersistence(): void {
+    const dbClient = DatabaseClient.getInstance(this.config.dbPath);
+    this.db = new DatabaseManager(dbClient);
+    this.db.initialize();
+    log.info({ dbPath: this.config.dbPath }, 'Database initialized');
+
+    // Initialize distributed lock service
+    this.lockService = new DistributedLockService(this.db.locks);
+    log.info({ instanceId: this.lockService.getInstanceId() }, 'Lock service initialized');
+  }
+
+  /**
+   * Graceful shutdown - waits for active operations to complete
+   */
+  async gracefulShutdown(): Promise<void> {
+    if (this.isShuttingDown) {
+      log.info('Already shutting down');
+      return;
+    }
+
+    this.isShuttingDown = true;
+    log.info('Initiating graceful shutdown');
+
+    // Stop accepting new work
+    this.pause();
+
+    // Wait for active operations with timeout
+    const shutdownTimeout = this.config.shutdownTimeoutMs;
+    const startTime = Date.now();
+
+    log.info({ activeOperations: this.activeOperations.size, timeoutMs: shutdownTimeout }, 'Waiting for active operations');
+
+    // Wait for active operations
+    while (this.activeOperations.size > 0) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= shutdownTimeout) {
+        log.warn({ pendingOperations: this.activeOperations.size }, 'Shutdown timeout reached with operations still pending');
+        break;
+      }
+
+      // Wait a bit before checking again
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    // Release distributed locks
+    if (this.lockService) {
+      const releasedLocks = this.lockService.releaseAll();
+      log.info({ releasedLocks }, 'Released distributed locks');
+      await this.lockService.shutdown();
+    }
+
+    // Stop the service
+    this.stop();
+
+    // Close database connection
+    if (this.db) {
+      this.db.close();
+      log.info('Database connection closed');
+    }
+
+    // Send shutdown complete alert
+    await this.alertManager.info(
+      'Crank Service Shutdown',
+      'Crank service has shut down gracefully.',
+      {
+        shutdownDurationMs: Date.now() - startTime,
+        operationsCompleted: this.activeOperations.size === 0,
+      },
+      'crank-shutdown'
+    );
+
+    log.info('Graceful shutdown complete');
+  }
+
+  /**
+   * Track an active operation for graceful shutdown
+   */
+  private trackOperation<T>(operation: Promise<T>): Promise<T> {
+    this.activeOperations.add(operation);
+
+    return operation.finally(() => {
+      this.activeOperations.delete(operation);
+    });
   }
 
   /**
@@ -74,19 +229,33 @@ export class CrankService {
    */
   async start(): Promise<void> {
     if (this.status === 'running') {
-      console.log('[CrankService] Already running');
+      log.info('Already running');
       return;
     }
 
-    console.log('[CrankService] Starting...');
+    log.info('Starting crank service');
     this.status = 'starting';
     this.metrics.status = 'starting';
+    this.isShuttingDown = false;
 
     try {
+      // Initialize persistence layer
+      this.initializePersistence();
+
+      // Try to acquire startup lock (prevents multiple instances starting)
+      if (this.lockService) {
+        const startupLock = this.lockService.tryAcquire(LOCK_NAMES.CRANK_STARTUP, { ttlSeconds: 30 });
+        if (!startupLock) {
+          log.warn('Another instance is starting, waiting');
+          // Wait and retry
+          await new Promise((resolve) => setTimeout(resolve, 5000));
+        }
+      }
+
       // Validate config
       const { warnings } = validateConfig(this.config);
       for (const warning of warnings) {
-        console.warn(`[CrankService] Warning: ${warning}`);
+        log.warn({ warning }, 'Configuration warning');
       }
 
       // Load wallet
@@ -100,14 +269,35 @@ export class CrankService {
         this.config
       );
 
+      // Initialize MPC poller for async MPC flow
+      if (this.config.useAsyncMpc) {
+        this.mpcPoller = new MpcPoller(
+          this.connection,
+          this.wallet.getKeypair(),
+          this.config
+        );
+        this.mpcPoller.start();
+        log.info('MPC result poller started');
+      }
+
+      // Initialize settlement executor to settle matched orders
+      this.settlementExecutor = new SettlementExecutor(
+        this.connection,
+        this.wallet.getKeypair(),
+        this.config
+      );
+      this.settlementExecutor.start();
+      log.info('Settlement executor started');
+
       // Start polling loop
       this.status = 'running';
       this.metrics.status = 'running';
       this.metrics.startedAt = Date.now();
 
-      console.log('[CrankService] Started successfully');
-      console.log(`[CrankService] Polling every ${this.config.pollingIntervalMs}ms`);
-      console.log(`[CrankService] Using ${this.config.useAsyncMpc ? 'async' : 'sync'} MPC flow`);
+      log.info({
+        pollingIntervalMs: this.config.pollingIntervalMs,
+        useAsyncMpc: this.config.useAsyncMpc,
+      }, 'Crank service started successfully');
 
       // Run first poll immediately
       await this.poll();
@@ -115,7 +305,7 @@ export class CrankService {
       // Schedule recurring polls
       this.schedulePoll();
     } catch (error) {
-      console.error('[CrankService] Failed to start:', error);
+      log.error({ error }, 'Failed to start crank service');
       this.status = 'error';
       this.metrics.status = 'error';
       throw error;
@@ -126,18 +316,30 @@ export class CrankService {
    * Stop the crank service
    */
   stop(): void {
-    console.log('[CrankService] Stopping...');
+    log.info('Stopping crank service');
 
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
       this.pollTimer = null;
     }
 
+    // Stop MPC poller
+    if (this.mpcPoller) {
+      this.mpcPoller.stop();
+      this.mpcPoller = null;
+    }
+
+    // Stop settlement executor
+    if (this.settlementExecutor) {
+      this.settlementExecutor.stop();
+      this.settlementExecutor = null;
+    }
+
     this.status = 'stopped';
     this.metrics.status = 'stopped';
     this.stateManager.clearAllLocks();
 
-    console.log('[CrankService] Stopped');
+    log.info('Crank service stopped');
   }
 
   /**
@@ -145,11 +347,11 @@ export class CrankService {
    */
   pause(): void {
     if (this.status !== 'running') {
-      console.log('[CrankService] Not running, cannot pause');
+      log.info('Not running, cannot pause');
       return;
     }
 
-    console.log('[CrankService] Pausing...');
+    log.info('Pausing crank service');
 
     if (this.pollTimer) {
       clearTimeout(this.pollTimer);
@@ -159,7 +361,7 @@ export class CrankService {
     this.status = 'paused';
     this.metrics.status = 'paused';
 
-    console.log('[CrankService] Paused');
+    log.info('Crank service paused');
   }
 
   /**
@@ -167,11 +369,11 @@ export class CrankService {
    */
   resume(): void {
     if (this.status !== 'paused') {
-      console.log('[CrankService] Not paused, cannot resume');
+      log.info('Not paused, cannot resume');
       return;
     }
 
-    console.log('[CrankService] Resuming...');
+    log.info('Resuming crank service');
     this.status = 'running';
     this.metrics.status = 'running';
     this.consecutiveErrors = 0;
@@ -179,7 +381,7 @@ export class CrankService {
 
     this.schedulePoll();
 
-    console.log('[CrankService] Resumed');
+    log.info('Crank service resumed');
   }
 
   /**
@@ -202,7 +404,7 @@ export class CrankService {
 
     // Check circuit breaker
     if (this.circuitBreakerActive) {
-      console.log('[CrankService] Circuit breaker active, skipping poll');
+      log.debug('Circuit breaker active, skipping poll');
       return;
     }
 
@@ -215,18 +417,29 @@ export class CrankService {
       this.metrics.openOrderCount = orders.length;
 
       if (orders.length === 0) {
-        console.log('[CrankService] No open orders found');
+        log.debug('No open orders found');
         this.resetConsecutiveErrors();
         return;
       }
 
       // Get order counts
       const counts = this.orderMonitor.getOrderCounts(orders);
-      console.log(`[CrankService] Found ${orders.length} orders (${counts.buy} buy, ${counts.sell} sell)`);
+      log.info({ total: orders.length, buy: counts.buy, sell: counts.sell }, 'Found orders');
+
+      // Debug: Log each order's details (V5: no plaintext fields)
+      for (const { pda, order } of orders) {
+        const sideStr = order.side === 0 ? 'BUY' : 'SELL';
+        log.debug({
+          pda: pda.toString().slice(0, 12),
+          side: sideStr,
+          maker: order.maker.toString().slice(0, 12),
+          createdAtHour: Number(order.createdAtHour),
+        }, 'Order details');
+      }
 
       // Skip if no orders on one side
       if (counts.buy === 0 || counts.sell === 0) {
-        console.log('[CrankService] Need orders on both sides to match');
+        log.debug('Need orders on both sides to match');
         this.resetConsecutiveErrors();
         return;
       }
@@ -236,7 +449,7 @@ export class CrankService {
       const candidates = this.matchingAlgorithm.findMatchCandidates(orders, lockedOrders);
 
       if (candidates.length === 0) {
-        console.log('[CrankService] No matchable candidates found');
+        log.debug('No matchable candidates found');
         this.resetConsecutiveErrors();
         return;
       }
@@ -247,7 +460,7 @@ export class CrankService {
         this.config.maxConcurrentMatches
       );
 
-      console.log(`[CrankService] Processing ${selectedCandidates.length} match candidates`);
+      log.info({ count: selectedCandidates.length }, 'Processing match candidates');
 
       // Execute matches
       for (const candidate of selectedCandidates) {
@@ -256,37 +469,40 @@ export class CrankService {
 
         // Acquire locks
         if (!this.stateManager.acquireLocks(buyPda, sellPda)) {
-          console.log(`[CrankService] Could not acquire locks, skipping`);
+          log.debug({ buyPda: buyPda.slice(0, 8), sellPda: sellPda.slice(0, 8) }, 'Could not acquire locks, skipping');
           continue;
         }
 
         try {
           this.metrics.totalMatchAttempts++;
-          const result = await this.matchExecutor!.executeMatch(candidate);
+
+          // Track operation for graceful shutdown
+          const matchOperation = this.matchExecutor!.executeMatch(candidate);
+          const result = await this.trackOperation(matchOperation);
 
           if (result.success) {
             this.metrics.successfulMatches++;
-            console.log(`[CrankService] Match executed: ${result.signature}`);
+            log.info({ signature: result.signature }, 'Match executed successfully');
           } else {
             this.metrics.failedMatches++;
-            console.log(`[CrankService] Match failed: ${result.error}`);
+            log.warn({ error: result.error }, 'Match failed');
           }
 
           // Release locks after match attempt
           this.stateManager.releaseLocks(buyPda, sellPda);
           this.resetConsecutiveErrors();
         } catch (error) {
-          console.error('[CrankService] Error executing match:', error);
+          log.error({ error }, 'Error executing match');
           this.stateManager.releaseLocks(buyPda, sellPda);
-          this.incrementConsecutiveErrors();
+          this.incrementConsecutiveErrors(error);
         }
       }
 
       // Update pending matches count
       this.metrics.pendingMatches = this.stateManager.getPendingMatchCount();
     } catch (error) {
-      console.error('[CrankService] Poll error:', error);
-      this.incrementConsecutiveErrors();
+      log.error({ error }, 'Poll error');
+      this.incrementConsecutiveErrors(error);
     }
   }
 
@@ -301,20 +517,47 @@ export class CrankService {
   /**
    * Increment consecutive errors and check circuit breaker
    */
-  private incrementConsecutiveErrors(): void {
+  private incrementConsecutiveErrors(error?: unknown): void {
     this.consecutiveErrors++;
     this.metrics.consecutiveErrors = this.consecutiveErrors;
 
     if (this.consecutiveErrors >= this.config.circuitBreaker.errorThreshold) {
-      console.warn('[CrankService] Circuit breaker triggered!');
+      log.warn({ consecutiveErrors: this.consecutiveErrors }, 'Circuit breaker triggered');
       this.circuitBreakerActive = true;
+
+      // Classify and alert on circuit breaker activation
+      const classified = error ? classifyError(error) : null;
+      this.alertManager.critical(
+        'Circuit Breaker Triggered',
+        `Crank service paused after ${this.consecutiveErrors} consecutive errors. ` +
+        `Will resume in ${this.config.circuitBreaker.pauseDurationMs / 1000}s.`,
+        {
+          consecutiveErrors: this.consecutiveErrors,
+          threshold: this.config.circuitBreaker.errorThreshold,
+          pauseDurationMs: this.config.circuitBreaker.pauseDurationMs,
+          lastErrorType: classified?.name || 'Unknown',
+          lastErrorMessage: classified?.message || 'No error details',
+          lastErrorCode: classified?.code || 0,
+        },
+        'circuit-breaker-triggered' // Dedupe key
+      );
 
       // Reset after pause duration
       setTimeout(() => {
-        console.log('[CrankService] Circuit breaker reset');
+        log.info('Circuit breaker reset');
         this.circuitBreakerActive = false;
         this.consecutiveErrors = 0;
         this.metrics.consecutiveErrors = 0;
+
+        // Send recovery alert
+        this.alertManager.info(
+          'Circuit Breaker Reset',
+          'Crank service resumed after circuit breaker cooldown.',
+          {
+            pauseDurationMs: this.config.circuitBreaker.pauseDurationMs,
+          },
+          'circuit-breaker-reset' // Dedupe key
+        );
       }, this.config.circuitBreaker.pauseDurationMs);
     }
   }
@@ -344,10 +587,29 @@ export class CrankService {
   }
 
   /**
+   * Get metrics for Prometheus export
+   */
+  getMetrics(): CrankMetrics {
+    return { ...this.metrics };
+  }
+
+  /**
    * Get the current status
    */
   getServiceStatus(): CrankStatus {
     return this.status;
+  }
+
+  /**
+   * Skip all pending MPC computations
+   * Useful for clearing stale computations that will never complete
+   */
+  async skipPendingMpcComputations(): Promise<number> {
+    if (!this.mpcPoller) {
+      log.warn('MPC poller not initialized');
+      return 0;
+    }
+    return this.mpcPoller.skipAllPending();
   }
 }
 
@@ -358,4 +620,6 @@ export { OrderMonitor } from './order-monitor.js';
 export { MatchingAlgorithm } from './matching-algorithm.js';
 export { OrderStateManager } from './order-state-manager.js';
 export { MatchExecutor } from './match-executor.js';
+export { MpcPoller } from './mpc-poller.js';
+export { SettlementExecutor } from './settlement-executor.js';
 export * from './types.js';

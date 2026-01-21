@@ -1,0 +1,37 @@
+{
+  "name": "confidex",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Confidential DEX with three-layer privacy architecture",
+  "scripts": {
+    "prepare": "husky",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "build:frontend": "cd frontend && pnpm build",
+    "build:backend": "cd backend && pnpm build",
+    "build:programs": "anchor build",
+    "dev:frontend": "cd frontend && pnpm dev",
+    "dev:backend": "cd backend && pnpm dev",
+    "clean": "rm -rf frontend/.next backend/dist target/deploy"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0",
+    "lint-staged": "^15.2.0"
+  },
+  "lint-staged": {
+    "frontend/**/*.{ts,tsx}": [
+      "cd frontend && pnpm lint --fix"
+    ],
+    "backend/**/*.ts": [
+      "cd backend && pnpm lint --fix"
+    ],
+    "programs/**/*.rs": [
+      "cargo fmt --"
+    ]
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

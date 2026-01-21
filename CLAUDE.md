@@ -42,6 +42,56 @@ The ZK verification alongside MPC and encrypted balances is our **competitive ad
 
 **If you encounter stack overflow or other technical constraints, fix the root cause (optimize code, reduce allocations) rather than removing privacy features.**
 
+### Address-Specific ZK Proof Generation ✅ COMPLETED
+
+The ZK eligibility system now fully supports per-address proof generation with non-empty blacklists.
+
+**Implementation Status (January 2026):**
+
+| Component | Status | Details |
+|-----------|--------|---------|
+| Poseidon2 Hash | ✅ Complete | Native JS matching Noir's BN254 stdlib |
+| Sparse Merkle Tree | ✅ Complete | 20-level tree, collision handling |
+| Per-Address Proofs | ✅ Complete | Unique merkle paths per address |
+| Dynamic Prover.toml | ✅ Complete | Generated per `(address, root)` tuple |
+| Integration Tests | ✅ Complete | 23 tests covering all cases |
+
+**Key Files:**
+
+| File | Purpose |
+|------|---------|
+| `backend/src/lib/poseidon2.ts` | Poseidon2 hash (BN254, t=4, d=5, 4+56+4 rounds) |
+| `backend/src/lib/blacklist.ts` | SparseMerkleTree with full proof generation |
+| `backend/src/lib/prover.ts` | Dynamic Prover.toml + Groth16 proof generation |
+| `backend/src/__tests__/lib/blacklist.test.ts` | Comprehensive test suite |
+
+**Technical Details:**
+
+```typescript
+// Poseidon2 hash - matches Noir's stdlib exactly
+hash(0, 0) = 0x18dfb8dc9b82229cff974efefc8df78b1ce96d9d844236b496785c698bc6732e
+
+// Empty tree root (20 levels)
+EMPTY_ROOT = 0x3039bcb20f03fd9c8650138ef2cfe643edeed152f9c20999f43aeed54d79e387
+
+// Address → leaf index mapping
+index = first 20 bits of base58.decode(address)
+```
+
+**Proof Flow:**
+1. `getMerkleProof(address, root)` returns `{isEligible, path[20], indices[20]}`
+2. If blacklisted: `isEligible=false`, empty path/indices
+3. If eligible: 20 sibling hashes + 20 path direction bits
+4. `generateProverToml()` creates circuit inputs
+5. `nargo execute` → witness → `sunspot prove` → 324-byte Groth16 proof
+
+**Acceptance Criteria (All Met):**
+- [x] `poseidon2Hash()` computes correct hashes matching Noir circuit
+- [x] Merkle proofs verify for addresses NOT in a non-empty blacklist
+- [x] Proofs FAIL verification for blacklisted addresses
+- [x] Backend generates unique proofs per address (not shared empty-tree proof)
+- [x] Tests cover: empty tree, single entry, multiple entries, boundary cases, collisions
+
 ## Project Overview
 
 Confidex is a confidential decentralized exchange (DEX) for the Solana Privacy Hack (January 2026). It implements a **three-layer privacy architecture**:
@@ -115,8 +165,42 @@ pnpm test:coverage              # Run tests with coverage
 ### Key Account Structures
 - **ExchangeState** (158 bytes): Global config, blacklist merkle root, fee settings
 - **TradingPair** (234 bytes): Base/quote mints, confidential vaults
-- **ConfidentialOrder** (285 bytes): Encrypted amount/price/filled (64 bytes each via Arcium)
+- **ConfidentialOrder**: Encrypted amount/price/filled (64 bytes each via Arcium)
+  - **V3 format** (334 bytes): Legacy format without hackathon plaintext fields
+  - **V4 format** (390 bytes): Current format with `amount_plaintext`, `price_plaintext`, `filled_plaintext`, and `ephemeral_pubkey`
+- **UserConfidentialBalance** (153 bytes): User's wrapped token balance for a specific mint
 - **UserAccount** (66 bytes): Optional tracking, eligibility verification status
+
+### Order Format Migration (V3 → V4)
+
+**IMPORTANT:** The on-chain program expects V4 (390-byte) orders. V3 orders cause `AccountDidNotDeserialize` (0xbbb) errors.
+
+| Field | V3 Offset | V4 Offset | Size | Notes |
+|-------|-----------|-----------|------|-------|
+| discriminator | 0 | 0 | 8 | Anchor discriminator |
+| maker | 8 | 8 | 32 | Order creator pubkey |
+| pair | 40 | 40 | 32 | Trading pair PDA |
+| side | 72 | 72 | 1 | 0=Buy, 1=Sell |
+| order_type | 73 | 73 | 1 | Order type enum |
+| encrypted_amount | 74 | 74 | 64 | V2 ciphertext blob |
+| encrypted_price | 138 | 138 | 64 | V2 ciphertext blob |
+| encrypted_filled | 202 | 202 | 64 | V2 ciphertext blob |
+| status | 266 | 266 | 1 | Active/Filled/Cancelled |
+| created_at | 267 | 267 | 8 | Unix timestamp |
+| order_id | 275 | 275 | 16 | Hash-based ID |
+| order_nonce | 291 | 291 | 8 | PDA derivation nonce |
+| eligibility_proof_verified | 299 | 299 | 1 | ZK proof verified flag |
+| pending_match_request | 300 | 300 | 32 | MPC request tracking |
+| is_matching | 332 | 332 | 1 | Currently in MPC match |
+| bump | 333 | 333 | 1 | PDA bump |
+| amount_plaintext | - | 334 | 8 | **V4 only**: Hackathon plaintext |
+| price_plaintext | - | 342 | 8 | **V4 only**: Hackathon plaintext |
+| filled_plaintext | - | 350 | 8 | **V4 only**: Hackathon plaintext |
+| ephemeral_pubkey | - | 358 | 32 | **V4 only**: X25519 pubkey |
+
+**Crank Service Compatibility:**
+- `order-monitor.ts`: Fetches both V3 and V4, but only matches V4 orders
+- `settlement-executor.ts`: Only settles V4 orders (V3 causes on-chain errors)
 
 ### Cross-Program Invocations
 - **Sunspot verifier:** Verify Groth16 proof (324 bytes proof + 44 bytes witness)
@@ -472,6 +556,64 @@ onPriceCompareComplete((event) => {
   console.log('Prices match:', event.pricesMatch);
 });
 ```
+
+### MPC Integration Test Suite
+
+A comprehensive test suite verifies the Arcium MPC integration is working correctly.
+
+**Location:** `frontend/test-mpc-integration.ts`
+
+**Run Tests:**
+```bash
+cd frontend && npx tsx test-mpc-integration.ts
+```
+
+**Tests Covered:**
+
+| Category | Test | What It Verifies |
+|----------|------|------------------|
+| **MXE Account** | Account exists | MXE PDA is initialized (319 bytes) |
+| | Keygen complete | X25519 key at offset 95-127 is non-zero |
+| | Key matches | Key matches `NEXT_PUBLIC_MXE_X25519_PUBKEY` |
+| **Encryption** | Parse MXE key | Hex → Uint8Array conversion |
+| | Ephemeral keypair | X25519 keypair generation |
+| | Shared secret | ECDH key agreement |
+| | RescueCipher | Cipher instantiation |
+| | Encrypt value | BigInt → ciphertext |
+| | V2 blob format | 64-byte `[nonce\|ciphertext\|ephemeral]` |
+| **DEX Program** | Deployed | Program is executable on devnet |
+| **Circuits** | compare_prices | HTTP 200 from GitHub Releases |
+| | calculate_fill | HTTP 200 from GitHub Releases |
+| | verify_position_params | HTTP 200 from GitHub Releases |
+| **Cluster** | Account exists | Cluster 456 PDA via SDK |
+| | Arcium program | Core program is deployed |
+
+**Expected Output (All Pass):**
+```
+============================================================
+   Confidex MPC Integration Test Suite
+============================================================
+✅ MXE account exists (Size: 319 bytes)
+✅ Keygen complete (X25519 key: 14706bf82ff9e9ce...)
+✅ Key matches expected (Keys match!)
+✅ All encryption tests pass (64-byte V2 format)
+✅ DEX program deployed
+✅ All circuits accessible (HTTP 200)
+✅ Cluster 456 account exists (483 bytes)
+✅ Arcium program deployed
+
+  Passed: 18
+  Failed: 0
+  Total:  18
+
+✅ All tests passed! MPC integration is ready.
+```
+
+**Key Technical Details:**
+- X25519 key location in MXE account: bytes 95-127
+- V2 encryption format: `[nonce (16) | ciphertext (32) | ephemeral_pubkey (16)]`
+- RescueCipher.encrypt() takes array of BigInts: `cipher.encrypt([value], nonce)`
+- Cluster account derived via SDK: `getClusterAccAddress(456)`
 
 ### Docs
 
@@ -990,6 +1132,11 @@ Confidex implements a **full privacy model** for perpetuals with V2 pure ciphert
 | **Automated Crank Service** | ✅ Live | Backend service auto-matches orders on devnet |
 | **Async MPC Flow** | ✅ Live | Production callback-based MPC execution |
 | **SPL Token Collateral Transfer** | ✅ Live | Real USDC moved to vault (C-SPL fallback) |
+| **Real Order Book from Chain** | ✅ Live | Fetches V4 orders, shows "Live" status indicator |
+| **Real-Time Trades from Events** | ✅ Live | Subscribes to settlement logs for live trade feed |
+| **MPC Event Callbacks** | ✅ Live | Frontend receives MPC results via log subscription |
+| **Settlement Persistence (SQLite)** | ✅ Live | Crank survives restarts, no double-settlement |
+| **Production MPC Mode Default** | ✅ Live | `CRANK_USE_REAL_MPC=true` by default |
 
 #### Recent Deployment (January 20, 2026)
 
@@ -1155,7 +1302,7 @@ Open interest is still public. Encrypting OI would prevent funding rate predicti
 
 ### Monitoring & Operations
 
-The automated crank service provides production-grade order matching:
+The automated crank service provides production-grade order matching with SQLite persistence:
 
 ```bash
 # Enable crank service
@@ -1166,9 +1313,29 @@ curl http://localhost:3001/admin/crank/status
 
 # Configuration
 CRANK_POLLING_INTERVAL_MS=5000    # Check for matches every 5s
+CRANK_USE_REAL_MPC=true           # Production MPC (default is TRUE)
 CRANK_USE_ASYNC_MPC=true          # Use production async MPC flow
 CRANK_MAX_CONCURRENT_MATCHES=5    # Parallel match attempts
+CRANK_DB_PATH=./data/settlements.db  # SQLite persistence
 ```
+
+**Production Features (January 2026):**
+
+| Feature | Description | File |
+|---------|-------------|------|
+| **SQLite Persistence** | Settled orders survive crank restarts | `backend/src/crank/settlement-executor.ts` |
+| **Real Order Book** | Fetches V4 orders from chain, aggregates by price | `frontend/src/hooks/use-order-book.ts` |
+| **Live Trades Feed** | Subscribes to settlement logs | `frontend/src/hooks/use-recent-trades.ts` |
+| **MPC Event Callbacks** | Frontend receives MPC results in real-time | `frontend/src/hooks/use-mpc-events.ts` |
+| **No MPC Demo Fallback** | Production mode enforced, errors propagate | `backend/src/crank/mpc-poller.ts` |
+
+**Key Hooks:**
+
+| Hook | Purpose |
+|------|---------|
+| `useOrderBook(pairPubkey?)` | Real-time order book from chain (V4 orders) |
+| `useRecentTrades(limit?)` | Live trade feed from settlement events |
+| `useMpcEvents()` | MPC computation tracking and callbacks |
 
 ### Dependencies & Timeline
 
@@ -1763,6 +1930,46 @@ Test files location: `/frontend/src/__tests__/`
 - `pnp-client.test.ts` - Price calculation and token math
 - `settlement.test.ts` - Settlement amount calculations
 
+### Utility Scripts
+
+Scripts for devnet testing and setup in `frontend/scripts/`:
+
+| Script | Purpose | Command |
+|--------|---------|---------|
+| `wrap-usdc-for-buyer.ts` | Wrap USDC into confidential balance for buyer | `pnpm tsx scripts/wrap-usdc-for-buyer.ts` |
+| `wrap-sol-for-seller.ts` | Wrap SOL into confidential balance for seller | `pnpm tsx scripts/wrap-sol-for-seller.ts` |
+| `init-mxe-config.ts` | Initialize MXE configuration | `pnpm tsx scripts/init-mxe-config.ts` |
+| `place-sell-order.ts` | Place a test sell order | `pnpm tsx place-sell-order.ts` |
+
+**Wrap Scripts:**
+
+The wrap scripts deposit regular SPL tokens into the DEX's confidential vaults and credit the user's `UserConfidentialBalance` account.
+
+```bash
+# Wrap 200 USDC for buyer (id.json wallet)
+cd frontend && pnpm tsx scripts/wrap-usdc-for-buyer.ts
+
+# Wrap 2 SOL for seller (devnet.json wallet)
+cd frontend && pnpm tsx scripts/wrap-sol-for-seller.ts
+```
+
+**UserConfidentialBalance Account Layout** (153 bytes):
+```
+Offset 0-7:    Discriminator (8 bytes)
+Offset 8-39:   Owner pubkey (32 bytes)
+Offset 40-71:  Mint pubkey (32 bytes)
+Offset 72-135: Encrypted balance (64 bytes) - plaintext in first 8 bytes
+Offset 136-143: Total deposited (8 bytes)
+Offset 144-151: Total withdrawn (8 bytes)
+Offset 152:    Bump (1 byte)
+```
+
+**Reading balance:** `data.readBigUInt64LE(72)` extracts the balance from offset 72.
+
+**TradingPair Vault Offsets:**
+- `c_base_vault` (SOL): offset 136 (8 + 32×4)
+- `c_quote_vault` (USDC): offset 168 (8 + 32×5)
+
 ### API Security
 
 **Helius Webhook** (`/api/webhooks/helius`):
@@ -1788,15 +1995,75 @@ pnpm start                      # Run compiled JS
 pnpm start:prod                 # Run with NODE_ENV=production
 ```
 
-### Crank Service (Order Matching)
+### Crank Service (Order Matching & Settlement)
 
-The crank service automatically monitors open orders and triggers MPC-based matching when compatible orders exist.
+The crank service automatically monitors open orders, triggers MPC-based matching, and executes settlements when orders are filled.
 
-**How it works:**
-1. Polls on-chain order accounts every 5 seconds
-2. Identifies matchable buy/sell pairs
-3. Executes `match_orders` instruction via MPC
-4. Handles callbacks and updates order state
+**Architecture:**
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  OrderMonitor   │     │ MatchingAlgo    │     │ SettlementExec  │
+│  (Polling)      │     │ (MPC Trigger)   │     │ (Token Transfer)│
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ 1. Fetch V4     │────▶│ 2. Find pairs   │────▶│ 4. Detect fills │
+│    orders       │     │ 3. match_orders │     │ 5. settle_order │
+│                 │     │    via MPC      │     │    instruction  │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+**Components:**
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| OrderMonitor | `backend/src/crank/order-monitor.ts` | Fetches open orders, parses V3/V4 formats |
+| MatchingAlgorithm | `backend/src/crank/matching-algorithm.ts` | Finds compatible buy/sell pairs |
+| MatchExecutor | `backend/src/crank/match-executor.ts` | Executes `match_orders` instruction |
+| SettlementExecutor | `backend/src/crank/settlement-executor.ts` | Monitors filled orders, executes settlement |
+| MpcPoller | `backend/src/crank/mpc-poller.ts` | Polls for MPC computation results |
+
+**Order Flow:**
+1. `OrderMonitor` polls for V4 orders (390 bytes) every 5 seconds
+2. `MatchingAlgorithm` identifies compatible buy/sell pairs
+3. `MatchExecutor` sends `match_orders` instruction with MPC price comparison
+4. MPC callback sets `filled_plaintext` on matched orders
+5. `SettlementExecutor` detects orders with `filled_plaintext > 0`
+6. Settlement transfers tokens: seller SOL → buyer, buyer USDC → seller
+
+**Settlement Flow:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    settle_order Instruction                      │
+├─────────────────────────────────────────────────────────────────┤
+│ Inputs:                                                          │
+│   - buy_order PDA (V4 format, 390 bytes)                        │
+│   - sell_order PDA (V4 format, 390 bytes)                       │
+│   - buyer_base_balance (SOL balance PDA)                        │
+│   - buyer_quote_balance (USDC balance PDA)                      │
+│   - seller_base_balance (SOL balance PDA)                       │
+│   - seller_quote_balance (USDC balance PDA)                     │
+│                                                                  │
+│ Logic (settle_order.rs):                                         │
+│   fill_amount = order.filled_plaintext (SOL in lamports)        │
+│   fill_value = fill_amount * price / 1e9 (USDC in micros)       │
+│                                                                  │
+│   seller_base -= fill_amount   (seller sends SOL)               │
+│   buyer_base += fill_amount    (buyer receives SOL)             │
+│   buyer_quote -= fill_value    (buyer sends USDC)               │
+│   seller_quote += fill_value   (seller receives USDC)           │
+│                                                                  │
+│ Constraints:                                                     │
+│   - Line 172: seller_base >= fill_amount                        │
+│   - Line 179: buyer_quote >= fill_value                         │
+│   - Both orders must have filled_plaintext > 0                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Common Errors:**
+
+| Error | Code | Cause | Fix |
+|-------|------|-------|-----|
+| `AccountDidNotDeserialize` | 0xbbb | V3 order passed to V4-expecting program | Only use V4 orders |
+| `InsufficientBalance` | 0x1782 | Buyer USDC or seller SOL too low | Wrap more tokens |
 
 **Configuration (`backend/.env`):**
 ```env

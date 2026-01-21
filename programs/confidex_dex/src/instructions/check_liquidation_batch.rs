@@ -4,7 +4,7 @@ use crate::cpi::arcium::{
     queue_batch_liquidation_check, BatchLiquidationPositionData, MxeCpiAccounts,
 };
 use crate::error::ConfidexError;
-use crate::oracle::get_sol_usd_price;
+use crate::oracle::get_sol_usd_price_for_liquidation;
 use crate::state::{
     ConfidentialPosition, LiquidationBatchRequest, PerpetualMarket, PositionSide,
 };
@@ -72,8 +72,9 @@ pub fn handler<'info>(
         ConfidexError::InvalidAmount
     );
 
-    // Fetch current mark price from oracle
-    let mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+    // Fetch current mark price from oracle with strict validation for liquidations
+    // Enforces: price < 60s old on mainnet, confidence < 1%
+    let mark_price = get_sol_usd_price_for_liquidation(&ctx.accounts.oracle)?;
 
     // Collect position data for MPC batch check
     // Remaining accounts should contain the position accounts in order
@@ -241,5 +242,30 @@ pub fn callback_handler(
         params.results.len()
     );
 
+    // Emit events for liquidatable positions (for crank to pick up)
+    for (i, &is_liquidatable) in params.results.iter().enumerate() {
+        if is_liquidatable && i < batch_request.position_count as usize {
+            emit!(PositionLiquidatable {
+                position_pubkey: Pubkey::new_from_array(batch_request.positions[i]),
+                market: batch_request.market,
+                mark_price: batch_request.mark_price,
+                batch_index: i as u8,
+            });
+        }
+    }
+
     Ok(())
+}
+
+/// Event emitted when a position is found to be liquidatable
+#[event]
+pub struct PositionLiquidatable {
+    /// Position account pubkey
+    pub position_pubkey: Pubkey,
+    /// Market this position is on
+    pub market: Pubkey,
+    /// Mark price at which liquidation was triggered
+    pub mark_price: u64,
+    /// Index in the batch request
+    pub batch_index: u8,
 }

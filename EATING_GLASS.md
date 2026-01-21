@@ -475,6 +475,546 @@ const messageV0 = new TransactionMessage({
 
 ---
 
+## Challenge 8: The Great Order Format Migration (Days 10-12)
+
+### The Problem
+
+After deploying the crank service for automated order matching, we discovered a silent killer: **account size mismatches**.
+
+```
+Backend expects: V4 orders (390 bytes)
+On-chain reality: V5 orders (366 bytes)
+Crank service: "Found 0 open orders"
+```
+
+The crank was polling for orders, finding exactly zero, and happily reporting "no orders to match." Meanwhile, dozens of V5 orders sat on-chain, waiting forever.
+
+### What We Tried That Failed
+
+1. **Assumed format consistency** - "We deployed V4 code, orders must be V4"
+2. **Checked order status first** - Spent hours debugging status filtering when the real issue was size filtering
+3. **Added verbose logging** - Logged everything except the account size itself
+4. **Blamed MPC** - "Maybe Arcium isn't calling back correctly?"
+
+### The Glass We Ate
+
+- Traced through 5 different crank components before realizing the filter was `{ dataSize: 390 }`
+- Discovered V5 removed `amount_plaintext`, `price_plaintext`, `filled_plaintext` fields (24 bytes gone)
+- Had to rewrite fill detection from `filledPlaintext > 0` to `encryptedFilled[0] !== 0`
+- Settlement pairing logic broke because we couldn't match on plaintext values anymore
+
+### The Solution
+
+```typescript
+// BEFORE (broken - finds 0 orders)
+const ORDER_ACCOUNT_SIZE_V4 = 390;
+const accounts = await connection.getProgramAccounts(programId, {
+  filters: [{ dataSize: ORDER_ACCOUNT_SIZE_V4 }],
+});
+
+// AFTER (works - finds all orders)
+const ORDER_ACCOUNT_SIZE_V5 = 366;
+const accounts = await connection.getProgramAccounts(programId, {
+  filters: [{ dataSize: ORDER_ACCOUNT_SIZE_V5 }],
+});
+
+// Fill detection change:
+// V4: const hasFill = order.filledPlaintext > 0;
+// V5: const hasFill = order.encryptedFilled[0] !== 0;
+```
+
+**V5 Order Format (366 bytes):**
+| Field | Offset | Size | Notes |
+|-------|--------|------|-------|
+| discriminator | 0 | 8 | Anchor |
+| maker | 8 | 32 | |
+| pair | 40 | 32 | |
+| side | 72 | 1 | |
+| order_type | 73 | 1 | |
+| encrypted_amount | 74 | 64 | |
+| encrypted_price | 138 | 64 | |
+| encrypted_filled | 202 | 64 | First byte != 0 = has fill |
+| status | 266 | 1 | |
+| created_at | 267 | 8 | |
+| order_id | 275 | 16 | |
+| order_nonce | 291 | 8 | |
+| eligibility_proof_verified | 299 | 1 | |
+| pending_match_request | 300 | 32 | **Key for pairing!** |
+| is_matching | 332 | 1 | |
+| bump | 333 | 1 | |
+| ephemeral_pubkey | 334 | 32 | |
+
+### Evidence
+
+- Order monitor: [backend/src/crank/order-monitor.ts](backend/src/crank/order-monitor.ts)
+- Settlement executor: [backend/src/crank/settlement-executor.ts](backend/src/crank/settlement-executor.ts)
+- PRD documenting the fix: [project-docs/prds/PRD-MPC-MATCHING-FIX.md](project-docs/prds/PRD-MPC-MATCHING-FIX.md)
+
+---
+
+## Challenge 9: Race Conditions in Settlement (Days 11-12)
+
+### The Problem
+
+When two crank instances (or even two poll cycles in the same instance) saw the same filled order pair, they'd both try to settle it:
+
+```
+[instance-1] Attempting settlement: ABC... <-> DEF...
+[instance-2] Attempting settlement: ABC... <-> DEF...
+[instance-1] ✓ Settlement successful
+[instance-2] ✗ Settlement TX failed: InsufficientBalance
+```
+
+The second attempt would fail because the first had already transferred the tokens. Worse, the failure would trigger retries, which would fail again, creating a cascade of errors.
+
+### What We Tried That Failed
+
+1. **Simple deduplication set** - Race condition between check and add
+2. **Database locking** - Too heavy for a hackathon, added complexity
+3. **Optimistic execution** - "Just let it fail" caused log spam and wasted gas
+
+### The Glass We Ate
+
+- Implemented in-memory distributed locking with timeout
+- Added failure cooldown (60 seconds) to prevent immediate retry of non-retryable errors
+- Built automatic cleanup of stale locks and settled order tracking
+- Discovered we needed to cap the settled orders set (memory leak!)
+
+### The Solution
+
+```typescript
+// backend/src/crank/settlement-executor.ts
+
+// Settlement locks to prevent race conditions
+private settlementLocks: Map<string, number> = new Map();
+private readonly LOCK_TIMEOUT_MS = 30000; // 30 second lock
+
+// Track failed settlements with cooldown
+private failedSettlements: Map<string, number> = new Map();
+private readonly FAILURE_COOLDOWN_MS = 60000; // 1 minute cooldown
+
+private acquireLock(settlementKey: string): boolean {
+  const existing = this.settlementLocks.get(settlementKey);
+  const now = Date.now();
+
+  if (existing && now - existing < this.LOCK_TIMEOUT_MS) {
+    return false; // Lock held by another operation
+  }
+
+  this.settlementLocks.set(settlementKey, now);
+  return true;
+}
+
+// In poll loop:
+if (!this.acquireLock(settlementKey)) {
+  log.debug({ settlementKey }, 'Settlement already in progress');
+  continue;
+}
+
+// Skip if recently failed (cooldown period)
+const lastFailure = this.failedSettlements.get(settlementKey);
+if (lastFailure && Date.now() - lastFailure < this.FAILURE_COOLDOWN_MS) {
+  continue; // Still in cooldown, skip silently
+}
+
+try {
+  await this.settleOrders(buy.pda, sell.pda, buy.order, sell.order);
+  this.settledOrders.add(settlementKey);
+  this.failedSettlements.delete(settlementKey);
+} catch (err) {
+  this.failedSettlements.set(settlementKey, Date.now());
+} finally {
+  this.releaseLock(settlementKey);
+}
+
+// Cleanup to prevent memory leaks (keep last 500)
+if (this.settledOrders.size > 500) {
+  const toDelete = Array.from(this.settledOrders).slice(0, 250);
+  toDelete.forEach(k => this.settledOrders.delete(k));
+}
+```
+
+### Evidence
+
+- Settlement executor: [backend/src/crank/settlement-executor.ts:81-317](backend/src/crank/settlement-executor.ts)
+- PRD Phase 5: [project-docs/prds/PRD-MPC-MATCHING-FIX.md](project-docs/prds/PRD-MPC-MATCHING-FIX.md)
+
+---
+
+## Challenge 10: Blind Retry of Non-Retryable Errors (Days 11-12)
+
+### The Problem
+
+Our initial retry logic was simple: if it fails, retry. This caused problems:
+
+```
+[ERROR] Settlement failed: InsufficientBalance (0x1782)
+[RETRY] Attempt 2/3...
+[ERROR] Settlement failed: InsufficientBalance (0x1782)
+[RETRY] Attempt 3/3...
+[ERROR] Settlement failed: InsufficientBalance (0x1782)
+[ERROR] All retries exhausted
+```
+
+`InsufficientBalance` will **never** succeed on retry - the user doesn't have the tokens. We were wasting 30+ seconds on guaranteed failures.
+
+### What We Tried That Failed
+
+1. **Retry everything 3 times** - Wasted resources on non-retryable errors
+2. **Never retry** - Network glitches caused real failures
+3. **Hardcoded error list** - Missed edge cases, hard to maintain
+
+### The Glass We Ate
+
+- Built a comprehensive error classification system (500+ lines)
+- Learned Solana/Anchor error code patterns (0x1782 = InsufficientBalance, 0xbbb = AccountDidNotDeserialize)
+- Implemented exponential backoff with jitter to prevent thundering herd
+
+### The Solution
+
+```typescript
+// backend/src/lib/errors.ts - Error classification
+export enum ErrorCode {
+  NETWORK_ERROR = 1000,
+  CONNECTION_TIMEOUT = 1001,
+  TRANSACTION_FAILED = 2002,
+  INSUFFICIENT_FUNDS = 2004,
+  PROGRAM_ERROR = 2008,
+  // ... 30+ error codes
+}
+
+export class BlockchainError extends ConfidexError {
+  static insufficientFunds(): BlockchainError {
+    return new BlockchainError(
+      'Insufficient funds',
+      ErrorCode.INSUFFICIENT_FUNDS,
+      undefined,
+      {},
+      false // NOT retryable
+    );
+  }
+
+  static blockhashNotFound(): BlockchainError {
+    return new BlockchainError(
+      'Blockhash not found',
+      ErrorCode.BLOCKHASH_NOT_FOUND,
+      undefined,
+      {},
+      true // IS retryable
+    );
+  }
+}
+
+// backend/src/lib/retry.ts - Smart retry with classification
+const FATAL_PATTERNS = [
+  'custom program error',
+  'insufficient',
+  'account not found',
+  'invalid signature',
+];
+
+const RETRYABLE_PATTERNS = [
+  'timeout',
+  'blockhash not found',
+  'rate limit',
+  '503',
+];
+
+export function isRetryableError(error: Error): boolean {
+  const message = error.message.toLowerCase();
+
+  // Check fatal patterns first
+  for (const pattern of FATAL_PATTERNS) {
+    if (message.includes(pattern)) return false;
+  }
+
+  // Then retryable patterns
+  for (const pattern of RETRYABLE_PATTERNS) {
+    if (message.includes(pattern)) return true;
+  }
+
+  return false; // Default: don't retry unknown errors
+}
+
+// Exponential backoff with jitter
+function calculateDelay(attempt: number): number {
+  const exponentialDelay = 1000 * Math.pow(2, attempt); // 1s → 2s → 4s
+  const cappedDelay = Math.min(exponentialDelay, 10000); // Cap at 10s
+  const jitter = (Math.random() - 0.5) * 0.2 * cappedDelay; // ±10%
+  return Math.round(cappedDelay + jitter);
+}
+```
+
+### Evidence
+
+- Error classes: [backend/src/lib/errors.ts](backend/src/lib/errors.ts)
+- Retry utilities: [backend/src/lib/retry.ts](backend/src/lib/retry.ts)
+- Match executor integration: [backend/src/crank/match-executor.ts](backend/src/crank/match-executor.ts)
+
+---
+
+## Challenge 11: MXE Keygen That Never Completed (Days 8-9)
+
+### The Problem
+
+After deploying the MXE program, we waited for keygen to complete. And waited. And waited.
+
+```bash
+$ arcium mxe-info DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+MXE Status: PENDING_KEYGEN
+X25519 Public Key: 0x0000000000000000000000000000000000000000000000000000000000000000
+```
+
+The X25519 key was all zeros. Without this key, we couldn't encrypt anything for the MPC cluster.
+
+### What We Tried That Failed
+
+1. **Waited longer** - Hours passed, still zeros
+2. **Redeployed MXE** - Same result
+3. **Manual initMxePart1/Part2 scripts** - `InvalidRecoveryPeersCount` error
+4. **Used cluster 123** - Cluster 123 doesn't exist (despite being in some docs)
+
+### The Glass We Ate
+
+- Discovered cluster 123 is NOT a valid devnet cluster (only 456 and 789 exist)
+- Learned recovery set size must be 4 on devnet cluster 456
+- Found that `arcium deploy` must be used, not manual init scripts
+- Contacted Arcium team on Telegram who confirmed keygen should take "a couple mins at max"
+
+### The Solution
+
+```bash
+# WRONG - manual init causes InvalidRecoveryPeersCount
+npx tsx scripts/init-arcium-mxe.ts
+
+# CORRECT - use arcium deploy CLI
+arcium deploy \
+  --cluster-offset 456 \
+  --recovery-set-size 4 \
+  --keypair-path ~/.config/solana/devnet.json \
+  --rpc-url https://devnet.helius-rpc.com/?api-key=<key>
+
+# If keygen gets stuck:
+arcium requeue-mxe-keygen DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM \
+  --cluster-offset 456 \
+  --keypair-path ~/.config/solana/devnet.json \
+  --rpc-url <url>
+
+# Verify keygen complete:
+arcium mxe-info DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+# X25519 Public Key: 14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
+```
+
+**Key insight from Arcium team:**
+
+> "Why are you calling initMxe yourself? Please use `arcium deploy` to do so - you should ideally never call it yourself."
+> — Arihant Bansal | Arcium Team
+
+### Evidence
+
+- MXE deployment status in CLAUDE.md
+- Final working config:
+  ```env
+  NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+  NEXT_PUBLIC_MXE_X25519_PUBKEY=14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
+  NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
+  ```
+
+---
+
+## Challenge 12: Timeout Handling for Hanging Operations (Day 12)
+
+### The Problem
+
+Solana RPC calls can hang indefinitely. When they do, the entire crank service freezes:
+
+```
+[INFO] Fetching open orders...
+[... 5 minutes later, still waiting ...]
+[... crank service unresponsive ...]
+```
+
+No timeout, no retry, just a frozen process.
+
+### What We Tried That Failed
+
+1. **Trust the SDK defaults** - SDK has no timeout by default
+2. **Global process timeout** - Too coarse, kills good operations
+3. **AbortController** - Doesn't work with Solana web3.js
+
+### The Glass We Ate
+
+- Built Promise.race()-based timeout wrapper
+- Configured different timeouts for different operations:
+  - RPC calls: 10 seconds
+  - Transaction submission: 60 seconds
+  - MPC polling: 30 seconds
+
+### The Solution
+
+```typescript
+// backend/src/lib/timeout.ts
+
+export class TimeoutError extends Error {
+  constructor(operation: string, timeoutMs: number) {
+    super(`${operation} timed out after ${timeoutMs}ms`);
+    this.name = 'TimeoutError';
+  }
+}
+
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  operation: string
+): Promise<T> {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => {
+      reject(new TimeoutError(operation, timeoutMs));
+    }, timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]);
+}
+
+// Usage in match-executor.ts
+const accounts = await withTimeout(
+  this.connection.getProgramAccounts(this.programId, { filters }),
+  10000, // 10 second timeout
+  'getProgramAccounts'
+);
+
+const signature = await withTimeout(
+  sendAndConfirmTransaction(connection, tx, signers),
+  60000, // 60 second timeout
+  'sendAndConfirmTransaction'
+);
+```
+
+### Evidence
+
+- Timeout utility: [backend/src/lib/timeout.ts](backend/src/lib/timeout.ts)
+- Match executor integration: [backend/src/crank/match-executor.ts:168-179](backend/src/crank/match-executor.ts)
+
+---
+
+## Challenge 13: JavaScript Poseidon2 That Matches Noir (Day 13)
+
+### The Problem
+
+Our ZK eligibility system was throwing an error for non-empty blacklists:
+
+```typescript
+function poseidon2Hash(left: bigint, right: bigint): bigint {
+  throw new Error('Poseidon2 hash of non-empty nodes requires circuit execution');
+}
+```
+
+This was a placeholder. We needed real Poseidon2 hashes to:
+- Compute merkle tree roots for non-empty blacklists
+- Generate per-address sibling paths
+- Verify proofs before sending to the circuit
+
+The catch? Poseidon2 has to match Noir's stdlib **exactly**. One bit off = invalid proof.
+
+### What We Tried That Failed
+
+1. **Used existing npm packages** - `circomlibjs` uses Poseidon (not Poseidon2), wrong parameters
+2. **Simple translation from Rust** - Missed the initial linear layer, got wrong hash(0,0)
+3. **Assumed standard matrix multiplication** - Noir uses a specific 4x4 matrix algorithm
+4. **Computed empty tree root** - Got `0x102dc8...` instead of expected `0x3039bc...`
+
+### The Glass We Ate
+
+- Read through Noir's `poseidon2.rs` source code line by line
+- Discovered the **initial linear layer** that runs BEFORE any rounds:
+  ```rust
+  // From noir stdlib poseidon2.rs
+  let mut state = input;
+  state = matrix_multiplication_4x4(state);  // THIS WAS MISSING
+  // then rounds...
+  ```
+- Debugged the external matrix multiplication (outputs `5A+7B+C+3D`, not standard 4x4)
+- Built complete round constant arrays (64 rounds × 4 elements = 256 constants)
+- Handled BN254 field modular arithmetic in JavaScript (bigint overflow issues)
+
+### The Solution
+
+```typescript
+// backend/src/lib/poseidon2.ts
+
+// The critical insight: initial linear layer BEFORE rounds
+export function poseidon2Permutation(input: bigint[]): bigint[] {
+  let state = [...input];
+
+  // Apply initial linear layer BEFORE rounds - THIS WAS THE BUG
+  state = matmulExternal(state);
+
+  // First 4 full rounds
+  for (let i = 0; i < ROUNDS_F / 2; i++) {
+    state = fullRound(state, i);
+  }
+
+  // 56 partial rounds
+  for (let i = 0; i < ROUNDS_P; i++) {
+    state = partialRound(state, ROUNDS_F / 2 + i);
+  }
+
+  // Last 4 full rounds
+  for (let i = 0; i < ROUNDS_F / 2; i++) {
+    state = fullRound(state, ROUNDS_F / 2 + ROUNDS_P + i);
+  }
+
+  return state;
+}
+
+// External matrix - exact algorithm from Noir's matrix_multiplication_4x4
+function matmulExternal(state: bigint[]): bigint[] {
+  const t0 = addMod(state[0], state[1]); // A + B
+  const t1 = addMod(state[2], state[3]); // C + D
+  let t2 = addMod(state[1], state[1]); // 2B
+  t2 = addMod(t2, t1); // 2B + C + D
+  let t3 = addMod(state[3], state[3]); // 2D
+  t3 = addMod(t3, t0); // 2D + A + B
+  let t4 = addMod(t1, t1);
+  t4 = addMod(t4, t4);
+  t4 = addMod(t4, t3); // A + B + 4C + 6D
+  let t5 = addMod(t0, t0);
+  t5 = addMod(t5, t5);
+  t5 = addMod(t5, t2); // 4A + 6B + C + D
+  const t6 = addMod(t3, t5); // 5A + 7B + C + 3D
+  const t7 = addMod(t2, t4); // A + 3B + 5C + 7D
+
+  return [t6, t5, t7, t4];
+}
+```
+
+**Verified output:**
+```typescript
+hash(0, 0) = 0x18dfb8dc9b82229cff974efefc8df78b1ce96d9d844236b496785c698bc6732e  // ✓ Matches Noir
+EMPTY_ROOT = 0x3039bcb20f03fd9c8650138ef2cfe643edeed152f9c20999f43aeed54d79e387  // ✓ Matches circuit
+```
+
+**Plus:** Full Sparse Merkle Tree with collision handling:
+```typescript
+// Multiple addresses can map to same leaf index (20-bit space)
+private leafAddresses: Map<bigint, Set<string>>;  // index → addresses
+
+// Proof generation for any address with any blacklist state
+generateNonMembershipProof(address: string): {
+  isEligible: boolean;
+  path: string[];    // 20 sibling hashes
+  indices: number[]; // 20 path direction bits
+}
+```
+
+### Evidence
+
+- Poseidon2 implementation: [backend/src/lib/poseidon2.ts](backend/src/lib/poseidon2.ts)
+- SparseMerkleTree: [backend/src/lib/blacklist.ts](backend/src/lib/blacklist.ts)
+- Test suite (23 tests): [backend/src/__tests__/lib/blacklist.test.ts](backend/src/__tests__/lib/blacklist.test.ts)
+
+---
+
 ## Summary: The Glass Score
 
 | Challenge | Days Spent | Pain Level (1-10) |
@@ -486,7 +1026,13 @@ const messageV0 = new TransactionMessage({
 | Rust toolchain hell | 1 | 6 |
 | Real-time price feeds | 2 | 4 |
 | Transaction size limits | 1 | 8 |
-| **Total** | **13** | **Average: 7** |
+| Order format migration (V4→V5) | 2 | 8 |
+| Race conditions in settlement | 1 | 7 |
+| Error classification & retry | 1 | 6 |
+| MXE keygen completion | 2 | 9 |
+| Timeout handling | 0.5 | 5 |
+| **Poseidon2/SMT implementation** | **1** | **8** |
+| **Total** | **20.5** | **Average: 7.1** |
 
 ---
 
@@ -496,6 +1042,11 @@ const messageV0 = new TransactionMessage({
 2. **Start with hybrid privacy model** - Spent too long on "fully private" dead ends
 3. **Pin all versions from day 1** - Toolchain issues wasted hours
 4. **Build settlement abstraction first** - Would have made C-SPL pivot easier
+5. **Version account formats explicitly** - V3/V4/V5 migrations cost us days; should have versioned from the start
+6. **Use `arcium deploy`, never manual scripts** - The CLI handles edge cases we didn't know about
+7. **Build error classification before retry logic** - Blind retries waste time and resources
+8. **Add timeouts to everything from day 1** - One hanging RPC call can freeze your entire service
+9. **Read the stdlib source, not just docs** - Noir's Poseidon2 has an initial linear layer not mentioned in high-level docs
 
 ---
 
@@ -508,6 +1059,13 @@ Every challenge taught us something:
 - Privacy and functionality can coexist with careful design
 - Beta SDKs require reading source code, not just docs
 - Transaction limits force creative optimization
+- **Account format migrations are silent killers** - Your code works, but finds zero data
+- **Locks + idempotency are both needed** - Neither alone prevents race conditions
+- **Classify errors before retrying** - Know what's retryable vs terminal
+- **Set timeouts everywhere** - No "indefinite wait" in production
+- **Cryptographic functions must match exactly** - One bit difference = invalid proof; read the stdlib source
+
+The second half of the hackathon was a masterclass in production hardening. The MPC matching worked on paper, but making it work reliably at 5-second polling intervals with concurrent operations taught us more about distributed systems than any textbook.
 
 We ate a lot of glass. We hope it shows.
 

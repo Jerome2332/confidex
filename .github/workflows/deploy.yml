@@ -1,0 +1,235 @@
+# CD Deploy Workflow - Automated deployment to devnet
+# Triggered on push to main after tests pass
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment"
+        required: true
+        default: "devnet"
+        type: choice
+        options:
+          - devnet
+          - mainnet
+
+env:
+  NODE_VERSION: "20"
+  RUST_VERSION: "1.89.0"
+  SOLANA_VERSION: "1.18.22"
+  ANCHOR_VERSION: "0.29.0"
+
+# Ensure only one deployment runs at a time
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Run tests first
+  test:
+    name: Pre-deploy Tests
+    uses: ./.github/workflows/test.yml
+
+  # Deploy Solana Programs
+  deploy-programs:
+    name: Deploy Programs
+    runs-on: ubuntu-latest
+    needs: [test]
+    environment: ${{ github.event.inputs.environment || 'devnet' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.solana.com/v${{ env.SOLANA_VERSION }}/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+          avm install ${{ env.ANCHOR_VERSION }}
+          avm use ${{ env.ANCHOR_VERSION }}
+
+      - name: Setup deployer wallet
+        run: |
+          echo "${{ secrets.DEPLOYER_KEYPAIR }}" | base64 -d > deployer.json
+          solana config set --keypair deployer.json
+          solana config set --url ${{ vars.SOLANA_RPC_URL || 'https://api.devnet.solana.com' }}
+
+      - name: Check deployer balance
+        run: |
+          BALANCE=$(solana balance | awk '{print $1}')
+          echo "Deployer balance: $BALANCE SOL"
+          if (( $(echo "$BALANCE < 1" | bc -l) )); then
+            echo "Warning: Low deployer balance. Consider airdropping."
+          fi
+
+      - name: Build programs
+        run: anchor build
+
+      - name: Deploy programs
+        run: |
+          anchor deploy --provider.cluster ${{ github.event.inputs.environment || 'devnet' }}
+        env:
+          ANCHOR_WALLET: ./deployer.json
+
+      - name: Verify deployment
+        run: |
+          # Get program ID from Anchor.toml
+          PROGRAM_ID=$(grep -A1 '\[programs.devnet\]' Anchor.toml | grep 'confidex_dex' | cut -d'"' -f2)
+          echo "Verifying program: $PROGRAM_ID"
+          solana program show $PROGRAM_ID
+
+      - name: Cleanup
+        if: always()
+        run: rm -f deployer.json
+
+  # Deploy Frontend to Vercel (if configured)
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: vars.VERCEL_PROJECT_ID != ''
+    environment: ${{ github.event.inputs.environment || 'devnet' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Vercel CLI
+        run: pnpm add -g vercel@latest
+
+      - name: Pull Vercel Environment
+        working-directory: frontend
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Build
+        working-directory: frontend
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy
+        working-directory: frontend
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+  # Deploy Backend (manual step documented)
+  deploy-backend:
+    name: Backend Deploy Info
+    runs-on: ubuntu-latest
+    needs: [test]
+
+    steps:
+      - name: Deployment instructions
+        run: |
+          echo "=========================================="
+          echo "Backend Deployment Instructions"
+          echo "=========================================="
+          echo ""
+          echo "The backend crank service should be deployed manually:"
+          echo ""
+          echo "1. SSH to your server"
+          echo "2. Pull latest changes: git pull origin main"
+          echo "3. Install dependencies: cd backend && pnpm install"
+          echo "4. Build: pnpm build"
+          echo "5. Restart service: pnpm pm2:restart"
+          echo ""
+          echo "Or use the PM2 ecosystem:"
+          echo "  pm2 deploy ecosystem.config.cjs production"
+          echo ""
+          echo "See docs/DEPLOYMENT.md for full instructions."
+
+  # Post-deployment verification
+  verify-deployment:
+    name: Verify Deployment
+    runs-on: ubuntu-latest
+    needs: [deploy-programs]
+    if: success()
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install dependencies
+        run: npm install @solana/web3.js
+
+      - name: Verify program is deployed
+        run: |
+          node -e "
+            const { Connection, PublicKey } = require('@solana/web3.js');
+            const conn = new Connection('${{ vars.SOLANA_RPC_URL || 'https://api.devnet.solana.com' }}');
+            const programId = new PublicKey('${{ vars.NEXT_PUBLIC_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB' }}');
+            conn.getAccountInfo(programId).then(info => {
+              if (info && info.executable) {
+                console.log('Program verified: executable on devnet');
+                process.exit(0);
+              } else {
+                console.error('Program not found or not executable');
+                process.exit(1);
+              }
+            });
+          "
+
+  # Deployment summary
+  deployment-summary:
+    name: Deployment Summary
+    runs-on: ubuntu-latest
+    needs: [deploy-programs, deploy-frontend, deploy-backend, verify-deployment]
+    if: always()
+
+    steps:
+      - name: Summary
+        run: |
+          echo "=========================================="
+          echo "Deployment Summary"
+          echo "=========================================="
+          echo ""
+          echo "Programs: ${{ needs.deploy-programs.result }}"
+          echo "Frontend: ${{ needs.deploy-frontend.result }}"
+          echo "Backend:  ${{ needs.deploy-backend.result }}"
+          echo "Verify:   ${{ needs.verify-deployment.result }}"
+          echo ""
+          if [ "${{ needs.verify-deployment.result }}" == "success" ]; then
+            echo "Deployment completed successfully!"
+          else
+            echo "Deployment had issues. Check individual job logs."
+          fi

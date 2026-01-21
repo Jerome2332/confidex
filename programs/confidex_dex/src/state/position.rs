@@ -221,6 +221,79 @@ impl ConfidentialPosition {
         );
         self.threshold_commitment == expected
     }
+
+    // =========================================================================
+    // HACKATHON PLAINTEXT HELPERS
+    // These methods read/write plaintext values from the first 8 bytes of
+    // encrypted fields. This is a temporary solution until C-SPL SDK is available.
+    // In production, these will be replaced with proper C-SPL encrypted operations.
+    // =========================================================================
+
+    /// Get collateral as plaintext u64 (hackathon only - reads first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_collateral_plaintext(&self) -> u64 {
+        u64::from_le_bytes(
+            self.encrypted_collateral[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set collateral plaintext (hackathon only - writes to first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_collateral_plaintext(&mut self, amount: u64) {
+        self.encrypted_collateral[0..8].copy_from_slice(&amount.to_le_bytes());
+    }
+
+    /// Get position size as plaintext u64 (hackathon only - reads first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_size_plaintext(&self) -> u64 {
+        u64::from_le_bytes(
+            self.encrypted_size[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set position size plaintext (hackathon only - writes to first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_size_plaintext(&mut self, amount: u64) {
+        self.encrypted_size[0..8].copy_from_slice(&amount.to_le_bytes());
+    }
+
+    /// Get entry price as plaintext u64 (hackathon only - reads first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_entry_price_plaintext(&self) -> u64 {
+        u64::from_le_bytes(
+            self.encrypted_entry_price[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set entry price plaintext (hackathon only - writes to first 8 bytes)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_entry_price_plaintext(&mut self, price: u64) {
+        self.encrypted_entry_price[0..8].copy_from_slice(&price.to_le_bytes());
+    }
+
+    /// Get realized PnL as plaintext i64 (hackathon only - reads first 8 bytes)
+    /// Returns i64 because PnL can be negative (losses)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn get_realized_pnl_plaintext(&self) -> i64 {
+        i64::from_le_bytes(
+            self.encrypted_realized_pnl[0..8].try_into().unwrap_or([0u8; 8])
+        )
+    }
+
+    /// Set realized PnL plaintext (hackathon only - writes to first 8 bytes)
+    /// Accepts i64 because PnL can be negative (losses)
+    /// In production: Use C-SPL encrypted balance operations
+    pub fn set_realized_pnl_plaintext(&mut self, pnl: i64) {
+        self.encrypted_realized_pnl[0..8].copy_from_slice(&pnl.to_le_bytes());
+    }
+
+    /// Add to realized PnL (hackathon only)
+    /// Handles overflow safely using saturating arithmetic
+    pub fn add_realized_pnl_plaintext(&mut self, delta: i64) {
+        let current = self.get_realized_pnl_plaintext();
+        let new_pnl = current.saturating_add(delta);
+        self.set_realized_pnl_plaintext(new_pnl);
+    }
 }
 
 /// Batch liquidation check request account

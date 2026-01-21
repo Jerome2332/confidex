@@ -2,13 +2,20 @@
  * Crank Admin Routes
  *
  * API endpoints for controlling and monitoring the crank service.
+ * All routes require admin authentication via X-API-Key header.
  */
 
 import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
 import { CrankService } from '../../crank/index.js';
+import { adminAuth } from '../../middleware/auth.js';
+import { rateLimiters } from '../../middleware/rate-limit.js';
 
 const router: RouterType = Router();
+
+// Apply admin authentication and rate limiting to all crank routes
+router.use(adminAuth);
+router.use(rateLimiters.strict);
 
 // Singleton crank service instance
 let crankService: CrankService | null = null;
@@ -150,6 +157,32 @@ router.post('/resume', async (_req: Request, res: Response) => {
     console.error('[CrankRoutes] Error resuming crank:', error);
     return res.status(500).json({
       error: 'Failed to resume crank service',
+    });
+  }
+});
+
+/**
+ * POST /admin/crank/skip-pending-mpc
+ *
+ * Skip all pending MPC computations (mark them as failed to stop polling)
+ */
+router.post('/skip-pending-mpc', async (_req: Request, res: Response) => {
+  if (!crankService) {
+    return res.status(503).json({
+      error: 'Crank service not initialized',
+    });
+  }
+
+  try {
+    const skipped = await crankService.skipPendingMpcComputations();
+    return res.json({
+      message: `Skipped ${skipped} pending MPC computations`,
+      skipped,
+    });
+  } catch (error) {
+    console.error('[CrankRoutes] Error skipping pending MPC:', error);
+    return res.status(500).json({
+      error: 'Failed to skip pending MPC computations',
     });
   }
 });

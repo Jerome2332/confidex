@@ -113,6 +113,7 @@ export function useMpcEvents(): UseMpcEventsReturn {
       if (logLine.includes('MPC compare result')) {
         const match = logLine.match(/request\s+\[([^\]]+)\].*prices_match=(\w+)/);
         if (match) {
+          const requestIdStr = match[1];
           const pricesMatch = match[2] === 'true';
           log.debug('Parsed PriceCompareComplete', { pricesMatch });
 
@@ -129,6 +130,22 @@ export function useMpcEvents(): UseMpcEventsReturn {
               return comp;
             })
           );
+
+          // Invoke registered callbacks
+          const event: PriceCompareCompleteEvent = {
+            requestId: new Uint8Array(Buffer.from(requestIdStr, 'hex')),
+            buyOrder: PublicKey.default,
+            sellOrder: PublicKey.default,
+            pricesMatch,
+            timestamp: BigInt(Date.now()),
+          };
+          priceCompareCallbacks.current.forEach(cb => {
+            try {
+              cb(event);
+            } catch (err) {
+              log.error('Error in priceCompareComplete callback', { error: err });
+            }
+          });
         }
       }
 
@@ -153,6 +170,23 @@ export function useMpcEvents(): UseMpcEventsReturn {
               return comp;
             })
           );
+
+          // Invoke registered callbacks
+          const event: OrdersMatchedEvent = {
+            requestId: new Uint8Array(32),
+            buyOrder: PublicKey.default,
+            sellOrder: PublicKey.default,
+            buyFullyFilled,
+            sellFullyFilled,
+            timestamp: BigInt(Date.now()),
+          };
+          ordersMatchedCallbacks.current.forEach(cb => {
+            try {
+              cb(event);
+            } catch (err) {
+              log.error('Error in ordersMatched callback', { error: err });
+            }
+          });
         }
       }
     }

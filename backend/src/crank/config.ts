@@ -26,6 +26,12 @@ export interface CrankConfig {
   // RPC URL (prefer Helius for better rate limits)
   rpcUrl: string;
 
+  // Database path for persistence
+  dbPath: string;
+
+  // Graceful shutdown timeout in milliseconds
+  shutdownTimeoutMs: number;
+
   // Circuit breaker settings
   circuitBreaker: {
     // Number of consecutive errors before pausing
@@ -44,6 +50,18 @@ export interface CrankConfig {
   programs: {
     confidexDex: string;
     arciumMxe: string;
+  };
+
+  // Production MPC settings
+  mpc: {
+    // Use real Arcium MPC instead of simulated results
+    useRealMpc: boolean;
+    // Full Arcium MXE Program ID (deployed via `arcium deploy`)
+    fullMxeProgramId: string;
+    // Arcium cluster offset (456 for v0.6.3)
+    clusterOffset: number;
+    // MPC computation timeout in milliseconds
+    timeoutMs: number;
   };
 }
 
@@ -67,6 +85,10 @@ export function loadCrankConfig(): CrankConfig {
 
     rpcUrl: process.env.HELIUS_RPC_URL || process.env.RPC_URL || 'https://api.devnet.solana.com',
 
+    dbPath: process.env.CRANK_DB_PATH || './data/crank.db',
+
+    shutdownTimeoutMs: parseInt(process.env.CRANK_SHUTDOWN_TIMEOUT_MS || '30000', 10),
+
     circuitBreaker: {
       errorThreshold: parseInt(process.env.CRANK_ERROR_THRESHOLD || '10', 10),
       pauseDurationMs: parseInt(process.env.CRANK_PAUSE_DURATION_MS || '60000', 10),
@@ -79,7 +101,21 @@ export function loadCrankConfig(): CrankConfig {
 
     programs: {
       confidexDex: process.env.CONFIDEX_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-      arciumMxe: process.env.MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM',
+      // DEPRECATED: Legacy custom MXE - use mpc.fullMxeProgramId instead for production
+      // This was used during development when CPI format differed from Arcium SDK.
+      // For production MPC, use the fullMxeProgramId (DoT4u...) deployed via `arcium deploy`.
+      arciumMxe: process.env.MXE_PROGRAM_ID || 'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE',
+    },
+
+    mpc: {
+      // Default to true for production - disable explicitly with CRANK_USE_REAL_MPC=false
+      useRealMpc: process.env.CRANK_USE_REAL_MPC !== 'false',
+      // Full Arcium MXE deployed via `arcium deploy`
+      fullMxeProgramId: process.env.FULL_MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM',
+      // Devnet cluster offset (456 for v0.6.3, 789 for backup)
+      clusterOffset: parseInt(process.env.ARCIUM_CLUSTER_OFFSET || '456', 10),
+      // MPC timeout (2 minutes default)
+      timeoutMs: parseInt(process.env.MPC_TIMEOUT_MS || '120000', 10),
     },
   };
 }
@@ -100,6 +136,22 @@ export function validateConfig(config: CrankConfig): { valid: boolean; warnings:
 
   if (config.maxConcurrentMatches > 10) {
     warnings.push('High concurrent match count may overwhelm RPC');
+  }
+
+  // MPC-specific warnings
+  if (config.mpc.useRealMpc) {
+    warnings.push('PRODUCTION MPC MODE ENABLED - using real Arcium cluster for encrypted computation');
+
+    if (config.mpc.clusterOffset !== 456 && config.mpc.clusterOffset !== 789) {
+      warnings.push(`Non-standard cluster offset: ${config.mpc.clusterOffset} (expected 456 or 789 for devnet)`);
+    }
+
+    if (config.mpc.timeoutMs < 30000) {
+      warnings.push('MPC timeout is very short (<30s) - may cause false failures');
+    }
+  } else {
+    // Warn when demo mode is explicitly enabled
+    warnings.push('⚠️ DEMO MPC MODE - Set CRANK_USE_REAL_MPC=true for production (default is now true)');
   }
 
   return { valid: true, warnings };

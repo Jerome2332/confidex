@@ -4,6 +4,8 @@ import { existsSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import bs58 from 'bs58';
+import { proofCache } from './prover.js';
+import { poseidon2Hash as computePoseidon2Hash } from './poseidon2.js';
 
 // ES module compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -89,35 +91,10 @@ function computeAddressIndex(address: string): bigint {
 }
 
 /**
- * Poseidon2 permutation state size 4, sponge construction for 2-to-1 hash
- * NOTE: This is a simplified implementation using pre-computed values.
- * In production, we should use a proper Poseidon2 library.
- * The actual hashing is done in the Noir circuit.
+ * Poseidon2 hash using the real implementation that matches Noir's stdlib
  */
 function poseidon2Hash(left: bigint, right: bigint): bigint {
-  // For now, we use pre-computed empty subtree roots for empty branches
-  // This works because our SMT only stores membership, not actual values
-  // When both inputs are from the same empty subtree level, return the next level hash
-
-  for (let i = 0; i < POSEIDON2_EMPTY_SUBTREE_ROOTS.length - 1; i++) {
-    if (left === POSEIDON2_EMPTY_SUBTREE_ROOTS[i] && right === POSEIDON2_EMPTY_SUBTREE_ROOTS[i]) {
-      return POSEIDON2_EMPTY_SUBTREE_ROOTS[i + 1];
-    }
-  }
-
-  // For non-empty cases, we need to call the actual Poseidon2 implementation
-  // This would require a proper JS implementation of Poseidon2 with Noir's parameters
-  // For now, fall back to a deterministic placeholder that signals we need real computation
-  throw new Error('Poseidon2 hash of non-empty nodes requires circuit execution');
-}
-
-/**
- * Sparse Merkle Tree node
- */
-interface SMTNode {
-  hash: bigint;
-  left?: SMTNode;
-  right?: SMTNode;
+  return computePoseidon2Hash(left, right);
 }
 
 /**
@@ -131,18 +108,34 @@ interface BlacklistStorage {
 }
 
 /**
- * In-memory representation of the Sparse Merkle Tree
- * For a sparse tree, we only store the non-empty nodes
+ * Sparse Merkle Tree for blacklist management
+ *
+ * This implementation uses proper Poseidon2 hashing that matches Noir's stdlib.
+ * It maintains a full in-memory tree structure for efficient proof generation.
+ *
+ * Key properties:
+ * - Tree depth: 20 levels (supports ~1M addresses)
+ * - Hash function: Poseidon2 over BN254
+ * - Empty leaf: 0
+ * - Leaf value for blacklisted address: 1 (non-zero marks presence)
  */
 class SparseMerkleTree {
   private root: bigint;
   private addresses: Set<string>;
-  private nodeCache: Map<string, bigint>; // path -> hash
+
+  // Cache of (index -> Set<address>) for addresses at each leaf position
+  // Multiple addresses can map to the same index (collision handling)
+  private leafAddresses: Map<bigint, Set<string>>;
+
+  // Cache of computed subtree hashes
+  // Key format: "level:index" where index is the node's position at that level
+  private subtreeCache: Map<string, bigint>;
 
   constructor() {
     this.root = EMPTY_TREE_ROOT;
     this.addresses = new Set();
-    this.nodeCache = new Map();
+    this.leafAddresses = new Map();
+    this.subtreeCache = new Map();
   }
 
   /**
@@ -168,12 +161,20 @@ class SparseMerkleTree {
 
   /**
    * Add address to blacklist
-   * Note: For now this marks the address and signals root needs recomputation
    */
   add(address: string): void {
     if (this.addresses.has(address)) return;
+
     this.addresses.add(address);
-    this.markRootDirty();
+    const index = computeAddressIndex(address);
+
+    // Track address at this leaf index (handles collisions)
+    if (!this.leafAddresses.has(index)) {
+      this.leafAddresses.set(index, new Set());
+    }
+    this.leafAddresses.get(index)!.add(address);
+
+    this.recomputeRoot();
   }
 
   /**
@@ -181,25 +182,112 @@ class SparseMerkleTree {
    */
   remove(address: string): void {
     if (!this.addresses.has(address)) return;
+
     this.addresses.delete(address);
-    this.markRootDirty();
+    const index = computeAddressIndex(address);
+
+    // Remove address from leaf index tracking
+    const addrSet = this.leafAddresses.get(index);
+    if (addrSet) {
+      addrSet.delete(address);
+      // Only clear leaf if no more addresses at this index
+      if (addrSet.size === 0) {
+        this.leafAddresses.delete(index);
+      }
+    }
+
+    this.recomputeRoot();
   }
 
   /**
-   * Mark that root needs recomputation
-   * In a production system with a real Poseidon2 implementation,
-   * this would recompute the tree. For now, we rely on circuit verification.
+   * Recompute the merkle root from scratch
+   * Uses bottom-up computation with caching for efficiency
    */
-  private markRootDirty(): void {
-    // When we have real Poseidon2 in JS, recompute the root here
-    // For now, we maintain the address set and use the empty tree root
-    // when there are no addresses
+  private recomputeRoot(): void {
+    const oldRoot = this.root;
+
+    // Clear cache for fresh computation
+    this.subtreeCache.clear();
+
     if (this.addresses.size === 0) {
       this.root = EMPTY_TREE_ROOT;
+    } else {
+      // Compute root by traversing from leaves to root
+      this.root = this.computeSubtreeHash(TREE_DEPTH, 0n);
     }
-    // Note: With addresses, root computation requires Poseidon2
-    // The current implementation relies on off-chain agreement about addresses
-    // and circuit-level verification
+
+    // Invalidate cached proofs when root changes
+    if (oldRoot !== this.root) {
+      const invalidated = proofCache.invalidateByRoot(fieldToHex(oldRoot));
+      if (invalidated > 0) {
+        console.log(`[blacklist] Invalidated ${invalidated} cached proofs for old root`);
+      }
+    }
+  }
+
+  /**
+   * Compute the hash of a subtree rooted at (level, nodeIndex)
+   * level 0 = leaf level, level TREE_DEPTH = root
+   * nodeIndex is the position of this node at its level (0 to 2^(TREE_DEPTH-level) - 1)
+   */
+  private computeSubtreeHash(level: number, nodeIndex: bigint): bigint {
+    // Check cache first
+    const cacheKey = `${level}:${nodeIndex}`;
+    const cached = this.subtreeCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    let hash: bigint;
+
+    if (level === 0) {
+      // Leaf level - return 1 if any address is at this index, 0 otherwise
+      hash = this.leafAddresses.has(nodeIndex) ? 1n : 0n;
+    } else {
+      // Internal node - compute from children
+      const leftChildIndex = nodeIndex * 2n;
+      const rightChildIndex = nodeIndex * 2n + 1n;
+
+      const leftHash = this.computeSubtreeHash(level - 1, leftChildIndex);
+      const rightHash = this.computeSubtreeHash(level - 1, rightChildIndex);
+
+      // Optimization: if both children are empty subtrees, use pre-computed value
+      if (leftHash === POSEIDON2_EMPTY_SUBTREE_ROOTS[level - 1] &&
+          rightHash === POSEIDON2_EMPTY_SUBTREE_ROOTS[level - 1]) {
+        hash = POSEIDON2_EMPTY_SUBTREE_ROOTS[level];
+      } else {
+        hash = poseidon2Hash(leftHash, rightHash);
+      }
+    }
+
+    this.subtreeCache.set(cacheKey, hash);
+    return hash;
+  }
+
+  /**
+   * Get the hash of a subtree that may or may not contain blacklisted addresses
+   * This is used when computing sibling hashes for proofs
+   */
+  private getSubtreeHash(level: number, nodeIndex: bigint): bigint {
+    // Check if any blacklisted address falls within this subtree
+    const subtreeStartLeaf = nodeIndex * (1n << BigInt(level));
+    const subtreeEndLeaf = subtreeStartLeaf + (1n << BigInt(level));
+
+    let hasBlacklistedInSubtree = false;
+    for (const [leafIndex] of this.leafAddresses) {
+      if (leafIndex >= subtreeStartLeaf && leafIndex < subtreeEndLeaf) {
+        hasBlacklistedInSubtree = true;
+        break;
+      }
+    }
+
+    if (!hasBlacklistedInSubtree) {
+      // No blacklisted addresses in this subtree, use empty subtree root
+      return POSEIDON2_EMPTY_SUBTREE_ROOTS[level];
+    }
+
+    // Need to compute actual subtree hash
+    return this.computeSubtreeHash(level, nodeIndex);
   }
 
   /**
@@ -220,11 +308,17 @@ class SparseMerkleTree {
       };
     }
 
+    const index = computeAddressIndex(address);
+    const path: string[] = [];
+    const indices: number[] = [];
+
     // For an empty tree (no blacklisted addresses), the proof is straightforward
-    // All siblings are the pre-computed empty subtree roots
     if (this.addresses.size === 0) {
-      const path = POSEIDON2_EMPTY_SUBTREE_ROOTS.slice(0, TREE_DEPTH).map(fieldToHex);
-      const indices = new Array(TREE_DEPTH).fill(0);
+      for (let level = 0; level < TREE_DEPTH; level++) {
+        const bit = (index >> BigInt(level)) & 1n;
+        indices.push(Number(bit));
+        path.push(fieldToHex(POSEIDON2_EMPTY_SUBTREE_ROOTS[level]));
+      }
       return {
         isEligible: true,
         path,
@@ -232,23 +326,24 @@ class SparseMerkleTree {
       };
     }
 
-    // For a non-empty tree, we need to compute the actual path
-    // This requires walking the tree and collecting siblings
-    const index = computeAddressIndex(address);
-    const path: string[] = [];
-    const indices: number[] = [];
+    // For a non-empty tree, compute the sibling path
+    // We walk from leaf to root, collecting sibling hashes at each level
+    let currentNodeIndex = index;
 
-    // Walk from leaf to root
     for (let level = 0; level < TREE_DEPTH; level++) {
-      const bit = (index >> BigInt(level)) & 1n;
-      indices.push(Number(bit));
+      // Determine if we're a left or right child
+      const isRight = (currentNodeIndex & 1n) === 1n;
+      indices.push(isRight ? 1 : 0);
 
-      // Get sibling hash
-      // For a sparse tree with only membership tracking:
-      // - If no addresses share this subtree prefix, use empty subtree root
-      // - Otherwise, we need to compute the actual sibling hash
-      const siblingHash = this.getSiblingHash(index, level);
+      // Get sibling's node index at this level
+      const siblingNodeIndex = isRight ? currentNodeIndex - 1n : currentNodeIndex + 1n;
+
+      // Get sibling's subtree hash
+      const siblingHash = this.getSubtreeHash(level, siblingNodeIndex);
       path.push(fieldToHex(siblingHash));
+
+      // Move to parent level
+      currentNodeIndex = currentNodeIndex >> 1n;
     }
 
     return {
@@ -259,31 +354,35 @@ class SparseMerkleTree {
   }
 
   /**
-   * Get sibling hash at a given level for an index
-   * For sparse trees, most siblings are empty subtree roots
+   * Verify that a proof is valid
+   * This recomputes the root from the proof and compares with stored root
    */
-  private getSiblingHash(index: bigint, level: number): bigint {
-    // Compute the sibling index at this level
-    const siblingIndex = index ^ (1n << BigInt(level));
-
-    // Check if any blacklisted address has this prefix
-    const prefixMask = ((1n << BigInt(level + 1)) - 1n) ^ ((1n << BigInt(level)) - 1n);
-    const siblingPrefix = (siblingIndex >> BigInt(level)) << BigInt(level);
-
-    for (const addr of this.addresses) {
-      const addrIndex = computeAddressIndex(addr);
-      const addrPrefix = (addrIndex >> BigInt(level)) << BigInt(level);
-
-      if (addrPrefix === siblingPrefix) {
-        // A blacklisted address shares this sibling's subtree
-        // Need actual computation - for now return empty (simplified)
-        // In production, this would compute the actual subtree hash
-        break;
-      }
+  verifyProof(address: string, path: string[], indices: number[]): boolean {
+    if (path.length !== TREE_DEPTH || indices.length !== TREE_DEPTH) {
+      return false;
     }
 
-    // No blacklisted address in sibling subtree, use empty subtree root
-    return POSEIDON2_EMPTY_SUBTREE_ROOTS[level];
+    const index = computeAddressIndex(address);
+
+    // For non-membership proof, the leaf should be empty (0)
+    let current = 0n;
+
+    for (let level = 0; level < TREE_DEPTH; level++) {
+      const sibling = hexToField(path[level]);
+      const isRight = indices[level] === 1;
+
+      // Verify the index bit matches the path direction
+      const expectedBit = (index >> BigInt(level)) & 1n;
+      if ((isRight ? 1n : 0n) !== expectedBit) {
+        return false;
+      }
+
+      // Compute parent hash
+      const [left, right] = isRight ? [sibling, current] : [current, sibling];
+      current = poseidon2Hash(left, right);
+    }
+
+    return current === this.root;
   }
 
   /**
@@ -297,18 +396,33 @@ class SparseMerkleTree {
         const data = await readFile(BLACKLIST_FILE, 'utf-8');
         const storage: BlacklistStorage = JSON.parse(data);
 
+        // Add all addresses (this will compute indices and recompute root)
         for (const addr of storage.addresses) {
           tree.addresses.add(addr);
+          const index = computeAddressIndex(addr);
+          // Track address at this leaf index (handles collisions)
+          if (!tree.leafAddresses.has(index)) {
+            tree.leafAddresses.set(index, new Set());
+          }
+          tree.leafAddresses.get(index)!.add(addr);
         }
 
-        if (storage.merkleRoot) {
-          tree.root = hexToField(storage.merkleRoot);
+        // Recompute root (don't trust stored root, compute fresh)
+        if (tree.addresses.size > 0) {
+          tree.subtreeCache.clear();
+          tree.root = tree.computeSubtreeHash(TREE_DEPTH, 0n);
         }
 
-        console.log(`Loaded ${tree.addresses.size} blacklisted addresses from storage`);
+        console.log(`[blacklist] Loaded ${tree.addresses.size} blacklisted addresses from storage`);
+        console.log(`[blacklist] Computed merkle root: ${fieldToHex(tree.root)}`);
+
+        // Warn if stored root differs (indicates potential inconsistency)
+        if (storage.merkleRoot && hexToField(storage.merkleRoot) !== tree.root) {
+          console.warn(`[blacklist] Stored root differs from computed root, using computed`);
+        }
       }
     } catch (error) {
-      console.warn('Failed to load blacklist from storage:', error);
+      console.warn('[blacklist] Failed to load blacklist from storage:', error);
     }
 
     return tree;
@@ -328,9 +442,9 @@ class SparseMerkleTree {
     try {
       await mkdir(STORAGE_DIR, { recursive: true });
       await writeFile(BLACKLIST_FILE, JSON.stringify(storage, null, 2));
-      console.log(`Saved ${this.addresses.size} blacklisted addresses to storage`);
+      console.log(`[blacklist] Saved ${this.addresses.size} blacklisted addresses to storage`);
     } catch (error) {
-      console.error('Failed to save blacklist to storage:', error);
+      console.error('[blacklist] Failed to save blacklist to storage:', error);
       throw error;
     }
   }
@@ -347,6 +461,14 @@ async function getSMT(): Promise<SparseMerkleTree> {
     smtInstance = await SparseMerkleTree.load();
   }
   return smtInstance;
+}
+
+/**
+ * Reset the SMT singleton (for testing only)
+ * This clears the in-memory instance, forcing a fresh load on next access
+ */
+export function _resetSMTForTesting(): void {
+  smtInstance = null;
 }
 
 /**

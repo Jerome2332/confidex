@@ -1,0 +1,43 @@
+#!/usr/bin/env sh
+
+# Confidex Pre-commit Hook
+# Runs linting and type checking before allowing commits
+
+echo "Running pre-commit checks..."
+
+# Run lint-staged for incremental linting
+npx lint-staged
+
+# Type check frontend (only if frontend files changed)
+if git diff --cached --name-only | grep -q "^frontend/"; then
+    echo "Type checking frontend..."
+    cd frontend && pnpm exec tsc --noEmit
+    if [ $? -ne 0 ]; then
+        echo "Frontend type check failed. Please fix errors before committing."
+        exit 1
+    fi
+    cd ..
+fi
+
+# Type check backend (only if backend files changed)
+if git diff --cached --name-only | grep -q "^backend/"; then
+    echo "Type checking backend..."
+    cd backend && pnpm exec tsc --noEmit
+    if [ $? -ne 0 ]; then
+        echo "Backend type check failed. Please fix errors before committing."
+        exit 1
+    fi
+    cd ..
+fi
+
+# Check Rust formatting (only if Rust files changed)
+if git diff --cached --name-only | grep -q "\.rs$"; then
+    echo "Checking Rust formatting..."
+    cargo fmt --check
+    if [ $? -ne 0 ]; then
+        echo "Rust formatting check failed. Run 'cargo fmt' to fix."
+        exit 1
+    fi
+fi
+
+echo "Pre-commit checks passed!"

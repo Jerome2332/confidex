@@ -8,10 +8,10 @@
 //! 2. Direct callback: Simplified flow where MXE passes orders directly
 
 use anchor_lang::prelude::*;
-use crate::state::{ConfidentialOrder, OrderStatus, PendingMatch, PendingMatchStatus, TradingPair};
+use crate::state::{ConfidentialOrder, OrderStatus, PendingMatch, PendingMatchStatus};
 use crate::cpi::arcium::ARCIUM_MXE_PROGRAM_ID;
-use crate::settlement::types::{SettlementMethod, SettlementRequest};
-use crate::settlement::shadowwire::execute_shadowwire_settlement;
+
+// TradingPair removed from FinalizeMatch - settlement handled separately
 
 /// MXE Authority PDA seeds (must match arcium_mxe program)
 pub const MXE_AUTHORITY_SEED: &[u8] = b"mxe_authority";
@@ -22,6 +22,7 @@ pub const MXE_AUTHORITY_SEED: &[u8] = b"mxe_authority";
 
 /// Accounts for finalize_match - simplified callback without PendingMatch
 /// MXE passes buy_order and sell_order directly via callback_account_1/2
+/// NOTE: Only requires 3 accounts to match MXE callback CPI
 #[derive(Accounts)]
 #[instruction(request_id: [u8; 32], result: Vec<u8>)]
 pub struct FinalizeMatch<'info> {
@@ -47,16 +48,12 @@ pub struct FinalizeMatch<'info> {
     /// V2: Use is_matching flag instead of Matching status
     #[account(
         mut,
-        constraint = sell_order.is_in_matching() @ MpcCallbackError::OrderNotMatching
+        constraint = sell_order.is_in_matching() @ MpcCallbackError::OrderNotMatching,
+        constraint = sell_order.pair == buy_order.pair @ MpcCallbackError::InvalidOrder
     )]
     pub sell_order: Account<'info, ConfidentialOrder>,
-
-    /// Trading pair - needed to get base_mint and quote_mint for settlement
-    #[account(
-        constraint = trading_pair.key() == buy_order.pair @ MpcCallbackError::InvalidOrder,
-        constraint = trading_pair.key() == sell_order.pair @ MpcCallbackError::InvalidOrder
-    )]
-    pub trading_pair: Account<'info, TradingPair>,
+    // NOTE: trading_pair removed - settlement will be handled separately
+    // MXE CPI only passes 3 accounts: mxe_authority, buy_order, sell_order
 }
 
 /// Simplified callback handler for MPC price comparison result
@@ -72,8 +69,16 @@ pub fn finalize_match(
     let sell_order = &mut ctx.accounts.sell_order;
     let clock = Clock::get()?;
 
+    // Security: Verify MXE authority is owned by the expected Arcium MXE program
+    // This prevents spoofed callbacks from malicious programs
+    require!(
+        ctx.accounts.mxe_authority.owner == &ARCIUM_MXE_PROGRAM_ID,
+        MpcCallbackError::UnauthorizedCallback
+    );
+
     // Parse result: single byte indicating match (1) or no match (0)
-    require!(result.len() >= 1, MpcCallbackError::InvalidResult);
+    // Security: Exact length validation prevents malformed callback data
+    require!(result.len() == 1, MpcCallbackError::InvalidResult);
     let prices_match = result[0] == 1;
 
     msg!(
@@ -94,28 +99,24 @@ pub fn finalize_match(
 
     if prices_match {
         // Prices overlap - orders can be matched
-        // For production, would queue calculate_fill next
-        // For hackathon, simulate immediate fill using encrypted amounts
+        // V5: MPC computes fill amount. For now, mark orders for settlement.
+        // The actual fill calculation happens in a separate MPC call (queue_calculate_fill)
+        // which will set encrypted_filled via callback.
 
-        // Simulate fill calculation (in production this would be another MPC call)
-        let buy_amt = u64::from_le_bytes(
-            buy_order.encrypted_amount[0..8].try_into().unwrap_or([0u8; 8])
-        );
-        let sell_amt = u64::from_le_bytes(
-            sell_order.encrypted_amount[0..8].try_into().unwrap_or([0u8; 8])
-        );
-        let fill_amount = buy_amt.min(sell_amt);
+        // Privacy: No plaintext amounts logged
+        msg!("Prices match - orders eligible for fill calculation via MPC");
 
-        // Update filled amounts
+        // Mark encrypted_filled with non-zero marker (actual value set by fill callback)
+        // This indicates the orders have been price-matched
         let mut encrypted_fill = [0u8; 64];
-        encrypted_fill[0..8].copy_from_slice(&fill_amount.to_le_bytes());
-
+        encrypted_fill[0] = 0xFF; // Non-zero marker indicating price match confirmed
         buy_order.encrypted_filled = encrypted_fill;
         sell_order.encrypted_filled = encrypted_fill;
 
-        // Update statuses - V2: Use Active/Inactive instead of 5 states
-        let buy_fully_filled = fill_amount >= buy_amt;
-        let sell_fully_filled = fill_amount >= sell_amt;
+        // V5: Assume both orders are fully filled for simplicity
+        // In production, the fill callback would determine partial/full fills
+        let buy_fully_filled = true;
+        let sell_fully_filled = true;
 
         // V2: Only set to Inactive if fully filled, otherwise remain Active
         if buy_fully_filled {
@@ -154,54 +155,9 @@ pub fn finalize_match(
             sell_fully_filled
         );
 
-        // =========================================================================
-        // SETTLEMENT: Initiate ShadowWire token transfers after matching
-        // =========================================================================
-        let trading_pair = &ctx.accounts.trading_pair;
-
-        // Extract fill price from buy order (using plaintext from hybrid format)
-        let fill_price = u64::from_le_bytes(
-            buy_order.encrypted_price[0..8].try_into().unwrap_or([0u8; 8])
-        );
-
-        // Calculate quote amount: fill_amount * fill_price / 1e9 (price is in 6 decimals)
-        // For SOL/USDC: base is SOL (9 decimals), quote is USDC (6 decimals)
-        // quote_amount = (fill_amount_lamports * price_micros) / 1e9
-        let quote_amount = fill_amount
-            .checked_mul(fill_price)
-            .unwrap_or(0)
-            .checked_div(1_000_000_000) // Convert from lamports to USDC micros
-            .unwrap_or(0);
-
-        // Create settlement request
-        let settlement_request = SettlementRequest {
-            buy_order_id: buy_order.order_id,
-            sell_order_id: sell_order.order_id,
-            buyer: buy_order.maker,
-            seller: sell_order.maker,
-            base_mint: trading_pair.base_mint,
-            quote_mint: trading_pair.quote_mint,
-            encrypted_fill_amount: encrypted_fill,
-            encrypted_fill_price: buy_order.encrypted_price,
-            method: SettlementMethod::ShadowWire, // Default to ShadowWire
-            created_at: clock.unix_timestamp,
-        };
-
-        // Execute settlement via ShadowWire
-        // Note: In production, this would trigger off-chain API calls to the ShadowWire relayer
-        match execute_shadowwire_settlement(&settlement_request, fill_amount, quote_amount) {
-            Ok(result) => {
-                if result.success {
-                    msg!("Settlement initiated successfully via ShadowWire");
-                } else {
-                    msg!("Settlement initiation failed: {:?}", result.error);
-                }
-            }
-            Err(e) => {
-                msg!("Settlement error: {:?}", e);
-                // Don't fail the match - settlement can be retried
-            }
-        }
+        // NOTE: Settlement is handled separately via off-chain service
+        // trading_pair not available in CPI callback (only 3 accounts from MXE)
+        // The OrdersMatchedDirect event triggers settlement process
     } else {
         // Prices don't overlap - orders remain Active (V2: no "Open" status)
         // Just clear the matching state
@@ -283,8 +239,15 @@ pub fn receive_compare_result(
     let sell_order = &mut ctx.accounts.sell_order;
     let clock = Clock::get()?;
 
+    // Security: Verify MXE authority is owned by the expected Arcium MXE program
+    require!(
+        ctx.accounts.mxe_authority.owner == &ARCIUM_MXE_PROGRAM_ID,
+        MpcCallbackError::UnauthorizedCallback
+    );
+
     // Parse result: single byte indicating match (1) or no match (0)
-    require!(result.len() >= 1, MpcCallbackError::InvalidResult);
+    // Security: Exact length validation prevents malformed callback data
+    require!(result.len() == 1, MpcCallbackError::InvalidResult);
     let prices_match = result[0] == 1;
 
     msg!(
@@ -381,8 +344,15 @@ pub fn receive_fill_result(
     let sell_order = &mut ctx.accounts.sell_order;
     let clock = Clock::get()?;
 
+    // Security: Verify MXE authority is owned by the expected Arcium MXE program
+    require!(
+        ctx.accounts.mxe_authority.owner == &ARCIUM_MXE_PROGRAM_ID,
+        MpcCallbackError::UnauthorizedCallback
+    );
+
     // Parse result: 64 bytes encrypted fill + 1 byte buy_filled + 1 byte sell_filled
-    require!(result.len() >= 66, MpcCallbackError::InvalidResult);
+    // Security: Exact length validation for expected MPC output format
+    require!(result.len() == 66, MpcCallbackError::InvalidResult);
 
     let mut encrypted_fill = [0u8; 64];
     encrypted_fill.copy_from_slice(&result[0..64]);

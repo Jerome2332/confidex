@@ -357,7 +357,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-3">
-              <LogoIcon size={24} />
+              <LogoIcon size={42} />
               <span className="text-xs text-white/50 font-light">
                 Built for Solana Privacy Hack 2026
               </span>

@@ -5,8 +5,12 @@ import nacl from 'tweetnacl';
 import bs58 from 'bs58';
 import { generateEligibilityProof } from '../lib/prover.js';
 import { fetchBlacklistRoot, getMerkleProof } from '../lib/blacklist.js';
+import { rateLimiters } from '../middleware/rate-limit.js';
 
 export const proveRouter: RouterType = Router();
+
+// Apply strict rate limiting for proof generation (computationally expensive)
+proveRouter.use(rateLimiters.prove);
 
 // Request validation schema
 const ProveRequestSchema = z.object({
@@ -82,6 +86,15 @@ proveRouter.post('/', async (req, res) => {
 
     // Get merkle proof for this address
     const merkleProof = await getMerkleProof(address, root);
+
+    // Check if address is eligible (not blacklisted)
+    if (!merkleProof.isEligible) {
+      return res.status(403).json({
+        error: 'Address is blacklisted',
+        message: 'This address is not eligible for trading on Confidex',
+        blacklistRoot: root,
+      });
+    }
 
     // Generate the ZK proof
     console.log(`Generating proof for address: ${address}`);

@@ -20,9 +20,12 @@ import {
   CaretRight,
   Lightning,
   Chats,
+  Database,
+  Pulse,
+  ChartLineUp,
 } from '@phosphor-icons/react';
 
-type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'programs' | 'faq';
+type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'production' | 'programs' | 'faq';
 
 interface NavItem {
   id: SectionId;
@@ -38,6 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'settlement', label: 'Settlement', icon: <HardDrivesIcon size={16} /> },
   { id: 'flow', label: 'Data Flow', icon: <GitBranchIcon size={16} /> },
   { id: 'security', label: 'Security Model', icon: <ShieldChevronIcon size={16} /> },
+  { id: 'production', label: 'Production Ready', icon: <Lightning size={16} /> },
   { id: 'programs', label: 'Programs & IDs', icon: <CodeIcon size={16} /> },
   { id: 'faq', label: 'FAQ', icon: <Chats size={16} /> },
 ];
@@ -762,6 +766,166 @@ Bytes 48-63: Ephemeral pubkey  → MPC key routing
                   </div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          {/* Production Readiness Section */}
+          <section id="production" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <Lightning size={36} />
+              Production Readiness
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              Confidex is production-ready for hackathon demo with real token movements, persistent settlement tracking,
+              and live order book data from the chain.
+            </p>
+
+            {/* Production Status Banner */}
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-6 mb-6">
+              <h3 className="font-medium text-white mb-4 flex items-center gap-2">
+                <CheckCircle size={20} className="text-emerald-400" />
+                Production Features (January 2026)
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div className="flex items-start gap-3">
+                  <Database size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">SQLite Settlement Persistence</div>
+                    <div className="text-white/50">Crank service survives restarts, no double-settlement possible</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <ChartLineUp size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Real Order Book from Chain</div>
+                    <div className="text-white/50">Fetches V4 orders, aggregates by price level, shows &quot;Live&quot; indicator</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Pulse size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">Real-Time Trade Feed</div>
+                    <div className="text-white/50">Subscribes to settlement logs for live trade updates</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <CpuIcon size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-white font-medium">MPC Event Callbacks</div>
+                    <div className="text-white/50">Frontend receives MPC results via log subscription</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Key Hooks Table */}
+            <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden mb-6">
+              <div className="px-6 py-4 border-b border-white/10 bg-white/5">
+                <h3 className="font-medium text-white">Frontend Hooks</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-white/10">
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Hook</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Purpose</th>
+                      <th className="px-6 py-3 text-left text-white/50 font-medium">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-white/70">
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">useOrderBook()</td>
+                      <td className="px-6 py-3">Real-time order book from chain (V4 orders)</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Live</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">useRecentTrades()</td>
+                      <td className="px-6 py-3">Live trade feed from settlement events</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Live</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">useMpcEvents()</td>
+                      <td className="px-6 py-3">MPC computation tracking and callbacks</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Live</span></td>
+                    </tr>
+                    <tr className="border-b border-white/5">
+                      <td className="px-6 py-3 font-mono text-white">useEncryption()</td>
+                      <td className="px-6 py-3">Client-side RescueCipher encryption</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Live</span></td>
+                    </tr>
+                    <tr>
+                      <td className="px-6 py-3 font-mono text-white">useSolPrice()</td>
+                      <td className="px-6 py-3">Pyth oracle price feed</td>
+                      <td className="px-6 py-3"><span className="text-emerald-400">Live</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Crank Service Configuration */}
+            <ExpandableSection title="Crank Service Configuration" defaultOpen>
+              <p className="text-sm text-white/70 mb-4">
+                The automated crank service provides production-grade order matching with SQLite persistence:
+              </p>
+              <CodeBlock>{`# Enable crank service
+CRANK_ENABLED=true
+
+# Production MPC (default is TRUE as of Jan 2026)
+CRANK_USE_REAL_MPC=true
+
+# Configuration
+CRANK_POLLING_INTERVAL_MS=5000    # Check for matches every 5s
+CRANK_USE_ASYNC_MPC=true          # Production async MPC flow
+CRANK_MAX_CONCURRENT_MATCHES=5    # Parallel match attempts
+CRANK_DB_PATH=./data/settlements.db  # SQLite persistence
+
+# Check crank status
+curl http://localhost:3001/admin/crank/status`}</CodeBlock>
+            </ExpandableSection>
+
+            <div className="mt-6">
+              <ExpandableSection title="API Endpoints">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-white/10">
+                        <th className="px-4 py-2 text-left text-white/50 font-medium">Endpoint</th>
+                        <th className="px-4 py-2 text-left text-white/50 font-medium">Method</th>
+                        <th className="px-4 py-2 text-left text-white/50 font-medium">Description</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-white/70">
+                      <tr className="border-b border-white/5">
+                        <td className="px-4 py-2 font-mono text-white">/health</td>
+                        <td className="px-4 py-2">GET</td>
+                        <td className="px-4 py-2">Health check with prover status</td>
+                      </tr>
+                      <tr className="border-b border-white/5">
+                        <td className="px-4 py-2 font-mono text-white">/api/prove</td>
+                        <td className="px-4 py-2">POST</td>
+                        <td className="px-4 py-2">Generate ZK eligibility proof</td>
+                      </tr>
+                      <tr className="border-b border-white/5">
+                        <td className="px-4 py-2 font-mono text-white">/admin/crank/status</td>
+                        <td className="px-4 py-2">GET</td>
+                        <td className="px-4 py-2">Crank metrics and status</td>
+                      </tr>
+                      <tr className="border-b border-white/5">
+                        <td className="px-4 py-2 font-mono text-white">/admin/crank/start</td>
+                        <td className="px-4 py-2">POST</td>
+                        <td className="px-4 py-2">Start crank service</td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2 font-mono text-white">/admin/crank/stop</td>
+                        <td className="px-4 py-2">POST</td>
+                        <td className="px-4 py-2">Stop crank service</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </ExpandableSection>
             </div>
           </section>
 

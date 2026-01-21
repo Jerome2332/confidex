@@ -19,8 +19,22 @@ export const VERIFIER_PROGRAM_ID = new PublicKey(
 );
 
 // RPC endpoints
-export const RPC_ENDPOINT =
-  process.env.NEXT_PUBLIC_RPC_URL || 'https://api.devnet.solana.com';
+// Priority: NEXT_PUBLIC_RPC_ENDPOINT > NEXT_PUBLIC_RPC_URL > Helius constructed URL > devnet
+export const RPC_ENDPOINT = (() => {
+  // Check for direct endpoint first
+  if (process.env.NEXT_PUBLIC_RPC_ENDPOINT) {
+    return process.env.NEXT_PUBLIC_RPC_ENDPOINT;
+  }
+  if (process.env.NEXT_PUBLIC_RPC_URL) {
+    return process.env.NEXT_PUBLIC_RPC_URL;
+  }
+  // Construct Helius URL if API key is available
+  if (process.env.NEXT_PUBLIC_HELIUS_API_KEY) {
+    return `https://devnet.helius-rpc.com/?api-key=${process.env.NEXT_PUBLIC_HELIUS_API_KEY}`;
+  }
+  // Fallback to public devnet (rate limited!)
+  return 'https://api.devnet.solana.com';
+})();
 
 export const HELIUS_API_KEY = process.env.NEXT_PUBLIC_HELIUS_API_KEY;
 

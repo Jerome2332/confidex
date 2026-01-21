@@ -9,9 +9,18 @@ crate-type = ["cdylib", "lib"]
 name = "confidex_dex"
 
 [features]
-default = ["devnet"]
+default = ["devnet", "zk-verification"]
 devnet = []
+mainnet = ["zk-verification"]  # Mainnet always requires ZK verification
 debug = []  # Enable verbose logging (DO NOT use in production - leaks sensitive data)
+
+# ZK verification features (PRODUCTION CRITICAL)
+# Default: zk-verification enabled
+# Skip: skip-zk-verification (development ONLY - never use in production)
+zk-verification = []  # Production default - real Sunspot verification
+skip-zk-verification = []  # Development only - bypasses ZK verification
+
+# Anchor features
 cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []

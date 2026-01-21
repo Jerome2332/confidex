@@ -1,9 +1,27 @@
 # Confidex - Future Implementations Roadmap
 
-**Last Updated:** January 17, 2026
+**Last Updated:** January 21, 2026
 **Status:** Post-Hackathon Planning
 
 This document tracks future implementations, SDK integrations, and improvements planned for Confidex after the Solana Privacy Hack 2026 hackathon.
+
+---
+
+## Recently Completed (Hackathon)
+
+The following features were implemented during the hackathon and are now live:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **V5 Order Format** | ✅ Complete | 366-byte production format, no plaintext fields |
+| **Arcium MPC Integration** | ✅ Complete | Cluster 456, MXE keygen complete, 10 circuits |
+| **Automated Crank Service** | ✅ Complete | PM2 production, distributed locking, error classification |
+| **Settlement Executor** | ✅ Complete | Race condition prevention, failure cooldown |
+| **ZK Eligibility Proofs** | ✅ Complete | Sunspot Groth16 via deployed verifier |
+| **Encrypted Perpetuals** | ✅ Complete | Hidden positions with public liquidation thresholds |
+| **MPC Test Suite** | ✅ Complete | 18 tests covering encryption, cluster, circuits |
+| **Error Handling Infrastructure** | ✅ Complete | 500+ lines, retry with classification |
+| **Timeout Handling** | ✅ Complete | Promise.race() wrapper for all network ops |
 
 ---
 

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 
 use crate::error::ConfidexError;
-use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, TradingPair};
+use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, Side, TradingPair, UserConfidentialBalance};
 
 #[derive(Accounts)]
 pub struct CancelOrder<'info> {
@@ -27,7 +27,7 @@ pub struct CancelOrder<'info> {
         seeds = [
             ConfidentialOrder::SEED,
             order.maker.as_ref(),
-            &order.order_id
+            &order.order_nonce
         ],
         bump = order.bump,
         constraint = order.maker == maker.key() @ ConfidexError::OrderOwnerMismatch,
@@ -35,13 +35,69 @@ pub struct CancelOrder<'info> {
     )]
     pub order: Account<'info, ConfidentialOrder>,
 
+    /// User's base token (SOL) balance - for sell order refunds
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            maker.key().as_ref(),
+            pair.base_mint.as_ref()
+        ],
+        bump = user_base_balance.bump,
+    )]
+    pub user_base_balance: Account<'info, UserConfidentialBalance>,
+
+    /// User's quote token (USDC) balance - for buy order refunds
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            maker.key().as_ref(),
+            pair.quote_mint.as_ref()
+        ],
+        bump = user_quote_balance.bump,
+    )]
+    pub user_quote_balance: Account<'info, UserConfidentialBalance>,
+
     pub maker: Signer<'info>,
 }
 
 pub fn handler(ctx: Context<CancelOrder>) -> Result<()> {
     let pair = &mut ctx.accounts.pair;
     let order = &mut ctx.accounts.order;
+    let user_base_balance = &mut ctx.accounts.user_base_balance;
+    let user_quote_balance = &mut ctx.accounts.user_quote_balance;
     let clock = Clock::get()?;
+
+    // ==========================================================================
+    // HACKATHON REFUND (Interim until C-SPL SDK available)
+    // Uses plaintext values from first 8 bytes of encrypted fields
+    // In production: Replace with C-SPL confidential_transfer CPI
+    // ==========================================================================
+
+    // Get remaining (unfilled) amount to refund
+    let escrowed_amount = order.get_amount_plaintext();
+    let filled_amount = order.get_filled_plaintext();
+    let refund_amount = escrowed_amount.saturating_sub(filled_amount);
+
+    if refund_amount > 0 {
+        match order.side {
+            Side::Buy => {
+                // Buy orders escrow quote tokens (USDC)
+                // Refund quote tokens back to user
+                let current_balance = user_quote_balance.get_balance();
+                user_quote_balance.set_balance(current_balance + refund_amount);
+                msg!("Refunded {} quote tokens on buy order cancel", refund_amount);
+            }
+            Side::Sell => {
+                // Sell orders escrow base tokens (SOL)
+                // Refund base tokens back to user
+                let current_balance = user_base_balance.get_balance();
+                user_base_balance.set_balance(current_balance + refund_amount);
+                msg!("Refunded {} base tokens on sell order cancel", refund_amount);
+            }
+        }
+    }
 
     // V2: Simplified status - Active -> Inactive
     order.status = OrderStatus::Inactive;
@@ -57,6 +113,8 @@ pub fn handler(ctx: Context<CancelOrder>) -> Result<()> {
         maker: order.maker,
         pair: order.pair,
         timestamp: coarse_time,
+        // HACKATHON ONLY - remove in production
+        refund_amount,
     });
 
     msg!("Order cancelled: {:?}", order.order_id);
@@ -72,4 +130,6 @@ pub struct OrderCancelled {
     pub pair: Pubkey,
     /// Coarse timestamp (hour precision)
     pub timestamp: i64,
+    /// HACKATHON ONLY: Refund amount (remove in production)
+    pub refund_amount: u64,
 }

@@ -124,13 +124,16 @@ User                    Confidex                 Arcium              Solana
 
 | ID | Feature | Priority | Complexity | Status |
 |----|---------|----------|------------|--------|
-| F-001 | C-SPL Token Wrapping/Unwrapping | P0 | Medium | Planned |
-| F-002 | Encrypted Order Submission | P0 | High | Planned |
-| F-003 | Confidential Order Matching | P0 | High | Planned |
-| F-004 | Private Settlement | P0 | High | Planned |
-| F-005 | ZK Eligibility Verification | P1 | Medium | Planned |
-| F-006 | Position/Balance Viewing | P1 | Low | Planned |
-| F-007 | Basic Trading UI | P1 | Medium | Planned |
+| F-001 | C-SPL Token Wrapping/Unwrapping | P0 | Medium | ✅ Implemented (via UserConfidentialBalance) |
+| F-002 | Encrypted Order Submission | P0 | High | ✅ Implemented (V5 format, 366 bytes) |
+| F-003 | Confidential Order Matching | P0 | High | ✅ Implemented (Arcium MPC cluster 456) |
+| F-004 | Private Settlement | P0 | High | ✅ Implemented (Crank service with locking) |
+| F-005 | ZK Eligibility Verification | P1 | Medium | ✅ Implemented (Sunspot Groth16) |
+| F-006 | Position/Balance Viewing | P1 | Low | ✅ Implemented |
+| F-007 | Basic Trading UI | P1 | Medium | ✅ Implemented |
+| F-008 | Perpetuals with Encrypted Positions | P0 | High | ✅ Implemented |
+| F-009 | Automated Crank Service | P0 | High | ✅ Implemented (PM2 production) |
+| F-010 | MPC Test Suite | P1 | Medium | ✅ Implemented |
 
 ### 4.2 Post-MVP Features
 
@@ -283,3 +286,5 @@ Week 3 (Jan 26-30):
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | Jan 10, 2026 | Zac | Initial document |
+| 1.1 | Jan 15, 2026 | Claude | Added prize strategy details |
+| 1.2 | Jan 21, 2026 | Claude | **Updated MVP feature status** - All core features implemented, added F-008 (Perpetuals), F-009 (Crank Service), F-010 (MPC Test Suite) |

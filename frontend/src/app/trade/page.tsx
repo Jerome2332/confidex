@@ -1,12 +1,17 @@
 'use client';
 
+import { useState } from 'react';
 import { Header } from '@/components/header';
 import { OrderBook } from '@/components/order-book';
 import { TradingPanel } from '@/components/trading-panel';
 import { ChartArea } from '@/components/chart-area';
 import { BottomTabs } from '@/components/bottom-tabs';
+import { MobileDrawer, MobileFAB } from '@/components/ui/mobile-drawer';
+import { TrendUp } from '@phosphor-icons/react';
 
 export default function TradePage() {
+  const [showMobileTrade, setShowMobileTrade] = useState(false);
+
   return (
     <main className="h-screen flex flex-col bg-background">
       {/* Header with Market Ticker */}
@@ -23,7 +28,7 @@ export default function TradePage() {
               <ChartArea />
             </div>
 
-            {/* Order Book */}
+            {/* Order Book - hidden on mobile and tablet */}
             <div className="w-64 border-l border-border overflow-y-auto hidden lg:block">
               <OrderBook variant="compact" />
             </div>
@@ -33,11 +38,29 @@ export default function TradePage() {
           <BottomTabs defaultHeight={200} />
         </div>
 
-        {/* Right: Trading Panel (full height) - Spot mode */}
+        {/* Right: Trading Panel (full height) - Spot mode - hidden on mobile */}
         <div className="w-80 border-l border-border overflow-y-auto hidden md:block">
           <TradingPanel mode="spot" />
         </div>
       </div>
+
+      {/* Mobile Trading FAB */}
+      <MobileFAB
+        onClick={() => setShowMobileTrade(true)}
+        icon={<TrendUp size={20} />}
+        label="Trade"
+        variant="buy"
+      />
+
+      {/* Mobile Trading Drawer */}
+      <MobileDrawer
+        isOpen={showMobileTrade}
+        onClose={() => setShowMobileTrade(false)}
+        title="Spot Trading"
+        height="85vh"
+      >
+        <TradingPanel mode="spot" variant="sidebar" showAccountSection={true} />
+      </MobileDrawer>
     </main>
   );
 }

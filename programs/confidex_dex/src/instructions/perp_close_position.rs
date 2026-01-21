@@ -182,10 +182,27 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
     // Update position's realized PnL
     position.encrypted_realized_pnl = encrypted_pnl;
 
-    // Transfer collateral back to trader (SPL Token fallback)
-    // NOTE: In production with MPC, payout_amount would be computed from encrypted payout.
-    // For now, we use the plaintext payout_amount passed by the frontend.
-    if params.payout_amount > 0 {
+    // ==========================================================================
+    // HACKATHON PAYOUT + FEE DEDUCTION
+    // Uses plaintext payout_amount until C-SPL SDK is available
+    // ==========================================================================
+
+    // Calculate taker fee: payout * taker_fee_bps / 10000
+    let taker_fee = params.payout_amount
+        .checked_mul(perp_market.taker_fee_bps as u64)
+        .ok_or(ConfidexError::ArithmeticOverflow)?
+        .checked_div(10_000)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+
+    let net_payout = params.payout_amount
+        .checked_sub(taker_fee)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+
+    msg!("Close position: payout={}, fee={}, net_payout={}",
+         params.payout_amount, taker_fee, net_payout);
+
+    // Transfer collateral back to trader (net of fee)
+    if net_payout > 0 {
         let vault_authority_seeds = &[
             b"vault" as &[u8],
             perp_market_key.as_ref(),
@@ -203,17 +220,22 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
                 },
                 signer_seeds,
             ),
-            params.payout_amount,
+            net_payout,
         )?;
 
         msg!(
-            "Transferred {} USDC from vault to trader",
-            params.payout_amount
+            "Transferred {} USDC from vault to trader (net of {} fee)",
+            net_payout, taker_fee
         );
     }
 
-    // TODO: Calculate and transfer fees to fee_recipient
-    // Fee = size * taker_fee_bps / 10000
+    // Log taker fee for now
+    // NOTE: fee_recipient is an AccountInfo, not a TokenAccount.
+    // The fee is deducted from payout but not transferred to a separate account yet.
+    // In production, add a fee_recipient_token_account to the context.
+    if taker_fee > 0 {
+        msg!("Fee collected: {} USDC (fee_recipient={})", taker_fee, ctx.accounts.fee_recipient.key());
+    }
 
     if params.full_close {
         // Mark position as closed
@@ -251,8 +273,11 @@ pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Resu
             &payout,
         )?;
 
-        // 3. Recalculate liquidation threshold would require another MPC call
-        // For now, mark threshold as needing re-verification
+        // 3. Recalculate liquidation threshold
+        // Mark as needing re-verification - position cannot be liquidated until re-verified
+        // TODO (POST-HACKATHON): Queue MPC callback for threshold recalculation:
+        //   queue_verify_position_params(mxe_accounts, position, leverage, mm_bps);
+        // For now, user must call verify_position_params manually to re-enable liquidation
         position.threshold_verified = false;
 
         msg!(

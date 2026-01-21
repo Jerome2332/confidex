@@ -134,78 +134,99 @@ pub struct TradingPair {
 
 ---
 
-### 2.3 Confidential Order
+### 2.3 Confidential Order (V5 Format - Current)
 
-**PDA Seeds:** `["order", maker, order_id]`
+**PDA Seeds:** `["order", maker, order_nonce]`
 
 ```rust
 #[account]
 pub struct ConfidentialOrder {
     /// Order creator
-    pub maker: Pubkey,
-    
+    pub maker: Pubkey,                        // 32 bytes
+
     /// Trading pair account
-    pub pair: Pubkey,
-    
+    pub pair: Pubkey,                         // 32 bytes
+
     /// Buy or Sell
-    pub side: Side,
-    
+    pub side: Side,                           // 1 byte
+
     /// Market or Limit
-    pub order_type: OrderType,
-    
-    /// MPC-encrypted order size (Arcium ciphertext)
-    pub encrypted_amount: EncryptedU64,
-    
-    /// MPC-encrypted limit price (Arcium ciphertext)
-    pub encrypted_price: EncryptedU64,
-    
+    pub order_type: OrderType,                // 1 byte
+
+    /// MPC-encrypted order size (V2 ciphertext format)
+    pub encrypted_amount: [u8; 64],           // 64 bytes
+
+    /// MPC-encrypted limit price (V2 ciphertext format)
+    pub encrypted_price: [u8; 64],            // 64 bytes
+
     /// MPC-encrypted filled amount
-    pub encrypted_filled: EncryptedU64,
-    
+    /// NOTE: First byte != 0 indicates order has been filled
+    pub encrypted_filled: [u8; 64],           // 64 bytes
+
     /// Order status
-    pub status: OrderStatus,
-    
+    pub status: OrderStatus,                  // 1 byte
+
     /// Unix timestamp of creation
-    pub created_at: i64,
-    
-    /// Order ID (unique per maker)
-    pub order_id: u64,
-    
-    /// Groth16 eligibility proof (optional after first verification)
-    pub eligibility_proof_verified: bool,
-    
+    pub created_at: i64,                      // 8 bytes
+
+    /// Hash-based order ID (unique identifier)
+    pub order_id: [u8; 16],                   // 16 bytes
+
+    /// Order nonce for PDA derivation
+    pub order_nonce: u64,                     // 8 bytes
+
+    /// Groth16 eligibility proof verified
+    pub eligibility_proof_verified: bool,     // 1 byte
+
+    /// MPC request tracking - orders matched together share this ID
+    pub pending_match_request: Pubkey,        // 32 bytes
+
+    /// Currently in MPC match process
+    pub is_matching: bool,                    // 1 byte
+
     /// PDA bump seed
-    pub bump: u8,
+    pub bump: u8,                             // 1 byte
+
+    /// X25519 ephemeral public key for MPC decryption
+    pub ephemeral_pubkey: [u8; 32],           // 32 bytes
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum Side {
-    Buy,
-    Sell,
+    Buy = 0,
+    Sell = 1,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum OrderType {
-    Market,
-    Limit,
+    Market = 0,
+    Limit = 1,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq)]
 pub enum OrderStatus {
-    Open,
-    PartiallyFilled,
-    Filled,
-    Cancelled,
-}
-
-/// Arcium encrypted u64 (placeholder - actual size from Arcium SDK)
-#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
-pub struct EncryptedU64 {
-    pub ciphertext: [u8; 64],  // Actual size TBD from Arcium
+    Active = 0,
+    PartiallyFilled = 1,
+    Filled = 2,
+    Cancelled = 3,
 }
 ```
 
-**Size:** 8 + 32 + 32 + 1 + 1 + 64 + 64 + 64 + 1 + 8 + 8 + 1 + 1 = **285 bytes**
+**Size:** 8 (discriminator) + 32 + 32 + 1 + 1 + 64 + 64 + 64 + 1 + 8 + 16 + 8 + 1 + 32 + 1 + 1 + 32 = **366 bytes**
+
+**V2 Ciphertext Format (64 bytes):**
+```
+[nonce (16 bytes) | ciphertext (32 bytes) | ephemeral_pubkey (16 bytes)]
+```
+
+**Key Fields for Matching:**
+- `pending_match_request`: Orders matched via MPC share the same request ID
+- `is_matching`: Prevents re-matching while MPC in progress
+- `encrypted_filled[0] != 0`: Indicates MPC has set a fill value
+
+**Legacy Formats:**
+- V4 (390 bytes): Included `amount_plaintext`, `price_plaintext`, `filled_plaintext` - deprecated
+- V3 (334 bytes): No ephemeral_pubkey or plaintext fields - deprecated
 
 ---
 
@@ -912,3 +933,4 @@ pub fn set_settlement_method(
 |---------|------|--------|---------|
 | 1.0 | Jan 10, 2026 | Zac | Initial document |
 | 1.1 | Jan 15, 2026 | Claude | Added dual settlement architecture (Section 7), updated Program IDs with deployed addresses |
+| 1.2 | Jan 21, 2026 | Claude | **V5 Order Format** - Updated ConfidentialOrder struct to current 366-byte V5 format, added MPC matching fields (pending_match_request, is_matching, ephemeral_pubkey), documented V2 ciphertext format |

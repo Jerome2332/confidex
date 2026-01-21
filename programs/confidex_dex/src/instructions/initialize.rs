@@ -1,5 +1,7 @@
 use anchor_lang::prelude::*;
 
+use crate::cpi::arcium::{ARCIUM_PROGRAM_ID, ARCIUM_MXE_PROGRAM_ID};
+use crate::cpi::verifier::SUNSPOT_VERIFIER_PROGRAM_ID;
 use crate::error::ConfidexError;
 use crate::state::ExchangeState;
 
@@ -38,8 +40,16 @@ pub fn handler(ctx: Context<Initialize>, maker_fee_bps: u16, taker_fee_bps: u16)
     exchange.order_count = 0;
     exchange.bump = ctx.bumps.exchange;
 
-    msg!("Exchange initialized with maker fee: {} bps, taker fee: {} bps",
+    // V5: Initialize program IDs with devnet defaults
+    // Admin can update these later via update_program_ids instruction
+    exchange.arcium_program_id = ARCIUM_PROGRAM_ID;
+    exchange.mxe_program_id = ARCIUM_MXE_PROGRAM_ID;
+    exchange.verifier_program_id = SUNSPOT_VERIFIER_PROGRAM_ID;
+
+    msg!("Exchange initialized (V5) with maker fee: {} bps, taker fee: {} bps",
          maker_fee_bps, taker_fee_bps);
+    msg!("Program IDs: arcium={}, mxe={}, verifier={}",
+         exchange.arcium_program_id, exchange.mxe_program_id, exchange.verifier_program_id);
 
     Ok(())
 }

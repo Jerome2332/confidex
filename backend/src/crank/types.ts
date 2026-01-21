@@ -20,28 +20,34 @@ export enum OrderType {
   Market = 1,
 }
 
+// On-chain OrderStatus: Active (can be matched) or Inactive (filled/cancelled)
+// The is_matching field separately tracks if order is in MPC matching flow
 export enum OrderStatus {
-  Open = 0,
-  PartiallyFilled = 1,
-  Filled = 2,
-  Cancelled = 3,
-  Matching = 4,
+  Active = 0,    // Order can be matched
+  Inactive = 1,  // Order is filled or cancelled
 }
 
+/**
+ * V5 ConfidentialOrder - Privacy hardened, no plaintext fields
+ * Total on-chain size: 366 bytes (8 discriminator + 358 data)
+ */
 export interface ConfidentialOrder {
   maker: PublicKey;
   pair: PublicKey;
   side: Side;
   orderType: OrderType;
-  encryptedAmount: Uint8Array;
-  encryptedPrice: Uint8Array;
-  encryptedFilled: Uint8Array;
+  encryptedAmount: Uint8Array;   // 64 bytes
+  encryptedPrice: Uint8Array;    // 64 bytes
+  encryptedFilled: Uint8Array;   // 64 bytes - first byte != 0 means order has fill
   status: OrderStatus;
-  createdAt: bigint;
-  orderId: bigint;
+  createdAtHour: bigint;         // V5: Coarse timestamp (hour precision)
+  orderId: Uint8Array;           // 16 bytes hash-based ID
+  orderNonce: Uint8Array;        // 8 bytes for PDA derivation
   eligibilityProofVerified: boolean;
-  pendingMatchRequest: Uint8Array;
+  pendingMatchRequest: PublicKey; // V5: PublicKey for easier comparison
+  isMatching: boolean;
   bump: number;
+  ephemeralPubkey: Uint8Array;   // 32 bytes - X25519 for MPC decryption
 }
 
 export interface OrderWithPda {

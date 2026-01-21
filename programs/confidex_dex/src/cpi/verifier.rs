@@ -25,9 +25,18 @@ pub const SUNSPOT_VERIFIER_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
     0x94, 0xf4, 0x6d, 0x15, 0x0d, 0xe6, 0x6a, 0x01,
 ]);
 
-/// Feature flag to enable/disable actual ZK verification
-/// Set to true for production, false for development testing
-pub const ZK_VERIFICATION_ENABLED: bool = true; // Production: Real ZK verification via Sunspot
+// =============================================================================
+// ZK VERIFICATION COMPILE-TIME CONFIGURATION
+// =============================================================================
+//
+// ZK verification is controlled at COMPILE TIME via Cargo features, not runtime.
+// This prevents accidental bypass in production deployments.
+//
+// To build with ZK verification disabled (development only):
+//   anchor build -- --features skip-zk-verification
+//
+// Production builds (default) ALWAYS have ZK verification enabled.
+// =============================================================================
 
 /// Groth16 proof size for Sunspot/gnark format
 /// Layout: A(64) + B(128) + C(64) + num_commitments(4) + commitment_pok(64) = 324 bytes
@@ -83,9 +92,12 @@ pub fn verify_eligibility_proof(
         return Ok(false);
     }
 
-    // Check if ZK verification is enabled
-    if !ZK_VERIFICATION_ENABLED {
-        msg!("ZK verification DISABLED - accepting proof without verification");
+    // Compile-time feature flag for ZK verification bypass (development only)
+    // Production builds NEVER have this feature enabled
+    #[cfg(feature = "skip-zk-verification")]
+    {
+        msg!("⚠️ ZK VERIFICATION DISABLED (skip-zk-verification feature)");
+        msg!("⚠️ THIS BUILD IS NOT SUITABLE FOR PRODUCTION");
         return Ok(true);
     }
 
@@ -165,9 +177,12 @@ pub fn verify_groth16_proof(
         return Ok(VerificationResult::Invalid);
     }
 
-    // Check if ZK verification is enabled
-    if !ZK_VERIFICATION_ENABLED {
-        msg!("ZK verification DISABLED - accepting proof without verification");
+    // Compile-time feature flag for ZK verification bypass (development only)
+    // Production builds NEVER have this feature enabled
+    #[cfg(feature = "skip-zk-verification")]
+    {
+        msg!("⚠️ ZK VERIFICATION DISABLED (skip-zk-verification feature)");
+        msg!("⚠️ THIS BUILD IS NOT SUITABLE FOR PRODUCTION");
         return Ok(VerificationResult::Valid);
     }
 

@@ -28,14 +28,15 @@ pub const ARCIUM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
     0x47, 0xa0, 0x70, 0x28, 0x03, 0xfa, 0x5d, 0x89,
 ]);
 
-/// Arcium MXE Program ID (our deployed MXE)
-/// Base58: DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
-/// Deployed: 2026-01-20 with cluster offset 456
+/// Arcium MXE Program ID (our custom MXE)
+/// Base58: CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
+/// This is our custom MXE that matches the DEX's CPI format (64-byte encrypted values)
+/// Unlike the Arcium SDK-deployed MXE (DoT4u...) which expects different instruction format
 pub const ARCIUM_MXE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    0xbe, 0x32, 0x6f, 0x45, 0xc0, 0xae, 0x35, 0xa7,
-    0xdf, 0xeb, 0x5c, 0x91, 0x92, 0x00, 0x5d, 0x25,
-    0x85, 0xf1, 0x05, 0x1a, 0x36, 0x86, 0x3a, 0x0b,
-    0x06, 0xa1, 0x45, 0x2d, 0xd6, 0x67, 0xc4, 0xbe,
+    0xa6, 0x07, 0x94, 0x3d, 0xdf, 0x43, 0xc1, 0xab,
+    0xf5, 0x9b, 0x85, 0x84, 0x6b, 0x1e, 0xae, 0x6e,
+    0xe9, 0x85, 0x23, 0x63, 0x3b, 0xa3, 0x3d, 0x8a,
+    0x45, 0x19, 0xba, 0x03, 0xde, 0x53, 0xf2, 0x9d,
 ]);
 
 /// Default cluster offset for devnet
@@ -162,36 +163,37 @@ pub fn queue_compare_prices<'info>(
         ],
     )?;
 
-    // Extract request_id from the created request account
-    // For now, generate a placeholder - in practice read from account
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    // The MXE wrote the request_id at offset 8 (after discriminator)
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete, request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous version for backward compatibility
+/// Synchronous price comparison - REMOVED IN V5
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT extract
-/// plaintext from the encrypted data. Price comparison must be done via MPC.
+/// This function previously provided a fallback that could extract plaintext
+/// from encrypted data. In V5, all price comparison MUST use async MPC.
 ///
-/// This function returns false (no match) - actual matching uses async MPC.
+/// PANICS: This function always panics in V5. Use queue_compare_prices instead.
+#[allow(unused_variables)]
 pub fn compare_encrypted_prices(
     _arcium_program: &AccountInfo,
     _cluster: &Pubkey,
     _buy_price: &EncryptedU64,
     _sell_price: &EncryptedU64,
 ) -> Result<bool> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: compare_encrypted_prices (MPC required - use async flow)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract plaintext from encrypted data anymore.
-    // Real price comparison must be done via async MPC flow.
-    //
-    // Return false to indicate no match - caller should use queue_compare_prices
-    // for real MPC-based comparison.
-
-    Ok(false)
+    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
+    // All encrypted operations MUST use async MPC flow
+    panic!(
+        "FATAL: compare_encrypted_prices sync fallback called in production. \
+        V5 requires async MPC via queue_compare_prices(). \
+        This indicates a code path that bypasses privacy guarantees."
+    );
 }
 
 /// Queue a fill amount calculation via MPC
@@ -237,17 +239,23 @@ pub fn queue_calculate_fill<'info>(
         ],
     )?;
 
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete (calculate_fill), request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous version for backward compatibility
+/// Synchronous fill calculation - REMOVED IN V5
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT extract
-/// plaintext from the encrypted data. Fill calculation must be done via MPC.
+/// This function previously provided a fallback that could extract plaintext
+/// from encrypted data. In V5, all fill calculation MUST use async MPC.
 ///
-/// This function returns zero fill - actual fill uses async MPC.
+/// PANICS: This function always panics in V5. Use queue_calculate_fill instead.
+#[allow(unused_variables)]
 pub fn calculate_encrypted_fill(
     _arcium_program: &AccountInfo,
     _cluster: &Pubkey,
@@ -256,20 +264,13 @@ pub fn calculate_encrypted_fill(
     _sell_amount: &EncryptedU64,
     _sell_filled: &EncryptedU64,
 ) -> Result<(EncryptedU64, bool, bool)> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: calculate_encrypted_fill (MPC required - use async flow)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract plaintext from encrypted data anymore.
-    // Real fill calculation must be done via async MPC flow.
-    //
-    // Return zero fill - caller should use queue_calculate_fill for real MPC.
-
-    let encrypted_fill = [0u8; 64];
-    let buy_fully_filled = false;
-    let sell_fully_filled = false;
-
-    Ok((encrypted_fill, buy_fully_filled, sell_fully_filled))
+    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
+    // All encrypted operations MUST use async MPC flow
+    panic!(
+        "FATAL: calculate_encrypted_fill sync fallback called in production. \
+        V5 requires async MPC via queue_calculate_fill(). \
+        This indicates a code path that bypasses privacy guarantees."
+    );
 }
 
 /// Encrypt a plaintext u64 value
@@ -408,25 +409,23 @@ pub fn verify_position_params<'info>(
         ],
     )?;
 
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete (verify_position_params), request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous version for backward compatibility
+/// Synchronous position params verification - REMOVED IN V5
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT extract
-/// plaintext from the encrypted data. It delegates to real MPC via the async flow.
+/// This function previously provided a fallback that trusted claimed thresholds.
+/// In V5, all position verification MUST use async MPC.
 ///
-/// For now, it accepts the claimed threshold and returns true, trusting the MPC
-/// verification that will happen when the actual async queue is processed.
-/// The real validation is performed by the MPC cluster.
-///
-/// Formula for liquidation price (computed by MPC):
-/// - Long:  liq_price = entry * (1 - 1/leverage + maintenance_margin)
-/// - Short: liq_price = entry * (1 + 1/leverage - maintenance_margin)
-///
-/// All calculations done in basis points (10000 = 100%)
+/// PANICS: This function always panics in V5. Use verify_position_params instead.
+#[allow(unused_variables)]
 pub fn verify_position_params_sync(
     _arcium_program: &AccountInfo,
     _cluster: &Pubkey,
@@ -436,24 +435,13 @@ pub fn verify_position_params_sync(
     _is_long: bool,
     _maintenance_margin_bps: u16,
 ) -> Result<bool> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: verify_position_params (MPC required - trusting claimed threshold)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract plaintext from encrypted data anymore.
-    // Real validation must be done via async MPC flow.
-    //
-    // For now, return true to allow the transaction to proceed.
-    // The MPC cluster will verify the threshold asynchronously.
-    // If invalid, the callback will reject the position.
-    //
-    // Security note: This is acceptable because:
-    // 1. The position is marked as PendingVerification
-    // 2. MPC callback will finalize or reject
-    // 3. Trader's collateral is already locked
-    // 4. Invalid thresholds only hurt the trader (liquidated early)
-
-    Ok(true)
+    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
+    // All encrypted operations MUST use async MPC flow
+    panic!(
+        "FATAL: verify_position_params_sync fallback called in production. \
+        V5 requires async MPC via verify_position_params(). \
+        This indicates a code path that bypasses privacy guarantees."
+    );
 }
 
 /// Check if a position should be liquidated based on current mark price via MPC
@@ -504,23 +492,23 @@ pub fn check_liquidation<'info>(
         ],
     )?;
 
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete (check_liquidation), request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous liquidation check for backward compatibility
+/// Synchronous liquidation check - REMOVED IN V5
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT extract
-/// plaintext from the encrypted data. Liquidation eligibility must be verified
-/// using the PUBLIC liquidation threshold stored on the position account.
+/// This function previously provided a fallback for liquidation checks.
+/// In V5, all liquidation checks MUST use async MPC batch verification.
 ///
-/// The position has `liquidatable_below_price` (for longs) and
-/// `liquidatable_above_price` (for shorts) which are PUBLIC values that
-/// were verified by MPC when the position was opened.
-///
-/// This sync function returns false (not liquidatable) - actual liquidation
-/// check uses the public threshold on the position account.
+/// PANICS: This function always panics in V5. Use queue_batch_liquidation_check instead.
+#[allow(unused_variables)]
 pub fn check_liquidation_sync(
     _arcium_program: &AccountInfo,
     _cluster: &Pubkey,
@@ -531,22 +519,13 @@ pub fn check_liquidation_sync(
     _is_long: bool,
     _maintenance_margin_bps: u16,
 ) -> Result<bool> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: check_liquidation (MPC required - use position.is_liquidatable())");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract plaintext from encrypted data anymore.
-    // Liquidation check uses PUBLIC threshold on position account.
-    //
-    // The caller should use position.is_liquidatable(mark_price) instead,
-    // which compares mark_price against the PUBLIC threshold.
-    //
-    // Return false to indicate MPC verification is needed for detailed check.
-    // The actual liquidation eligibility is determined by:
-    // 1. position.is_liquidatable(mark_price) - uses public threshold
-    // 2. MPC confirmation via async flow for detailed margin calculation
-
-    Ok(false)
+    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
+    // All encrypted operations MUST use async MPC flow
+    panic!(
+        "FATAL: check_liquidation_sync fallback called in production. \
+        V5 requires async MPC via queue_batch_liquidation_check(). \
+        This indicates a code path that bypasses privacy guarantees."
+    );
 }
 
 /// Position data for batch liquidation check
@@ -614,7 +593,12 @@ pub fn queue_batch_liquidation_check<'info>(
         ],
     )?;
 
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete (batch_liquidation_check), request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -663,18 +647,23 @@ pub fn calculate_pnl<'info>(
         ],
     )?;
 
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete (calculate_pnl), request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous PnL calculation for backward compatibility
+/// Synchronous PnL calculation - REMOVED IN V5
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT extract
-/// plaintext from the encrypted data. PnL calculation must be done via MPC.
+/// This function previously provided a fallback that returned placeholder values.
+/// In V5, all PnL calculation MUST use async MPC.
 ///
-/// This function returns a zero PnL with is_profit=true as a placeholder.
-/// The real PnL will be calculated by MPC and applied via callback.
+/// PANICS: This function always panics in V5. Use calculate_pnl instead.
+#[allow(unused_variables)]
 pub fn calculate_pnl_sync(
     _arcium_program: &AccountInfo,
     _encrypted_size: &EncryptedU64,
@@ -682,22 +671,13 @@ pub fn calculate_pnl_sync(
     _exit_price: u64,
     _is_long: bool,
 ) -> Result<(EncryptedU64, bool)> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: calculate_pnl (MPC required - returning zero placeholder)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract plaintext from encrypted data anymore.
-    // Real PnL calculation must be done via async MPC flow.
-    //
-    // Return zero PnL as placeholder. The actual PnL will be:
-    // 1. Calculated by MPC cluster
-    // 2. Applied via callback to position.encrypted_realized_pnl
-    // 3. Used for settlement via C-SPL transfer
-
-    let encrypted_pnl = [0u8; 64];
-    let is_profit = true; // Placeholder - MPC determines actual profit/loss
-
-    Ok((encrypted_pnl, is_profit))
+    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
+    // All encrypted operations MUST use async MPC flow
+    panic!(
+        "FATAL: calculate_pnl_sync fallback called in production. \
+        V5 requires async MPC via calculate_pnl(). \
+        This indicates a code path that bypasses privacy guarantees."
+    );
 }
 
 /// Calculate funding payment for a position
@@ -744,40 +724,36 @@ pub fn calculate_funding<'info>(
         ],
     )?;
 
-    let request_id = generate_request_id();
+    // Extract request_id from the created computation request account
+    let request_account_data = accounts.request_account.try_borrow_data()?;
+    let mut request_id = [0u8; 32];
+    request_id.copy_from_slice(&request_account_data[8..40]);
+
+    msg!("MXE CPI complete (calculate_funding), request_id={:?}", &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous funding calculation for backward compatibility
+/// Synchronous funding calculation - REMOVED IN V5
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT extract
-/// plaintext from the encrypted data. Funding calculation must be done via MPC.
+/// This function previously provided a fallback that returned placeholder values.
+/// In V5, all funding calculation MUST use async MPC.
 ///
-/// This function returns zero funding with is_receiving=true as a placeholder.
-/// The real funding will be calculated by MPC and applied via callback.
+/// PANICS: This function always panics in V5. Use calculate_funding instead.
+#[allow(unused_variables)]
 pub fn calculate_funding_sync(
     _arcium_program: &AccountInfo,
     _encrypted_size: &EncryptedU64,
     _funding_delta: i64,
     _is_long: bool,
 ) -> Result<(EncryptedU64, bool)> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: calculate_funding (MPC required - returning zero placeholder)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract plaintext from encrypted data anymore.
-    // Real funding calculation must be done via async MPC flow.
-    //
-    // Return zero funding as placeholder. The actual funding will be:
-    // 1. Calculated by MPC cluster using encrypted position size
-    // 2. Applied via callback
-    // 3. Used for settlement
-
-    let encrypted_payment = [0u8; 64];
-    let is_receiving = true; // Placeholder - MPC determines actual direction
-
-    Ok((encrypted_payment, is_receiving))
+    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
+    // All encrypted operations MUST use async MPC flow
+    panic!(
+        "FATAL: calculate_funding_sync fallback called in production. \
+        V5 requires async MPC via calculate_funding(). \
+        This indicates a code path that bypasses privacy guarantees."
+    );
 }
 
 /// Multiply two encrypted values
@@ -800,15 +776,6 @@ pub fn mul_encrypted(
     Ok(*a)
 }
 
-/// Generate a unique request ID
-fn generate_request_id() -> [u8; 32] {
-    let clock = Clock::get().unwrap_or_default();
-    let mut id = [0u8; 32];
-    id[0..8].copy_from_slice(&clock.slot.to_le_bytes());
-    id[8..16].copy_from_slice(&clock.unix_timestamp.to_le_bytes());
-    id
-}
-
 /// Arcium-specific errors
 #[error_code]
 pub enum ArciumError {
@@ -820,4 +787,46 @@ pub enum ArciumError {
     InvalidResult,
     #[msg("Callback from unauthorized source")]
     UnauthorizedCallback,
+}
+
+// =============================================================================
+// CONSTANT VERIFICATION TESTS
+// =============================================================================
+// These tests verify that hardcoded program ID bytes match expected Base58 strings.
+// If these tests fail, it means the hardcoded bytes are out of sync.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify ARCIUM_PROGRAM_ID matches expected Base58 string
+    #[test]
+    fn verify_arcium_program_id() {
+        assert_eq!(
+            ARCIUM_PROGRAM_ID.to_string(),
+            "Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ",
+            "ARCIUM_PROGRAM_ID bytes do not match expected Base58"
+        );
+    }
+
+    /// Verify ARCIUM_MXE_PROGRAM_ID matches expected Base58 string
+    #[test]
+    fn verify_arcium_mxe_program_id() {
+        assert_eq!(
+            ARCIUM_MXE_PROGRAM_ID.to_string(),
+            "CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE",
+            "ARCIUM_MXE_PROGRAM_ID bytes do not match expected Base58"
+        );
+    }
+
+    /// Verify DEFAULT_CLUSTER_OFFSET is a valid devnet cluster
+    #[test]
+    fn verify_cluster_offset() {
+        // Valid devnet clusters: 456 (v0.6.3), 789 (v0.5.1)
+        // Note: Cluster 123 does NOT exist
+        assert!(
+            DEFAULT_CLUSTER_OFFSET == 456 || DEFAULT_CLUSTER_OFFSET == 789,
+            "DEFAULT_CLUSTER_OFFSET must be 456 or 789 for devnet"
+        );
+    }
 }

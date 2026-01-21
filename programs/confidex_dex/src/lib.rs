@@ -43,7 +43,8 @@ pub mod confidex_dex {
         instructions::unwrap_tokens::handler(ctx, amount)
     }
 
-    /// Place a confidential order with ZK eligibility proof
+    /// Place a confidential order with ZK eligibility proof (V5 - no plaintext)
+    /// All order values are encrypted; settlement uses MPC-computed results
     pub fn place_order(
         ctx: Context<PlaceOrder>,
         side: state::Side,
@@ -51,6 +52,7 @@ pub mod confidex_dex {
         encrypted_amount: [u8; 64],
         encrypted_price: [u8; 64],
         eligibility_proof: [u8; 324],
+        ephemeral_pubkey: [u8; 32],
     ) -> Result<()> {
         instructions::place_order::handler(
             ctx,
@@ -59,6 +61,7 @@ pub mod confidex_dex {
             encrypted_amount,
             encrypted_price,
             eligibility_proof,
+            ephemeral_pubkey,
         )
     }
 
@@ -70,6 +73,12 @@ pub mod confidex_dex {
     /// Match two orders via MPC price comparison
     pub fn match_orders(ctx: Context<MatchOrders>) -> Result<()> {
         instructions::match_orders::handler(ctx)
+    }
+
+    /// Settle matched orders by transferring tokens between users
+    /// Called after orders have been matched via MPC (status = Inactive, filled > 0)
+    pub fn settle_order(ctx: Context<SettleOrder>) -> Result<()> {
+        instructions::settle_order::handler(ctx)
     }
 
     /// Pause trading (admin only)
@@ -122,6 +131,21 @@ pub mod confidex_dex {
         params: UpdatePerpMarketParams,
     ) -> Result<()> {
         instructions::admin::update_perp_market_config_handler(ctx, params)
+    }
+
+    /// Migrate Exchange account from V4 (158 bytes) to V5 (262 bytes) - admin only
+    /// Resizes the account and initializes new program ID fields with defaults
+    pub fn migrate_exchange(ctx: Context<MigrateExchange>) -> Result<()> {
+        instructions::admin::migrate_exchange_handler(ctx)
+    }
+
+    /// Update program IDs stored in ExchangeState (admin only)
+    /// Allows switching MXE or verifier programs without redeploying DEX
+    pub fn update_program_ids(
+        ctx: Context<UpdateProgramIds>,
+        params: UpdateProgramIdsParams,
+    ) -> Result<()> {
+        instructions::admin::update_program_ids_handler(ctx, params)
     }
 
     // === ZK Verification (Layer 1 of Three-Layer Privacy) ===

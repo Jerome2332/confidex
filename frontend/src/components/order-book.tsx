@@ -1,10 +1,12 @@
 'use client';
 
-import { FC, useState, useEffect, useMemo } from 'react';
-import { TrendUp, TrendDown, Lock, Pulse } from '@phosphor-icons/react';
+import { FC, useState, useEffect, useMemo, useRef } from 'react';
+import { TrendUp, TrendDown, Lock, Pulse, CloudSlash, Spinner } from '@phosphor-icons/react';
 import { PrecisionSelector, PrecisionOption } from './precision-selector';
 import { useOrderStore } from '@/stores/order-store';
 import { useSolPrice } from '@/hooks/use-pyth-price';
+import { useOrderBook, OrderBookLevel } from '@/hooks/use-order-book';
+import { useRecentTrades } from '@/hooks/use-recent-trades';
 
 interface OrderBookEntry {
   price: number;
@@ -20,18 +22,27 @@ interface OrderBookProps {
   maxRows?: number;
 }
 
-// Generate realistic price levels based on a mid price
-const generatePriceLevels = (midPrice: number, side: 'ask' | 'bid', count: number, precision: number): OrderBookEntry[] => {
+// Simple seeded random for deterministic mock data (avoids hydration mismatch)
+const seededRandom = (seed: number): number => {
+  const x = Math.sin(seed * 9999) * 10000;
+  return x - Math.floor(x);
+};
+
+// Generate mock price levels for empty/demo state
+const generateMockLevels = (midPrice: number, side: 'ask' | 'bid', count: number, precision: number): OrderBookEntry[] => {
   const levels: OrderBookEntry[] = [];
   const tickSize = precision;
+  const sideSeed = side === 'ask' ? 1 : 2;
 
   for (let i = 0; i < count; i++) {
     const offset = (i + 1) * tickSize;
     const price = side === 'ask' ? midPrice + offset : midPrice - offset;
+    // Use deterministic values based on index and side
+    const seed = sideSeed * 100 + i;
     levels.push({
       price: Math.round(price * (1 / precision)) * precision,
-      orderCount: Math.floor(Math.random() * 5) + 1,
-      depthIndicator: Math.floor(Math.random() * 80) + 20,
+      orderCount: Math.floor(seededRandom(seed) * 5) + 1,
+      depthIndicator: Math.floor(seededRandom(seed + 50) * 80) + 20,
       isEncrypted: true,
     });
   }
@@ -47,6 +58,21 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
   const { openOrders } = useOrderStore();
   const { price: livePrice } = useSolPrice();
 
+  // Track if component is mounted to avoid hydration mismatch
+  // Server renders mock data, client switches to real data after mount
+  const [isMounted, setIsMounted] = useState(false);
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  // Fetch real order book data from chain
+  const {
+    asks: chainAsks,
+    bids: chainBids,
+    loading: orderBookLoading,
+    error: orderBookError,
+  } = useOrderBook();
+
   // Use live price or fallback
   const midPrice = livePrice || 104.50;
 
@@ -59,10 +85,52 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
     }
   }, [livePrice, lastPrice]);
 
-  // Generate order book levels
+  // Use real orders if available AND mounted (to avoid hydration mismatch)
+  // Server always renders mock data, client switches to real after mount
   const precisionNum = parseFloat(precision);
-  const asks = useMemo(() => generatePriceLevels(midPrice, 'ask', maxRows, precisionNum), [midPrice, maxRows, precisionNum]);
-  const bids = useMemo(() => generatePriceLevels(midPrice, 'bid', maxRows, precisionNum), [midPrice, maxRows, precisionNum]);
+  const hasRealOrders = isMounted && (chainAsks.length > 0 || chainBids.length > 0);
+
+  // Filter and limit orders by precision and maxRows
+  const asks = useMemo(() => {
+    if (hasRealOrders) {
+      // Group by precision level
+      const grouped = new Map<number, OrderBookEntry>();
+      for (const order of chainAsks) {
+        const roundedPrice = Math.round(order.price / precisionNum) * precisionNum;
+        const existing = grouped.get(roundedPrice);
+        if (existing) {
+          existing.orderCount += order.orderCount;
+          existing.depthIndicator = Math.min(100, existing.depthIndicator + order.depthIndicator / 2);
+        } else {
+          grouped.set(roundedPrice, { ...order, price: roundedPrice });
+        }
+      }
+      return Array.from(grouped.values())
+        .sort((a, b) => a.price - b.price)
+        .slice(-maxRows); // Keep best asks (lowest prices at bottom)
+    }
+    return generateMockLevels(midPrice, 'ask', maxRows, precisionNum);
+  }, [chainAsks, hasRealOrders, midPrice, maxRows, precisionNum, isMounted]);
+
+  const bids = useMemo(() => {
+    if (hasRealOrders) {
+      const grouped = new Map<number, OrderBookEntry>();
+      for (const order of chainBids) {
+        const roundedPrice = Math.round(order.price / precisionNum) * precisionNum;
+        const existing = grouped.get(roundedPrice);
+        if (existing) {
+          existing.orderCount += order.orderCount;
+          existing.depthIndicator = Math.min(100, existing.depthIndicator + order.depthIndicator / 2);
+        } else {
+          grouped.set(roundedPrice, { ...order, price: roundedPrice });
+        }
+      }
+      return Array.from(grouped.values())
+        .sort((a, b) => b.price - a.price)
+        .slice(0, maxRows); // Keep best bids (highest prices at top)
+    }
+    return generateMockLevels(midPrice, 'bid', maxRows, precisionNum);
+  }, [chainBids, hasRealOrders, midPrice, maxRows, precisionNum, isMounted]);
 
   // Calculate spread
   const bestAsk = asks[asks.length - 1]?.price || midPrice + precisionNum;
@@ -70,22 +138,37 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
   const spread = Math.round((bestAsk - bestBid) * 100) / 100;
   const spreadPercent = ((spread / midPrice) * 100).toFixed(2);
 
-  // Mock recent trades for "Trades" tab
+  // Fetch recent trades from chain events
+  const { trades: chainTrades, isListening: tradesListening } = useRecentTrades(50);
+
+  // Use real trades if available AND mounted, fallback to mock data
   const recentTrades = useMemo(() => {
-    const trades = [];
+    if (isMounted && chainTrades.length > 0) {
+      return chainTrades.map((t, idx) => ({
+        id: t.id,
+        price: t.price || midPrice + (seededRandom(idx + 1000) - 0.5) * 2, // Use price or deterministic estimate
+        side: t.side,
+        time: t.time,
+      }));
+    }
+
+    // Generate mock trades for demo (deterministic to avoid hydration mismatch)
+    const mockTrades = [];
     let tradePrice = midPrice;
     for (let i = 0; i < 15; i++) {
-      const isBuy = Math.random() > 0.5;
-      tradePrice += (Math.random() - 0.5) * 0.5;
-      trades.push({
-        id: i,
+      const isBuy = seededRandom(i + 500) > 0.5;
+      tradePrice += (seededRandom(i + 600) - 0.5) * 0.5;
+      mockTrades.push({
+        id: String(i),
         price: Math.round(tradePrice * 100) / 100,
-        side: isBuy ? 'buy' : 'sell',
-        time: new Date(Date.now() - i * 30000),
+        side: isBuy ? 'buy' : 'sell' as const,
+        time: new Date(1737489600000 - i * 30000), // Fixed base timestamp to avoid hydration mismatch
       });
     }
-    return trades;
-  }, [midPrice]);
+    return mockTrades;
+  }, [chainTrades, midPrice, isMounted]);
+
+  const hasRealTrades = isMounted && chainTrades.length > 0;
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -134,12 +217,20 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
   };
 
   return (
-    <div className={`h-full flex flex-col bg-card ${isCompact ? '' : 'border border-border rounded-lg'}`}>
+    <div
+      className={`h-full flex flex-col bg-card ${isCompact ? '' : 'border border-border rounded-lg'}`}
+      role="region"
+      aria-label="Order book and recent trades"
+    >
       {/* Header with Tab Toggle */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-border shrink-0">
-        <div className="flex gap-3 text-xs">
+        <div className="flex gap-3 text-xs" role="tablist" aria-label="Order book view selection">
           <button
             onClick={() => setViewMode('book')}
+            role="tab"
+            aria-selected={viewMode === 'book'}
+            aria-controls="order-book-content"
+            id="order-book-tab"
             className={`transition-colors ${
               viewMode === 'book' ? 'text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -148,6 +239,10 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
           </button>
           <button
             onClick={() => setViewMode('trades')}
+            role="tab"
+            aria-selected={viewMode === 'trades'}
+            aria-controls="trades-content"
+            id="trades-tab"
             className={`transition-colors ${
               viewMode === 'trades' ? 'text-foreground font-medium' : 'text-muted-foreground hover:text-foreground'
             }`}
@@ -164,16 +259,16 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
       </div>
 
       {viewMode === 'book' ? (
-        <>
+        <div id="order-book-content" role="tabpanel" aria-labelledby="order-book-tab" className="flex flex-col flex-1 min-h-0">
           {/* Column Headers */}
-          <div className="grid grid-cols-3 text-[10px] text-muted-foreground px-2 py-1 border-b border-border/30 shrink-0">
-            <span>Price (USDC)</span>
-            <span className="text-right">Depth</span>
-            <span className="text-right">Orders</span>
+          <div className="grid grid-cols-3 text-[10px] text-muted-foreground px-2 py-1 border-b border-border/30 shrink-0" role="row" aria-label="Order book column headers">
+            <span role="columnheader">Price (USDC)</span>
+            <span role="columnheader" className="text-right">Depth</span>
+            <span role="columnheader" className="text-right">Orders</span>
           </div>
 
           {/* Asks (Sells) - scrollable */}
-          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="flex-1 overflow-y-auto min-h-0" role="table" aria-label="Sell orders (asks)">
             <div className="flex flex-col justify-end min-h-full">
               {asks.map((ask, i) => renderPriceRow(ask, 'ask', i))}
             </div>
@@ -215,15 +310,34 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                 </span>
               </div>
               <div className="flex items-center gap-1 text-muted-foreground">
-                <Lock size={10} />
-                <span>Encrypted</span>
+                {orderBookLoading ? (
+                  <>
+                    <Spinner size={10} className="animate-spin" />
+                    <span>Loading...</span>
+                  </>
+                ) : orderBookError ? (
+                  <>
+                    <CloudSlash size={10} className="text-rose-400/60" />
+                    <span className="text-rose-400/60">Offline</span>
+                  </>
+                ) : hasRealOrders ? (
+                  <>
+                    <Pulse size={10} className="text-emerald-400/60" />
+                    <span>Live</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock size={10} />
+                    <span>Demo</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
-        </>
+        </div>
       ) : (
         /* Trades View */
-        <>
+        <div id="trades-content" role="tabpanel" aria-labelledby="trades-tab" className="flex flex-col flex-1 min-h-0">
           {/* Column Headers */}
           <div className="grid grid-cols-3 text-[10px] text-muted-foreground px-2 py-1 border-b border-border/30 shrink-0">
             <span>Price</span>
@@ -256,12 +370,26 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{recentTrades.length} recent trades</span>
               <div className="flex items-center gap-1">
-                <Pulse size={10} className="text-white/60" />
-                <span>Live</span>
+                {hasRealTrades ? (
+                  <>
+                    <Pulse size={10} className="text-emerald-400/60" aria-hidden="true" />
+                    <span>Live</span>
+                  </>
+                ) : tradesListening ? (
+                  <>
+                    <Spinner size={10} className="animate-spin" aria-hidden="true" />
+                    <span>Waiting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Lock size={10} aria-hidden="true" />
+                    <span>Demo</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

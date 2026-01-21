@@ -26,10 +26,11 @@ export class MatchingAlgorithm {
     orders: OrderWithPda[],
     lockedOrders: Set<string>
   ): MatchCandidate[] {
-    // Filter for matchable orders (open/partially filled, verified, not locked)
+    // Filter for matchable orders (Active, verified, not locked, not in matching flow)
     const matchableOrders = orders.filter(o =>
-      (o.order.status === OrderStatus.Open || o.order.status === OrderStatus.PartiallyFilled) &&
+      o.order.status === OrderStatus.Active &&
       o.order.eligibilityProofVerified &&
+      !o.order.isMatching &&
       !lockedOrders.has(o.pda.toString())
     );
 
@@ -37,9 +38,9 @@ export class MatchingAlgorithm {
     const buyOrders = matchableOrders.filter(o => o.order.side === Side.Buy);
     const sellOrders = matchableOrders.filter(o => o.order.side === Side.Sell);
 
-    // Sort by creation time (FIFO)
-    buyOrders.sort((a, b) => Number(a.order.createdAt - b.order.createdAt));
-    sellOrders.sort((a, b) => Number(a.order.createdAt - b.order.createdAt));
+    // Sort by creation time (FIFO) - V5 uses createdAtHour
+    buyOrders.sort((a, b) => Number(a.order.createdAtHour - b.order.createdAtHour));
+    sellOrders.sort((a, b) => Number(a.order.createdAtHour - b.order.createdAtHour));
 
     const candidates: MatchCandidate[] = [];
 
@@ -82,12 +83,12 @@ export class MatchingAlgorithm {
    */
   prioritizeCandidates(candidates: MatchCandidate[]): MatchCandidate[] {
     return candidates.sort((a, b) => {
-      // Primary: oldest buy order first
-      const buyTimeDiff = Number(a.buyOrder.order.createdAt - b.buyOrder.order.createdAt);
+      // Primary: oldest buy order first (V5 uses createdAtHour)
+      const buyTimeDiff = Number(a.buyOrder.order.createdAtHour - b.buyOrder.order.createdAtHour);
       if (buyTimeDiff !== 0) return buyTimeDiff;
 
       // Secondary: oldest sell order first
-      return Number(a.sellOrder.order.createdAt - b.sellOrder.order.createdAt);
+      return Number(a.sellOrder.order.createdAtHour - b.sellOrder.order.createdAtHour);
     });
   }
 
@@ -136,9 +137,11 @@ export class MatchingAlgorithm {
       return false;
     }
 
-    // Both must be open or partially filled
-    const validStatuses = [OrderStatus.Open, OrderStatus.PartiallyFilled];
-    if (!validStatuses.includes(buyOrder.order.status) || !validStatuses.includes(sellOrder.order.status)) {
+    // Both must be Active and not in matching flow
+    if (buyOrder.order.status !== OrderStatus.Active || sellOrder.order.status !== OrderStatus.Active) {
+      return false;
+    }
+    if (buyOrder.order.isMatching || sellOrder.order.isMatching) {
       return false;
     }
 

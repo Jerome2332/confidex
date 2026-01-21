@@ -14,11 +14,19 @@ import {
   TradingPairInfo,
 } from './types.js';
 
-// PDA seeds
+// =============================================================================
+// SHARED CONSTANTS - Source of truth: lib/src/constants.ts
+// TODO: Import from @confidex/sdk when monorepo workspace is configured
+// =============================================================================
 const PAIR_SEED = Buffer.from('pair');
 
 // Account sizes
-const ORDER_ACCOUNT_SIZE = 317;
+// ConfidentialOrder on-chain sizes:
+// - V3 (legacy): 334 bytes - DEPRECATED, do not use
+// - V4 (hackathon): 390 bytes - had plaintext fields - DEPRECATED
+// - V5 (production): 366 bytes - no plaintext fields, privacy hardened
+// Only V5 orders are supported for matching
+const ORDER_ACCOUNT_SIZE_V5 = 366;
 const PAIR_ACCOUNT_SIZE = 234;
 
 export class OrderMonitor {
@@ -45,6 +53,7 @@ export class OrderMonitor {
 
   /**
    * Parse ConfidentialOrder from account data
+   * V5 format only (366 bytes) - no plaintext fields
    */
   private parseOrder(data: Buffer): ConfidentialOrder {
     let offset = 8; // Skip discriminator
@@ -73,19 +82,34 @@ export class OrderMonitor {
     const status = data.readUInt8(offset) as OrderStatus;
     offset += 1;
 
-    const createdAt = data.readBigInt64LE(offset);
+    // V5: created_at_hour (coarse timestamp for privacy)
+    const createdAtHour = data.readBigInt64LE(offset);
     offset += 8;
 
-    const orderId = data.readBigUInt64LE(offset);
+    // order_id is 16 bytes (hash-based)
+    const orderId = new Uint8Array(data.subarray(offset, offset + 16));
+    offset += 16;
+
+    // order_nonce is 8 bytes (used for PDA derivation)
+    const orderNonce = new Uint8Array(data.subarray(offset, offset + 8));
     offset += 8;
 
     const eligibilityProofVerified = data.readUInt8(offset) === 1;
     offset += 1;
 
-    const pendingMatchRequest = new Uint8Array(data.subarray(offset, offset + 32));
+    // pending_match_request is 32 bytes - parse as PublicKey for comparison
+    const pendingMatchRequestBytes = new Uint8Array(data.subarray(offset, offset + 32));
+    const pendingMatchRequest = new PublicKey(pendingMatchRequestBytes);
     offset += 32;
 
+    const isMatching = data.readUInt8(offset) === 1;
+    offset += 1;
+
     const bump = data.readUInt8(offset);
+    offset += 1;
+
+    // Ephemeral X25519 public key for MPC decryption (32 bytes)
+    const ephemeralPubkey = new Uint8Array(data.subarray(offset, offset + 32));
 
     return {
       maker,
@@ -96,31 +120,35 @@ export class OrderMonitor {
       encryptedPrice,
       encryptedFilled,
       status,
-      createdAt,
+      isMatching,
+      createdAtHour,
       orderId,
+      orderNonce,
       eligibilityProofVerified,
       pendingMatchRequest,
       bump,
+      ephemeralPubkey,
     };
   }
 
   /**
    * Fetch all open orders for a specific trading pair
+   * V5 format only (366 bytes)
    */
   async fetchOpenOrdersForPair(pairPda: PublicKey): Promise<OrderWithPda[]> {
     try {
       const accounts = await this.connection.getProgramAccounts(this.programId, {
         filters: [
-          { dataSize: ORDER_ACCOUNT_SIZE },
-          { memcmp: { offset: 8 + 32, bytes: pairPda.toBase58() } }, // pair field at offset 40
+          { dataSize: ORDER_ACCOUNT_SIZE_V5 },
+          { memcmp: { offset: 8 + 32, bytes: pairPda.toBase58() } },
         ],
       });
 
       const orders: OrderWithPda[] = [];
       for (const { pubkey, account } of accounts) {
         const order = this.parseOrder(account.data);
-        // Filter for open/partially filled orders
-        if (order.status === OrderStatus.Open || order.status === OrderStatus.PartiallyFilled) {
+        // Filter for Active orders that aren't currently in matching
+        if (order.status === OrderStatus.Active && !order.isMatching) {
           orders.push({ pda: pubkey, order });
           this.orderCache.set(pubkey.toString(), { pda: pubkey, order });
         }
@@ -136,22 +164,24 @@ export class OrderMonitor {
 
   /**
    * Fetch all open orders across all trading pairs
+   * V5 format only (366 bytes)
    */
   async fetchAllOpenOrders(): Promise<OrderWithPda[]> {
     try {
       const accounts = await this.connection.getProgramAccounts(this.programId, {
-        filters: [
-          { dataSize: ORDER_ACCOUNT_SIZE },
-        ],
+        filters: [{ dataSize: ORDER_ACCOUNT_SIZE_V5 }],
       });
+
+      console.log(`[OrderMonitor] Found ${accounts.length} V5 order accounts`);
 
       const orders: OrderWithPda[] = [];
       for (const { pubkey, account } of accounts) {
         const order = this.parseOrder(account.data);
-        // Filter for open/partially filled orders with verified eligibility
+        // Filter for Active orders with verified eligibility that aren't currently in matching
         if (
-          (order.status === OrderStatus.Open || order.status === OrderStatus.PartiallyFilled) &&
-          order.eligibilityProofVerified
+          order.status === OrderStatus.Active &&
+          order.eligibilityProofVerified &&
+          !order.isMatching
         ) {
           orders.push({ pda: pubkey, order });
           this.orderCache.set(pubkey.toString(), { pda: pubkey, order });

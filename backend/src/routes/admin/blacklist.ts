@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response } from 'express';
 import { z } from 'zod';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -11,6 +11,8 @@ import {
   fetchBlacklistRoot,
   syncToOnChain,
 } from '../../lib/blacklist.js';
+import { adminAuth } from '../../middleware/auth.js';
+import { rateLimiters } from '../../middleware/rate-limit.js';
 
 // Validation schemas
 const AddressSchema = z.string().refine((val) => {
@@ -30,37 +32,12 @@ const SyncSchema = z.object({
   adminPrivateKey: z.string().optional(),
 });
 
-// Simple API key authentication for admin routes
-// In production, use proper auth (JWT, OAuth, etc.)
-const authenticateAdmin = (req: Request, res: Response, next: NextFunction): void => {
-  const apiKey = req.headers['x-admin-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
-
-  const expectedKey = process.env.ADMIN_API_KEY;
-
-  if (!expectedKey) {
-    console.warn('ADMIN_API_KEY not set - admin routes are unprotected in development');
-    if (process.env.NODE_ENV === 'production') {
-      res.status(500).json({ error: 'Admin API key not configured' });
-      return;
-    }
-    // Allow in development without key
-    next();
-    return;
-  }
-
-  if (apiKey !== expectedKey) {
-    res.status(401).json({ error: 'Unauthorized' });
-    return;
-  }
-
-  next();
-};
-
 import type { Router as RouterType } from 'express';
 export const blacklistRouter: RouterType = Router();
 
-// Apply auth middleware to all routes
-blacklistRouter.use(authenticateAdmin);
+// Apply admin authentication and rate limiting to all routes
+blacklistRouter.use(adminAuth);
+blacklistRouter.use(rateLimiters.strict);
 
 /**
  * GET /api/admin/blacklist

@@ -32,7 +32,7 @@ pub struct MatchOrders<'info> {
         seeds = [
             ConfidentialOrder::SEED,
             buy_order.maker.as_ref(),
-            &buy_order.order_id
+            &buy_order.order_nonce
         ],
         bump = buy_order.bump,
         constraint = buy_order.side == Side::Buy @ ConfidexError::InvalidOrderSide,
@@ -46,7 +46,7 @@ pub struct MatchOrders<'info> {
         seeds = [
             ConfidentialOrder::SEED,
             sell_order.maker.as_ref(),
-            &sell_order.order_id
+            &sell_order.order_nonce
         ],
         bump = sell_order.bump,
         constraint = sell_order.side == Side::Sell @ ConfidexError::InvalidOrderSide,
@@ -76,7 +76,7 @@ pub struct MatchOrders<'info> {
 
 /// Discriminator for finalize_match callback (sha256("global:finalize_match")[0..8])
 /// Production flow: MXE calls finalize_match with orders passed directly
-pub const FINALIZE_MATCH_CALLBACK: [u8; 8] = [0x76, 0x52, 0x2a, 0x69, 0x60, 0xdd, 0xbc, 0xdd];
+pub const FINALIZE_MATCH_CALLBACK: [u8; 8] = [0x06, 0x67, 0x2f, 0x07, 0x42, 0x01, 0x55, 0xcf];
 
 /// Discriminator for price comparison callback (legacy flow)
 pub const PRICE_COMPARE_CALLBACK: [u8; 8] = [0x40, 0xfc, 0x33, 0x4b, 0xcd, 0x2e, 0x11, 0xcb];

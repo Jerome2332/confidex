@@ -146,16 +146,19 @@ function serializeOrderType(orderType: OrderType): Buffer {
 
 /**
  * Build place_order instruction data in Anchor format
+ * V5 format: No plaintext fields - pure privacy
  */
 export function buildPlaceOrderData(
   side: Side,
   orderType: OrderType,
   encryptedAmount: Uint8Array,
   encryptedPrice: Uint8Array,
-  eligibilityProof: Uint8Array
+  eligibilityProof: Uint8Array,
+  ephemeralPubkey: Uint8Array
 ): Buffer {
-  // Anchor format: [discriminator(8), side(1), order_type(1), encrypted_amount(64), encrypted_price(64), eligibility_proof(324)]
-  const data = Buffer.alloc(8 + 1 + 1 + 64 + 64 + GROTH16_PROOF_SIZE);
+  // V5 Anchor format: [discriminator(8), side(1), order_type(1), encrypted_amount(64), encrypted_price(64), eligibility_proof(324), ephemeral_pubkey(32)]
+  // Total instruction data: 8 + 1 + 1 + 64 + 64 + 324 + 32 = 494 bytes
+  const data = Buffer.alloc(8 + 1 + 1 + 64 + 64 + GROTH16_PROOF_SIZE + 32);
   let offset = 0;
 
   // Discriminator (8 bytes)
@@ -179,6 +182,10 @@ export function buildPlaceOrderData(
   // Eligibility proof (388 bytes)
   const proofSlice = eligibilityProof.slice(0, GROTH16_PROOF_SIZE);
   Buffer.from(proofSlice).copy(data, offset);
+  offset += GROTH16_PROOF_SIZE;
+
+  // Ephemeral X25519 public key (32 bytes) for production MPC decryption
+  Buffer.from(ephemeralPubkey).copy(data, offset);
 
   return data;
 }
@@ -193,6 +200,8 @@ export interface PlaceOrderParams {
   encryptedAmount: Uint8Array;
   encryptedPrice: Uint8Array;
   eligibilityProof: Uint8Array;
+  // Production MPC: Full 32-byte ephemeral X25519 public key for Arcium decryption
+  ephemeralPubkey: Uint8Array;
 }
 
 /**
@@ -275,6 +284,7 @@ export async function buildPlaceOrderTransaction(
     encryptedAmount,
     encryptedPrice,
     eligibilityProof,
+    ephemeralPubkey,
   } = params;
 
   log.debug('Building place_order transaction...');
@@ -293,13 +303,14 @@ export async function buildPlaceOrderTransaction(
   log.debug('[ConfidexClient] Order PDA:', { toString: orderPda.toString() });
   log.debug('[ConfidexClient] Order count:', { toString: orderCount.toString() });
 
-  // Build instruction data
+  // Build instruction data (V5 format - no plaintext fields)
   const instructionData = buildPlaceOrderData(
     side,
     orderType,
     encryptedAmount,
     encryptedPrice,
-    eligibilityProof
+    eligibilityProof,
+    ephemeralPubkey
   );
 
   log.debug('[ConfidexClient] Instruction data length:', { length: instructionData.length });
@@ -1357,6 +1368,8 @@ export interface AutoWrapAndPlaceOrderParams {
   encryptedAmount: Uint8Array;
   encryptedPrice: Uint8Array;
   eligibilityProof: Uint8Array;
+  // Production MPC: Full 32-byte ephemeral X25519 public key for Arcium decryption
+  ephemeralPubkey: Uint8Array;
   // Auto-wrap parameters
   wrapTokenMint: PublicKey;  // Which token to wrap (SOL or USDC)
   wrapAmount: bigint;        // How much to wrap (difference needed)
@@ -1386,6 +1399,7 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
     encryptedAmount,
     encryptedPrice,
     eligibilityProof,
+    ephemeralPubkey,
     wrapTokenMint,
     wrapAmount,
   } = params;
@@ -1432,13 +1446,14 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
   log.debug('[ConfidexClient] User balance PDA:', { toString: userBalancePda.toString() });
   log.debug('[ConfidexClient] Spending mint:', { toString: spendMint.toString() });
 
-  // Build instruction data
+  // Build instruction data (V5 format - no plaintext fields)
   const instructionData = buildPlaceOrderData(
     side,
     orderType,
     encryptedAmount,
     encryptedPrice,
-    eligibilityProof
+    eligibilityProof,
+    ephemeralPubkey
   );
 
   // Build place_order instruction with accounts (matching place_order.rs):
@@ -1487,37 +1502,44 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
 // ============================================
 
 /**
- * Order status enum (matching Anchor)
+ * Order status enum (matching Anchor V2 - simplified for privacy)
+ * Only Active/Inactive exposed on-chain
  */
 export enum OrderStatus {
+  Active = 0,    // Order is active and can be matched
+  Inactive = 1,  // Order is no longer active (filled or cancelled)
+  // Legacy aliases for backwards compatibility
   Open = 0,
-  PartiallyFilled = 1,
-  Filled = 2,
-  Cancelled = 3,
-  Matching = 4,
+  PartiallyFilled = 0,
+  Filled = 1,
+  Cancelled = 1,
+  Matching = 0,
 }
 
 /**
- * ConfidentialOrder account layout
+ * ConfidentialOrder account layout (V2)
+ * Size: 334 bytes (8 discriminator + 326 data)
  */
 export interface ConfidentialOrder {
   maker: PublicKey;
   pair: PublicKey;
   side: Side;
   orderType: OrderType;
-  encryptedAmount: Uint8Array; // 64 bytes
-  encryptedPrice: Uint8Array;  // 64 bytes
-  encryptedFilled: Uint8Array; // 64 bytes
+  encryptedAmount: Uint8Array;  // 64 bytes
+  encryptedPrice: Uint8Array;   // 64 bytes
+  encryptedFilled: Uint8Array;  // 64 bytes
   status: OrderStatus;
-  createdAt: bigint;
-  orderId: bigint;
+  createdAtHour: bigint;        // Coarse timestamp (hour precision)
+  orderId: Uint8Array;          // 16 bytes (hash-based)
+  orderNonce: Uint8Array;       // 8 bytes (for PDA derivation)
   eligibilityProofVerified: boolean;
   pendingMatchRequest: Uint8Array; // 32 bytes
+  isMatching: boolean;
   bump: number;
 }
 
 /**
- * Parse ConfidentialOrder from account data
+ * Parse ConfidentialOrder from account data (V2 format)
  */
 export function parseConfidentialOrder(data: Buffer): ConfidentialOrder {
   // Skip 8-byte discriminator
@@ -1547,10 +1569,13 @@ export function parseConfidentialOrder(data: Buffer): ConfidentialOrder {
   const status = data.readUInt8(offset) as OrderStatus;
   offset += 1;
 
-  const createdAt = data.readBigInt64LE(offset);
+  const createdAtHour = data.readBigInt64LE(offset);
   offset += 8;
 
-  const orderId = data.readBigUInt64LE(offset);
+  const orderId = new Uint8Array(data.subarray(offset, offset + 16));
+  offset += 16;
+
+  const orderNonce = new Uint8Array(data.subarray(offset, offset + 8));
   offset += 8;
 
   const eligibilityProofVerified = data.readUInt8(offset) === 1;
@@ -1558,6 +1583,9 @@ export function parseConfidentialOrder(data: Buffer): ConfidentialOrder {
 
   const pendingMatchRequest = new Uint8Array(data.subarray(offset, offset + 32));
   offset += 32;
+
+  const isMatching = data.readUInt8(offset) === 1;
+  offset += 1;
 
   const bump = data.readUInt8(offset);
 
@@ -1570,10 +1598,12 @@ export function parseConfidentialOrder(data: Buffer): ConfidentialOrder {
     encryptedPrice,
     encryptedFilled,
     status,
-    createdAt,
+    createdAtHour,
     orderId,
+    orderNonce,
     eligibilityProofVerified,
     pendingMatchRequest,
+    isMatching,
     bump,
   };
 }
@@ -1608,7 +1638,7 @@ export async function fetchOpenOrdersForPair(
   try {
     const accounts = await connection.getProgramAccounts(CONFIDEX_PROGRAM_ID, {
       filters: [
-        { dataSize: 317 }, // ConfidentialOrder account size
+        { dataSize: 334 }, // ConfidentialOrder account size (8 discriminator + 326 data)
         { memcmp: { offset: 8 + 32, bytes: pairPda.toBase58() } }, // pair field at offset 40
       ],
     });
@@ -1616,8 +1646,8 @@ export async function fetchOpenOrdersForPair(
     const orders: { pda: PublicKey; order: ConfidentialOrder }[] = [];
     for (const { pubkey, account } of accounts) {
       const order = parseConfidentialOrder(account.data);
-      // Filter for open/partially filled orders
-      if (order.status === OrderStatus.Open || order.status === OrderStatus.PartiallyFilled) {
+      // Filter for active orders (V2 status: Active = 0)
+      if (order.status === OrderStatus.Active) {
         orders.push({ pda: pubkey, order });
       }
     }

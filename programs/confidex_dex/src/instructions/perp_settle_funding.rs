@@ -109,7 +109,10 @@ pub fn handler(ctx: Context<SettleFunding>) -> Result<()> {
     position.last_updated_hour = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
 
     // After MPC settles funding, the liquidation threshold may need updating
-    // Mark threshold as needing re-verification
+    // Mark as needing re-verification - position cannot be liquidated until re-verified
+    // TODO (POST-HACKATHON): Queue MPC callback for threshold recalculation:
+    //   queue_verify_position_params(mxe_accounts, position, leverage, mm_bps);
+    // For now, user must call verify_position_params manually to re-enable liquidation
     position.threshold_verified = false;
 
     msg!(
