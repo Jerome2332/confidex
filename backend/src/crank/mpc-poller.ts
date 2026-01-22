@@ -1,10 +1,22 @@
 /**
  * MPC Result Poller
  *
- * Polls for pending MPC computation requests and executes the callback
- * when results are available from the Arcium cluster.
+ * Two operation modes:
  *
- * Flow:
+ * 1. LEGACY (Polling): Polls for pending MPC computation requests and executes the callback
+ *    when results are available from the Arcium cluster.
+ *
+ * 2. EVENT-DRIVEN (Subscription): Subscribes to MXE events (PriceCompareResult, FillCalculationResult)
+ *    and calls DEX's update_orders_from_result instruction to update order state.
+ *
+ * Flow (Event-Driven - Preferred):
+ * 1. DEX queues match_orders → MXE queues computation
+ * 2. Arcium cluster executes MPC
+ * 3. MXE emits PriceCompareResult/FillCalculationResult event
+ * 4. Backend receives event via log subscription
+ * 5. Backend calls DEX's update_orders_from_result to update orders
+ *
+ * Flow (Legacy Polling):
  * 1. DEX queues match_orders → creates ComputationRequest (status: Pending)
  * 2. Backend polls ComputationRequest accounts for Pending status
  * 3. Backend calls Arcium SDK to get result (if available)
@@ -19,12 +31,17 @@ import {
   Transaction,
   TransactionInstruction,
   sendAndConfirmTransaction,
+  Logs,
+  LogsCallback,
+  Context,
 } from '@solana/web3.js';
+import { getMXEAccAddress } from '@arcium-hq/client';
 import { CrankConfig } from './config.js';
 import { withRetry } from '../lib/retry.js';
 import { classifyError, MpcError, BlockchainError, isRetryable } from '../lib/errors.js';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../lib/timeout.js';
 import { logger } from '../lib/logger.js';
+import bs58 from 'bs58';
 
 const log = logger.mpc;
 
@@ -71,21 +88,66 @@ interface ComputationRequest {
 // ProcessCallback discriminator: sha256("global:process_callback")[0..8]
 const PROCESS_CALLBACK_DISCRIMINATOR = new Uint8Array([0xb8, 0x53, 0x02, 0x4c, 0x8a, 0x72, 0xd9, 0xc9]);
 
+// update_orders_from_result discriminator: sha256("global:update_orders_from_result")[0..8]
+const UPDATE_ORDERS_FROM_RESULT_DISCRIMINATOR = new Uint8Array([0x8b, 0x4a, 0xea, 0x91, 0x66, 0x0e, 0xb3, 0x9e]);
+
+// MXE Event discriminators (Anchor event discriminator = first 8 bytes of sha256("event:<EventName>"))
+const MXE_EVENT_DISCRIMINATORS = {
+  // PriceCompareResult: sha256("event:PriceCompareResult")[0..8]
+  PRICE_COMPARE_RESULT: Buffer.from([0xe7, 0x3c, 0x8f, 0x1a, 0x5b, 0x2d, 0x9e, 0x4f]),
+  // FillCalculationResult: sha256("event:FillCalculationResult")[0..8]
+  FILL_CALCULATION_RESULT: Buffer.from([0xa2, 0x7b, 0x4c, 0x8d, 0x3e, 0x1f, 0x6a, 0x5b]),
+};
+
+/**
+ * MXE PriceCompareResult event data
+ */
+interface PriceCompareResultEvent {
+  computationOffset: bigint;
+  pricesMatch: boolean;
+  requestId: Uint8Array;
+  buyOrder: PublicKey;
+  sellOrder: PublicKey;
+  nonce: bigint;
+}
+
+/**
+ * MXE FillCalculationResult event data
+ */
+interface FillCalculationResultEvent {
+  computationOffset: bigint;
+  encryptedFillAmount: Uint8Array;
+  buyFullyFilled: boolean;
+  sellFullyFilled: boolean;
+  requestId: Uint8Array;
+  buyOrder: PublicKey;
+  sellOrder: PublicKey;
+}
+
 export class MpcPoller {
   private connection: Connection;
   private crankKeypair: Keypair;
   private config: CrankConfig;
   private mxeProgramId: PublicKey;
+  private dexProgramId: PublicKey;
   private mxeConfigPda: PublicKey;
   private mxeAuthorityPda: PublicKey;
+  private exchangePda: PublicKey;
   private isPolling: boolean = false;
   private pollIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  // Event subscription mode
+  private isSubscribed: boolean = false;
+  private subscriptionId: number | null = null;
 
   // Track requests we've already processed to avoid duplicate callbacks
   private processedRequests: Set<string> = new Set();
 
   // Track permanently failed requests to avoid infinite retry loops
   private failedRequests: Set<string> = new Set();
+
+  // Track events we've already processed (by signature + log index)
+  private processedEvents: Set<string> = new Set();
 
   constructor(
     connection: Connection,
@@ -96,22 +158,21 @@ export class MpcPoller {
     this.crankKeypair = crankKeypair;
     this.config = config;
     this.mxeProgramId = new PublicKey(config.programs.arciumMxe);
+    this.dexProgramId = new PublicKey(config.programs.confidexDex);
     this.mxeConfigPda = this.deriveMxeConfigPda();
     this.mxeAuthorityPda = this.deriveMxeAuthorityPda();
+    this.exchangePda = this.deriveExchangePda();
   }
 
   /**
-   * Derive MXE Config PDA
+   * Get MXE Account address using Arcium SDK
    *
-   * Our custom MXE uses seeds: [b"mxe_config"]
-   * Derived under the MXE program ID (CB7P5...)
+   * The MXE account is derived by Arcium using the MXE program ID.
+   * This is where the x25519 key and cluster info are stored.
    */
   private deriveMxeConfigPda(): PublicKey {
-    const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('mxe_config')],
-      this.mxeProgramId
-    );
-    return pda;
+    // Use Arcium SDK to get the correct MXE account address
+    return getMXEAccAddress(this.mxeProgramId);
   }
 
   /**
@@ -140,6 +201,20 @@ export class MpcPoller {
     const [pda] = PublicKey.findProgramAddressSync(
       [Buffer.from('computation'), indexBuf],
       this.mxeProgramId
+    );
+    return pda;
+  }
+
+  /**
+   * Derive Exchange State PDA
+   *
+   * Seeds: [b"exchange"]
+   * The global exchange state account for DEX configuration
+   */
+  private deriveExchangePda(): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from('exchange')],
+      this.dexProgramId
     );
     return pda;
   }
@@ -634,5 +709,371 @@ export class MpcPoller {
       log.error({ error: errMsg }, 'Failed to skip pending computations');
       return 0;
     }
+  }
+
+  // ============================================================================
+  // EVENT-DRIVEN MODE (Phase 3: Subscribe to MXE events)
+  // ============================================================================
+
+  /**
+   * Start event subscription mode
+   *
+   * Subscribes to MXE program logs to receive computation result events.
+   * When events are received, calls DEX's update_orders_from_result instruction.
+   */
+  startEventSubscription(): void {
+    if (this.isSubscribed) {
+      log.debug('Already subscribed to MXE events');
+      return;
+    }
+
+    this.isSubscribed = true;
+    log.info('Starting MXE event subscription');
+
+    // Subscribe to MXE program logs
+    this.subscriptionId = this.connection.onLogs(
+      this.mxeProgramId,
+      (logs: Logs, ctx: Context) => this.handleMxeLogs(logs, ctx),
+      'confirmed'
+    );
+
+    log.info({ subscriptionId: this.subscriptionId }, 'Subscribed to MXE logs');
+  }
+
+  /**
+   * Stop event subscription
+   */
+  async stopEventSubscription(): Promise<void> {
+    if (!this.isSubscribed || this.subscriptionId === null) {
+      return;
+    }
+
+    try {
+      await this.connection.removeOnLogsListener(this.subscriptionId);
+      log.info({ subscriptionId: this.subscriptionId }, 'Unsubscribed from MXE logs');
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn({ error: errMsg }, 'Error unsubscribing from MXE logs');
+    }
+
+    this.isSubscribed = false;
+    this.subscriptionId = null;
+  }
+
+  /**
+   * Handle MXE log messages
+   *
+   * Parses logs to detect PriceCompareResult and FillCalculationResult events
+   */
+  private async handleMxeLogs(logs: Logs, _ctx: Context): Promise<void> {
+    const signature = logs.signature;
+    const eventKey = `${signature}`;
+
+    // Skip if we've already processed this transaction
+    if (this.processedEvents.has(eventKey)) {
+      return;
+    }
+
+    // Look for event data in logs
+    // Anchor events are emitted as base64-encoded data in Program log messages
+    for (const logLine of logs.logs) {
+      if (logLine.startsWith('Program data: ')) {
+        try {
+          const base64Data = logLine.substring('Program data: '.length);
+          const eventData = Buffer.from(base64Data, 'base64');
+
+          // Check event discriminator
+          const discriminator = eventData.slice(0, 8);
+
+          if (discriminator.equals(MXE_EVENT_DISCRIMINATORS.PRICE_COMPARE_RESULT)) {
+            await this.handlePriceCompareResult(eventData, signature);
+            this.processedEvents.add(eventKey);
+          } else if (discriminator.equals(MXE_EVENT_DISCRIMINATORS.FILL_CALCULATION_RESULT)) {
+            await this.handleFillCalculationResult(eventData, signature);
+            this.processedEvents.add(eventKey);
+          }
+        } catch (err) {
+          // Not a valid event, skip
+          continue;
+        }
+      }
+    }
+
+    // Cleanup old processed events (keep last 1000)
+    if (this.processedEvents.size > 1000) {
+      const toDelete = Array.from(this.processedEvents).slice(0, 500);
+      toDelete.forEach(k => this.processedEvents.delete(k));
+    }
+  }
+
+  /**
+   * Parse PriceCompareResult event data
+   */
+  private parsePriceCompareResultEvent(data: Buffer): PriceCompareResultEvent {
+    let offset = 8; // Skip discriminator
+
+    const computationOffset = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const pricesMatch = data[offset] === 1;
+    offset += 1;
+
+    const requestId = new Uint8Array(data.slice(offset, offset + 32));
+    offset += 32;
+
+    const buyOrder = new PublicKey(data.slice(offset, offset + 32));
+    offset += 32;
+
+    const sellOrder = new PublicKey(data.slice(offset, offset + 32));
+    offset += 32;
+
+    const nonce = data.readBigUInt64LE(offset);
+    offset += 16; // u128 but we only read first 8 bytes
+
+    return {
+      computationOffset,
+      pricesMatch,
+      requestId,
+      buyOrder,
+      sellOrder,
+      nonce,
+    };
+  }
+
+  /**
+   * Parse FillCalculationResult event data
+   */
+  private parseFillCalculationResultEvent(data: Buffer): FillCalculationResultEvent {
+    let offset = 8; // Skip discriminator
+
+    const computationOffset = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const encryptedFillAmount = new Uint8Array(data.slice(offset, offset + 64));
+    offset += 64;
+
+    const buyFullyFilled = data[offset] === 1;
+    offset += 1;
+
+    const sellFullyFilled = data[offset] === 1;
+    offset += 1;
+
+    const requestId = new Uint8Array(data.slice(offset, offset + 32));
+    offset += 32;
+
+    const buyOrder = new PublicKey(data.slice(offset, offset + 32));
+    offset += 32;
+
+    const sellOrder = new PublicKey(data.slice(offset, offset + 32));
+
+    return {
+      computationOffset,
+      encryptedFillAmount,
+      buyFullyFilled,
+      sellFullyFilled,
+      requestId,
+      buyOrder,
+      sellOrder,
+    };
+  }
+
+  /**
+   * Handle PriceCompareResult event from MXE
+   *
+   * Calls DEX's update_orders_from_result instruction
+   */
+  private async handlePriceCompareResult(eventData: Buffer, signature: string): Promise<void> {
+    const event = this.parsePriceCompareResultEvent(eventData);
+
+    log.info({
+      sig: signature.slice(0, 12),
+      pricesMatch: event.pricesMatch,
+      buyOrder: event.buyOrder.toBase58().slice(0, 8),
+      sellOrder: event.sellOrder.toBase58().slice(0, 8),
+    }, 'Received PriceCompareResult event');
+
+    // Call DEX update_orders_from_result
+    await this.callUpdateOrdersFromResult(
+      event.requestId,
+      event.buyOrder,
+      event.sellOrder,
+      event.pricesMatch,
+      null, // No fill amount for price comparison
+      event.pricesMatch, // If prices match, assume full fill for now
+      event.pricesMatch
+    );
+  }
+
+  /**
+   * Handle FillCalculationResult event from MXE
+   *
+   * Calls DEX's update_orders_from_result instruction with fill data
+   */
+  private async handleFillCalculationResult(eventData: Buffer, signature: string): Promise<void> {
+    const event = this.parseFillCalculationResultEvent(eventData);
+
+    log.info({
+      sig: signature.slice(0, 12),
+      buyFullyFilled: event.buyFullyFilled,
+      sellFullyFilled: event.sellFullyFilled,
+      buyOrder: event.buyOrder.toBase58().slice(0, 8),
+      sellOrder: event.sellOrder.toBase58().slice(0, 8),
+    }, 'Received FillCalculationResult event');
+
+    // Call DEX update_orders_from_result with fill data
+    await this.callUpdateOrdersFromResult(
+      event.requestId,
+      event.buyOrder,
+      event.sellOrder,
+      true, // Prices must have matched to get fill result
+      event.encryptedFillAmount,
+      event.buyFullyFilled,
+      event.sellFullyFilled
+    );
+  }
+
+  /**
+   * Call DEX's update_orders_from_result instruction
+   *
+   * This is the event-driven callback that updates order state after MPC completes
+   */
+  private async callUpdateOrdersFromResult(
+    requestId: Uint8Array,
+    buyOrder: PublicKey,
+    sellOrder: PublicKey,
+    pricesMatch: boolean,
+    encryptedFill: Uint8Array | null,
+    buyFullyFilled: boolean,
+    sellFullyFilled: boolean
+  ): Promise<void> {
+    // Build instruction data for UpdateOrdersFromResultParams
+    // Layout: discriminator(8) + request_id(32) + prices_match(1) + Option<encrypted_fill>(1 + 64?) + buy_fully_filled(1) + sell_fully_filled(1)
+    const hasEncryptedFill = encryptedFill !== null;
+    const dataLen = 8 + 32 + 1 + 1 + (hasEncryptedFill ? 64 : 0) + 1 + 1;
+    const data = Buffer.alloc(dataLen);
+    let offset = 0;
+
+    // Discriminator
+    Buffer.from(UPDATE_ORDERS_FROM_RESULT_DISCRIMINATOR).copy(data, offset);
+    offset += 8;
+
+    // Request ID (32 bytes)
+    Buffer.from(requestId).copy(data, offset);
+    offset += 32;
+
+    // prices_match (bool)
+    data.writeUInt8(pricesMatch ? 1 : 0, offset);
+    offset += 1;
+
+    // Option<encrypted_fill> - 1 byte for Some/None, then 64 bytes if Some
+    if (hasEncryptedFill) {
+      data.writeUInt8(1, offset); // Some
+      offset += 1;
+      Buffer.from(encryptedFill).copy(data, offset);
+      offset += 64;
+    } else {
+      data.writeUInt8(0, offset); // None
+      offset += 1;
+    }
+
+    // buy_fully_filled (bool)
+    data.writeUInt8(buyFullyFilled ? 1 : 0, offset);
+    offset += 1;
+
+    // sell_fully_filled (bool)
+    data.writeUInt8(sellFullyFilled ? 1 : 0, offset);
+
+    const instruction = new TransactionInstruction({
+      keys: [
+        { pubkey: this.crankKeypair.publicKey, isSigner: true, isWritable: true }, // crank
+        { pubkey: buyOrder, isSigner: false, isWritable: true }, // buy_order
+        { pubkey: sellOrder, isSigner: false, isWritable: true }, // sell_order
+        { pubkey: this.exchangePda, isSigner: false, isWritable: false }, // exchange
+      ],
+      programId: this.dexProgramId,
+      data,
+    });
+
+    const requestIdHex = Buffer.from(requestId.slice(0, 8)).toString('hex');
+    log.debug({
+      requestId: requestIdHex,
+      buyOrder: buyOrder.toBase58().slice(0, 8),
+      sellOrder: sellOrder.toBase58().slice(0, 8),
+    }, 'Calling update_orders_from_result');
+
+    // Use withRetry for the update call
+    const retryResult = await withRetry(
+      async () => {
+        const transaction = new Transaction().add(instruction);
+        const { blockhash } = await this.connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = this.crankKeypair.publicKey;
+
+        const sig = await withTimeout(
+          sendAndConfirmTransaction(
+            this.connection,
+            transaction,
+            [this.crankKeypair],
+            { commitment: 'confirmed' }
+          ),
+          {
+            timeoutMs: DEFAULT_TIMEOUTS.MPC_CALLBACK,
+            operation: 'update_orders_from_result',
+          }
+        );
+
+        return sig;
+      },
+      {
+        maxAttempts: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 5000,
+        maxTimeMs: 30_000,
+        jitterFactor: 0.1,
+        isRetryable: (error) => {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          // Don't retry if orders are no longer matching
+          if (errorMessage.includes('OrderNotMatching')) {
+            return false;
+          }
+          return isRetryable(error);
+        },
+        onRetry: (error, attempt, delayMs) => {
+          const classified = classifyError(error);
+          log.warn({
+            attempt,
+            delayMs,
+            errorType: classified.name,
+          }, 'update_orders_from_result retry');
+        },
+      }
+    );
+
+    if (retryResult.success) {
+      log.info({
+        signature: retryResult.value?.slice(0, 12),
+        pricesMatch,
+        buyFullyFilled,
+        sellFullyFilled,
+      }, '✓ update_orders_from_result sent');
+    } else {
+      const classified = classifyError(retryResult.error);
+      log.error({
+        attempts: retryResult.attempts,
+        timeMs: retryResult.totalTimeMs,
+        errorType: classified.name,
+        errorMsg: classified.message.slice(0, 60),
+      }, '✗ update_orders_from_result failed');
+    }
+  }
+
+  /**
+   * Get subscription status
+   */
+  getSubscriptionStatus(): { isSubscribed: boolean; processedEventsCount: number } {
+    return {
+      isSubscribed: this.isSubscribed,
+      processedEventsCount: this.processedEvents.size,
+    };
   }
 }

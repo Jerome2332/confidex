@@ -2,24 +2,31 @@ use anchor_lang::prelude::*;
 
 use crate::cpi::arcium::{
     queue_batch_liquidation_check, BatchLiquidationPositionData, MxeCpiAccounts,
+    ARCIUM_MXE_PROGRAM_ID, ARCIUM_PROGRAM_ID,
 };
 use crate::error::ConfidexError;
 use crate::oracle::get_sol_usd_price_for_liquidation;
 use crate::state::{
-    ConfidentialPosition, LiquidationBatchRequest, PerpetualMarket, PositionSide,
+    ConfidentialPosition, LiquidationBatchRequest, PerpetualMarket,
 };
 
 /// Maximum positions per batch check
 pub const MAX_BATCH_SIZE: usize = 10;
 
+/// Uses Box<Account<>> for large account types to reduce stack usage.
+/// MXE accounts are passed via remaining_accounts to keep stack under 4KB.
+///
+/// remaining_accounts layout:
+///   0..position_count: Position accounts to check
+///   position_count..position_count+11: MXE accounts (same order as MatchOrders)
 #[derive(Accounts)]
-#[instruction(position_keys: Vec<Pubkey>)]
+#[instruction(params: CheckLiquidationBatchParams)]
 pub struct CheckLiquidationBatch<'info> {
     #[account(
         seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
         bump = perp_market.bump,
     )]
-    pub perp_market: Account<'info, PerpetualMarket>,
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
 
     /// CHECK: Pyth oracle for current mark price
     #[account(
@@ -34,23 +41,28 @@ pub struct CheckLiquidationBatch<'info> {
         seeds = [LiquidationBatchRequest::SEED, &Clock::get()?.slot.to_le_bytes()],
         bump
     )]
-    pub batch_request: Account<'info, LiquidationBatchRequest>,
-
-    /// CHECK: MXE config account for Arcium
-    #[account(mut)]
-    pub mxe_config: AccountInfo<'info>,
-
-    /// CHECK: MPC request account (will be created by MXE)
-    #[account(mut)]
-    pub mpc_request: AccountInfo<'info>,
-
-    /// CHECK: Arcium program for MPC
-    pub arcium_program: AccountInfo<'info>,
+    pub batch_request: Box<Account<'info, LiquidationBatchRequest>>,
 
     #[account(mut)]
     pub requester: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+
+    // =========================================================================
+    // ARCIUM MXE ACCOUNTS (11 accounts via remaining_accounts to reduce stack)
+    // Order in remaining_accounts[position_count..position_count+11]:
+    //   0: sign_pda_account (mut)
+    //   1: mxe_account (mut)
+    //   2: mempool_account (mut)
+    //   3: executing_pool (mut)
+    //   4: computation_account (mut)
+    //   5: comp_def_account
+    //   6: cluster_account (mut)
+    //   7: pool_account (mut)
+    //   8: clock_account (mut)
+    //   9: arcium_program
+    //  10: mxe_program
+    // =========================================================================
 }
 
 /// Parameters for batch liquidation check
@@ -58,6 +70,12 @@ pub struct CheckLiquidationBatch<'info> {
 pub struct CheckLiquidationBatchParams {
     /// Position pubkeys to check (up to MAX_BATCH_SIZE)
     pub position_keys: Vec<Pubkey>,
+    /// Random seed for computation account derivation
+    pub computation_offset: u64,
+    /// X25519 public key for output encryption
+    pub pub_key: [u8; 32],
+    /// Encryption nonce
+    pub nonce: u128,
 }
 
 pub fn handler<'info>(
@@ -76,15 +94,17 @@ pub fn handler<'info>(
     // Enforces: price < 60s old on mainnet, confidence < 1%
     let mark_price = get_sol_usd_price_for_liquidation(&ctx.accounts.oracle)?;
 
-    // Collect position data for MPC batch check
-    // Remaining accounts should contain the position accounts in order
+    // Remaining accounts layout:
+    // [0..position_count]: Position accounts to check
+    // [position_count..position_count+11]: MXE accounts
     let remaining_accounts = &ctx.remaining_accounts;
+    let position_count = params.position_keys.len();
     require!(
-        remaining_accounts.len() >= params.position_keys.len(),
-        ConfidexError::InvalidAmount
+        remaining_accounts.len() >= position_count + 11,
+        ConfidexError::InvalidAccountCount
     );
 
-    let mut position_data: Vec<BatchLiquidationPositionData> = Vec::with_capacity(params.position_keys.len());
+    let mut position_data: Vec<BatchLiquidationPositionData> = Vec::with_capacity(position_count);
     let mut positions_array = [[0u8; 32]; 10];
 
     for (i, position_key) in params.position_keys.iter().enumerate() {
@@ -142,41 +162,53 @@ pub fn handler<'info>(
     let batch_request = &mut ctx.accounts.batch_request;
     batch_request.market = ctx.accounts.perp_market.key();
     batch_request.mark_price = mark_price;
-    batch_request.position_count = params.position_keys.len() as u8;
+    batch_request.position_count = position_count as u8;
     batch_request.positions = positions_array;
     batch_request.results = [false; 10];
     batch_request.completed = false;
     batch_request.created_at = clock.unix_timestamp;
     batch_request.bump = ctx.bumps.batch_request;
 
-    // Queue MPC batch liquidation check
+    // Extract MXE accounts from remaining_accounts (after position accounts)
+    // Store AccountInfo in local variables to avoid lifetime issues
+    let mxe_start = position_count;
+    let payer_info = ctx.accounts.requester.to_account_info();
+    let system_program_info = ctx.accounts.system_program.to_account_info();
+
     let mxe_accounts = MxeCpiAccounts {
-        mxe_config: &ctx.accounts.mxe_config,
-        request_account: &ctx.accounts.mpc_request,
-        requester: &ctx.accounts.requester.to_account_info(),
-        system_program: &ctx.accounts.system_program.to_account_info(),
-        mxe_program: &ctx.accounts.arcium_program,
+        payer: &payer_info,
+        sign_pda_account: &remaining_accounts[mxe_start],
+        mxe_account: &remaining_accounts[mxe_start + 1],
+        mempool_account: &remaining_accounts[mxe_start + 2],
+        executing_pool: &remaining_accounts[mxe_start + 3],
+        computation_account: &remaining_accounts[mxe_start + 4],
+        comp_def_account: &remaining_accounts[mxe_start + 5],
+        cluster_account: &remaining_accounts[mxe_start + 6],
+        pool_account: &remaining_accounts[mxe_start + 7],
+        clock_account: &remaining_accounts[mxe_start + 8],
+        system_program: &system_program_info,
+        arcium_program: &remaining_accounts[mxe_start + 9],
+        mxe_program: &remaining_accounts[mxe_start + 10],
     };
 
-    // Callback will update batch_request with results
-    let callback_discriminator = [0xcb, 0xba, 0x7c, 0x1d, 0x2e, 0x3f, 0x40, 0x51]; // liquidation_batch_callback
-
+    // Queue MPC batch liquidation check
     let computation = queue_batch_liquidation_check(
         mxe_accounts,
+        params.computation_offset,
         &position_data,
         mark_price,
-        &crate::ID, // Callback to this program
-        callback_discriminator,
-        &batch_request.key(),
+        &params.pub_key,
+        params.nonce,
     )?;
 
     // Store request ID
     batch_request.request_id = computation.request_id;
 
     msg!(
-        "Queued batch liquidation check for {} positions at mark price {}",
-        params.position_keys.len(),
-        mark_price
+        "Queued batch liquidation check for {} positions at mark price {}, computation_offset={}",
+        position_count,
+        mark_price,
+        params.computation_offset
     );
 
     Ok(())

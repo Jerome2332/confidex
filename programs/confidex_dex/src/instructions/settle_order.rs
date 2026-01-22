@@ -2,6 +2,8 @@ use anchor_lang::prelude::*;
 
 use crate::error::ConfidexError;
 use crate::state::{ConfidentialOrder, ExchangeState, Side, TradingPair, UserConfidentialBalance};
+use crate::settlement::types::SettlementMethod;
+use crate::settlement::shadowwire::SHADOWWIRE_FEE_BPS;
 
 /// Accounts for settling matched orders
 ///
@@ -13,6 +15,8 @@ use crate::state::{ConfidentialOrder, ExchangeState, Side, TradingPair, UserConf
 /// 2. Orders can be Active (partial fill) or Inactive (full fill)
 /// 3. Transfer tokens from seller's balance to buyer's balance
 /// 4. Emit settlement event
+///
+/// Uses Box<Account<>> for large account types to reduce stack usage.
 #[derive(Accounts)]
 pub struct SettleOrder<'info> {
     /// Trading pair account (for accessing vaults and mints)
@@ -24,7 +28,7 @@ pub struct SettleOrder<'info> {
         ],
         bump = pair.bump
     )]
-    pub pair: Account<'info, TradingPair>,
+    pub pair: Box<Account<'info, TradingPair>>,
 
     /// Buy order - must have non-zero encrypted_filled (checked in handler)
     /// Note: Order may still be Active if partially filled
@@ -33,7 +37,7 @@ pub struct SettleOrder<'info> {
         constraint = buy_order.pair == pair.key() @ ConfidexError::InvalidOrder,
         constraint = buy_order.side == Side::Buy @ ConfidexError::InvalidOrderSide,
     )]
-    pub buy_order: Account<'info, ConfidentialOrder>,
+    pub buy_order: Box<Account<'info, ConfidentialOrder>>,
 
     /// Sell order - must have non-zero encrypted_filled (checked in handler)
     /// Note: Order may still be Active if partially filled
@@ -42,7 +46,7 @@ pub struct SettleOrder<'info> {
         constraint = sell_order.pair == pair.key() @ ConfidexError::InvalidOrder,
         constraint = sell_order.side == Side::Sell @ ConfidexError::InvalidOrderSide,
     )]
-    pub sell_order: Account<'info, ConfidentialOrder>,
+    pub sell_order: Box<Account<'info, ConfidentialOrder>>,
 
     /// Buyer's base token (SOL) balance - will receive tokens
     #[account(
@@ -54,7 +58,7 @@ pub struct SettleOrder<'info> {
         ],
         bump = buyer_base_balance.bump,
     )]
-    pub buyer_base_balance: Account<'info, UserConfidentialBalance>,
+    pub buyer_base_balance: Box<Account<'info, UserConfidentialBalance>>,
 
     /// Buyer's quote token (USDC) balance - will have tokens deducted
     #[account(
@@ -66,7 +70,7 @@ pub struct SettleOrder<'info> {
         ],
         bump = buyer_quote_balance.bump,
     )]
-    pub buyer_quote_balance: Account<'info, UserConfidentialBalance>,
+    pub buyer_quote_balance: Box<Account<'info, UserConfidentialBalance>>,
 
     /// Seller's base token (SOL) balance - will have tokens deducted
     #[account(
@@ -78,7 +82,7 @@ pub struct SettleOrder<'info> {
         ],
         bump = seller_base_balance.bump,
     )]
-    pub seller_base_balance: Account<'info, UserConfidentialBalance>,
+    pub seller_base_balance: Box<Account<'info, UserConfidentialBalance>>,
 
     /// Seller's quote token (USDC) balance - will receive tokens
     #[account(
@@ -90,14 +94,14 @@ pub struct SettleOrder<'info> {
         ],
         bump = seller_quote_balance.bump,
     )]
-    pub seller_quote_balance: Account<'info, UserConfidentialBalance>,
+    pub seller_quote_balance: Box<Account<'info, UserConfidentialBalance>>,
 
     /// Exchange state (for fee_recipient pubkey and fee_bps)
     #[account(
         seeds = [ExchangeState::SEED],
         bump = exchange.bump,
     )]
-    pub exchange: Account<'info, ExchangeState>,
+    pub exchange: Box<Account<'info, ExchangeState>>,
 
     /// Fee recipient's quote token (USDC) balance - receives taker fees
     /// Uses init_if_needed in case fee_recipient hasn't traded before
@@ -112,7 +116,7 @@ pub struct SettleOrder<'info> {
         ],
         bump,
     )]
-    pub fee_recipient_balance: Account<'info, UserConfidentialBalance>,
+    pub fee_recipient_balance: Box<Account<'info, UserConfidentialBalance>>,
 
     /// Crank operator (anyone can settle matched orders)
     #[account(mut)]
@@ -120,6 +124,27 @@ pub struct SettleOrder<'info> {
 
     /// System program (required for init_if_needed)
     pub system_program: Program<'info, System>,
+}
+
+/// Parameters for settlement instruction
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct SettleOrderParams {
+    /// Settlement method selection
+    /// 0 = ShadowWire (1% fee, full privacy)
+    /// 1 = C-SPL (0% fee, Arcium MPC) - disabled until SDK available
+    /// 2 = StandardSPL (fallback, no privacy)
+    pub settlement_method: u8,
+}
+
+impl SettleOrderParams {
+    /// Convert numeric method to enum
+    pub fn method(&self) -> SettlementMethod {
+        match self.settlement_method {
+            0 => SettlementMethod::ShadowWire,
+            1 => SettlementMethod::CSPL,
+            _ => SettlementMethod::StandardSPL,
+        }
+    }
 }
 
 /// Settle matched orders by transferring tokens between users
@@ -130,9 +155,14 @@ pub struct SettleOrder<'info> {
 /// - Seller's base balance: -fill_amount
 /// - Seller's quote balance: +fill_value
 ///
+/// Settlement Methods:
+/// - ShadowWire (0): Bulletproof ZK privacy, 1% relayer fee
+/// - C-SPL (1): Arcium MPC confidential tokens, 0% fee (disabled until SDK)
+/// - StandardSPL (2): Fallback with no privacy
+///
 /// HACKATHON VERSION: Uses plaintext helpers from first 8 bytes of encrypted fields.
 /// When C-SPL SDK is available, replace with proper confidential_transfer CPI.
-pub fn handler(ctx: Context<SettleOrder>) -> Result<()> {
+pub fn handler(ctx: Context<SettleOrder>, params: SettleOrderParams) -> Result<()> {
     let buy_order = &ctx.accounts.buy_order;
     let sell_order = &ctx.accounts.sell_order;
     let buyer_base_balance = &mut ctx.accounts.buyer_base_balance;
@@ -198,8 +228,43 @@ pub fn handler(ctx: Context<SettleOrder>) -> Result<()> {
         .ok_or(ConfidexError::ArithmeticOverflow)? as u64;
 
     // ==========================================================================
+    // SETTLEMENT METHOD SELECTION
+    // User can choose: ShadowWire (private, 1% fee) or C-SPL (private, 0% fee)
+    // ==========================================================================
+    let settlement_method = params.method();
+
+    // Calculate settlement-specific fees
+    let settlement_fee = match settlement_method {
+        SettlementMethod::ShadowWire => {
+            // ShadowWire charges 1% relayer fee
+            fill_value
+                .checked_mul(SHADOWWIRE_FEE_BPS as u64)
+                .ok_or(ConfidexError::ArithmeticOverflow)?
+                .checked_div(10_000)
+                .ok_or(ConfidexError::ArithmeticOverflow)?
+        }
+        SettlementMethod::CSPL => {
+            // C-SPL has no additional fees (just taker fee)
+            // Note: C-SPL is currently disabled - SDK not available
+            msg!("Warning: C-SPL selected but SDK not available, using ShadowWire");
+            fill_value
+                .checked_mul(SHADOWWIRE_FEE_BPS as u64)
+                .ok_or(ConfidexError::ArithmeticOverflow)?
+                .checked_div(10_000)
+                .ok_or(ConfidexError::ArithmeticOverflow)?
+        }
+        SettlementMethod::StandardSPL => {
+            // No settlement fee for standard SPL (but no privacy)
+            0
+        }
+    };
+
+    msg!("Settlement method: {:?}, settlement_fee: {}", settlement_method, settlement_fee);
+
+    // ==========================================================================
     // CALCULATE TAKER FEE
     // Fee is deducted from quote tokens (USDC) paid by buyer
+    // Total deduction = taker_fee + settlement_fee
     // ==========================================================================
     let taker_fee = fill_value
         .checked_mul(exchange.taker_fee_bps as u64)
@@ -207,12 +272,15 @@ pub fn handler(ctx: Context<SettleOrder>) -> Result<()> {
         .checked_div(10_000)
         .ok_or(ConfidexError::ArithmeticOverflow)?;
 
+    // Net to seller = fill_value - taker_fee - settlement_fee
     let net_to_seller = fill_value
         .checked_sub(taker_fee)
+        .ok_or(ConfidexError::ArithmeticOverflow)?
+        .checked_sub(settlement_fee)
         .ok_or(ConfidexError::ArithmeticOverflow)?;
 
-    msg!("Settlement: fill_amount={} base, fill_value={} quote, price={}, taker_fee={}",
-         fill_amount, fill_value, price, taker_fee);
+    msg!("Settlement: fill_amount={} base, fill_value={} quote, price={}, taker_fee={}, settlement_fee={}",
+         fill_amount, fill_value, price, taker_fee, settlement_fee);
 
     // ==========================================================================
     // TRANSFER BASE TOKEN (SOL): Seller → Buyer
@@ -272,10 +340,12 @@ pub fn handler(ctx: Context<SettleOrder>) -> Result<()> {
         seller: sell_order.maker,
         pair: ctx.accounts.pair.key(),
         timestamp: coarse_time,
+        settlement_method: params.settlement_method,
         // HACKATHON ONLY - remove these fields in production
         fill_amount,
         fill_value,
         taker_fee,
+        settlement_fee,
     });
 
     msg!(
@@ -289,7 +359,7 @@ pub fn handler(ctx: Context<SettleOrder>) -> Result<()> {
 
 /// Settlement event
 /// HACKATHON: Includes amounts for debugging/demo
-/// PRODUCTION: Remove fill_amount, fill_value, and taker_fee fields
+/// PRODUCTION: Remove fill_amount, fill_value, taker_fee, and settlement_fee fields
 #[event]
 pub struct OrderSettled {
     /// Hash-based order ID
@@ -302,10 +372,14 @@ pub struct OrderSettled {
     pub pair: Pubkey,
     /// Coarse timestamp (hour precision for privacy)
     pub timestamp: i64,
+    /// Settlement method used (0=ShadowWire, 1=C-SPL, 2=StandardSPL)
+    pub settlement_method: u8,
     /// HACKATHON ONLY: Fill amount in base token units (remove in production)
     pub fill_amount: u64,
     /// HACKATHON ONLY: Fill value in quote token units (remove in production)
     pub fill_value: u64,
     /// HACKATHON ONLY: Taker fee in quote token units (remove in production)
     pub taker_fee: u64,
+    /// HACKATHON ONLY: Settlement layer fee (ShadowWire 1%, C-SPL 0%)
+    pub settlement_fee: u64,
 }

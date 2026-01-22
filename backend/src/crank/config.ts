@@ -101,17 +101,15 @@ export function loadCrankConfig(): CrankConfig {
 
     programs: {
       confidexDex: process.env.CONFIDEX_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-      // DEPRECATED: Legacy custom MXE - use mpc.fullMxeProgramId instead for production
-      // This was used during development when CPI format differed from Arcium SDK.
-      // For production MPC, use the fullMxeProgramId (DoT4u...) deployed via `arcium deploy`.
-      arciumMxe: process.env.MXE_PROGRAM_ID || 'CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE',
+      // Production MXE deployed via `arcium deploy` with keygen complete
+      arciumMxe: process.env.MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
     },
 
     mpc: {
       // Default to true for production - disable explicitly with CRANK_USE_REAL_MPC=false
       useRealMpc: process.env.CRANK_USE_REAL_MPC !== 'false',
       // Full Arcium MXE deployed via `arcium deploy`
-      fullMxeProgramId: process.env.FULL_MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM',
+      fullMxeProgramId: process.env.FULL_MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
       // Devnet cluster offset (456 for v0.6.3, 789 for backup)
       clusterOffset: parseInt(process.env.ARCIUM_CLUSTER_OFFSET || '456', 10),
       // MPC timeout (2 minutes default)

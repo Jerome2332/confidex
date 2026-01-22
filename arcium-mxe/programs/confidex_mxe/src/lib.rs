@@ -9,7 +9,10 @@
 //! 2. DEX program CPIs to this MXE to queue computations
 //! 3. MXE queues computation with Arcium network
 //! 4. Arcium Arx nodes execute via Cerberus MPC
-//! 5. Results come back via callback to DEX
+//! 5. MXE callback receives result, calls verify_output(), then CPIs to DEX
+//!
+//! IMPORTANT: All MPC results are verified via output.verify_output() before
+//! being passed to the DEX. This is a CRITICAL security requirement per Arcium docs.
 //!
 //! Circuits defined in ../encrypted-ixs/src/lib.rs
 //!
@@ -17,14 +20,32 @@
 //! Arx nodes fetch circuits from CIRCUIT_BASE_URL and verify via circuit_hash! macro.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::instruction::{AccountMeta, Instruction};
+use anchor_lang::solana_program::program::invoke_signed;
 use arcium_anchor::prelude::*;
-use arcium_client::idl::arcium::types::{CircuitSource, OffChainCircuitSource};
+use arcium_client::idl::arcium::types::{CallbackAccount, CircuitSource, OffChainCircuitSource};
 use arcium_macros::circuit_hash;
 
 /// Base URL for offchain circuit storage (GitHub Releases)
 ///
 /// Arx nodes will fetch {CIRCUIT_BASE_URL}/{circuit_name}.arcis and verify against circuit_hash!
 const CIRCUIT_BASE_URL: &str = "https://github.com/Jerome2332/confidex/releases/download/v0.1.0-circuits";
+
+/// DEX Program ID (must match confidex_dex program)
+/// Base58: 63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
+const DEX_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
+    0x4a, 0x8a, 0x1a, 0xbb, 0x67, 0x97, 0x4c, 0xef,
+    0x2b, 0x5a, 0x8c, 0xe2, 0x2a, 0x0f, 0x41, 0xa3,
+    0xb4, 0xfd, 0xf5, 0xf0, 0x25, 0x7d, 0xd0, 0xf7,
+    0x5b, 0x44, 0x7e, 0x3c, 0x03, 0x57, 0x55, 0x7d,
+]);
+
+/// MXE authority PDA seed (for signing CPIs to DEX)
+const MXE_AUTHORITY_SEED: &[u8] = b"mxe_authority";
+
+/// DEX finalize_match instruction discriminator
+/// sha256("global:finalize_match")[0..8]
+const DEX_FINALIZE_MATCH_DISCRIMINATOR: [u8; 8] = [0xb6, 0x50, 0x2c, 0xc7, 0x3c, 0xf3, 0x94, 0x31];
 
 // Computation definition offsets (generated from circuit names)
 const COMP_DEF_OFFSET_COMPARE_PRICES: u32 = comp_def_offset("compare_prices");
@@ -38,7 +59,7 @@ const COMP_DEF_OFFSET_ADD_ENCRYPTED: u32 = comp_def_offset("add_encrypted");
 const COMP_DEF_OFFSET_SUB_ENCRYPTED: u32 = comp_def_offset("sub_encrypted");
 const COMP_DEF_OFFSET_MUL_ENCRYPTED: u32 = comp_def_offset("mul_encrypted");
 
-declare_id!("DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM");
+declare_id!("HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS");
 
 #[arcium_program]
 pub mod confidex_mxe {
@@ -184,7 +205,8 @@ pub mod confidex_mxe {
 
     /// Queue a price comparison for order matching
     ///
-    /// Compares buy_price >= sell_price and returns result via callback
+    /// Compares buy_price >= sell_price and returns result via callback.
+    /// If buy_order and sell_order are provided, the callback will CPI to DEX.
     pub fn compare_prices(
         ctx: Context<ComparePrices>,
         computation_offset: u64,
@@ -192,6 +214,9 @@ pub mod confidex_mxe {
         sell_price_ciphertext: [u8; 32],
         pub_key: [u8; 32],
         nonce: u128,
+        // Optional: DEX order pubkeys for CPI callback
+        buy_order: Option<Pubkey>,
+        sell_order: Option<Pubkey>,
     ) -> Result<()> {
         let args = ArgBuilder::new()
             .x25519_pubkey(pub_key)
@@ -202,6 +227,30 @@ pub mod confidex_mxe {
 
         ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
 
+        // Build callback accounts - include DEX order accounts if provided
+        let mut callback_accounts = Vec::new();
+
+        // If order pubkeys provided, add MXE authority PDA and order accounts for CPI
+        if let (Some(buy), Some(sell)) = (buy_order, sell_order) {
+            // MXE authority PDA for signing CPI to DEX
+            let (mxe_authority, _) = Pubkey::find_program_address(
+                &[MXE_AUTHORITY_SEED],
+                ctx.program_id,
+            );
+            callback_accounts.push(CallbackAccount {
+                pubkey: mxe_authority,
+                is_writable: false,
+            });
+            callback_accounts.push(CallbackAccount {
+                pubkey: buy,
+                is_writable: true,
+            });
+            callback_accounts.push(CallbackAccount {
+                pubkey: sell,
+                is_writable: true,
+            });
+        }
+
         queue_computation(
             ctx.accounts,
             computation_offset,
@@ -210,7 +259,7 @@ pub mod confidex_mxe {
             vec![ComparePricesCallback::callback_ix(
                 computation_offset,
                 &ctx.accounts.mxe_account,
-                &[],
+                &callback_accounts,
             )?],
             1,
             0, // No priority fee for devnet
@@ -220,11 +269,16 @@ pub mod confidex_mxe {
     }
 
     /// Callback for price comparison result
+    ///
+    /// SECURITY: This callback performs cryptographic verification via verify_output()
+    /// before CPI-ing to DEX. This ensures MPC results are authentic.
     #[arcium_callback(encrypted_ix = "compare_prices")]
     pub fn compare_prices_callback(
         ctx: Context<ComparePricesCallback>,
         output: SignedComputationOutputs<ComparePricesOutput>,
     ) -> Result<()> {
+        // CRITICAL: Verify MPC output cryptographically
+        // This checks signatures from the MPC cluster to ensure the result is authentic
         let result = match output.verify_output(
             &ctx.accounts.cluster_account,
             &ctx.accounts.computation_account,
@@ -236,16 +290,83 @@ pub mod confidex_mxe {
             }
         };
 
+        let prices_match = result.ciphertexts[0][0] != 0; // First byte of encrypted bool
+
+        // Emit event for monitoring (backend can still subscribe)
         emit!(PriceCompareResult {
             computation_offset: ctx.accounts.computation_account.key(),
-            prices_match: result.ciphertexts[0][0] != 0, // First byte of encrypted bool
+            prices_match,
             nonce: result.nonce.to_le_bytes(),
         });
+
+        // If order accounts are provided, CPI to DEX to update orders
+        // This provides on-chain verification that the MPC result was authentic
+        if ctx.remaining_accounts.len() >= 3 {
+            // remaining_accounts[0] = MXE authority account (UncheckedAccount for PDA signing)
+            // remaining_accounts[1] = buy_order
+            // remaining_accounts[2] = sell_order
+            let mxe_authority_info = &ctx.remaining_accounts[0];
+            let buy_order = &ctx.remaining_accounts[1];
+            let sell_order = &ctx.remaining_accounts[2];
+
+            // Derive MXE authority PDA for signing
+            let (expected_mxe_authority, bump) = Pubkey::find_program_address(
+                &[MXE_AUTHORITY_SEED],
+                ctx.program_id,
+            );
+
+            // Verify the passed account matches the derived PDA
+            require!(
+                *mxe_authority_info.key == expected_mxe_authority,
+                ErrorCode::AbortedComputation
+            );
+
+            // Build request_id from computation account
+            let request_id = ctx.accounts.computation_account.key().to_bytes();
+
+            // Build result: 1 byte for prices_match
+            let result_data = vec![if prices_match { 1u8 } else { 0u8 }];
+
+            // Build CPI to DEX finalize_match
+            let mut ix_data = Vec::with_capacity(8 + 32 + 4 + result_data.len());
+            ix_data.extend_from_slice(&DEX_FINALIZE_MATCH_DISCRIMINATOR);
+            ix_data.extend_from_slice(&request_id);
+            ix_data.extend_from_slice(&(result_data.len() as u32).to_le_bytes());
+            ix_data.extend_from_slice(&result_data);
+
+            let ix = Instruction {
+                program_id: DEX_PROGRAM_ID,
+                accounts: vec![
+                    AccountMeta::new_readonly(expected_mxe_authority, true), // MXE authority (signer)
+                    AccountMeta::new(*buy_order.key, false),        // buy_order
+                    AccountMeta::new(*sell_order.key, false),       // sell_order
+                ],
+                data: ix_data,
+            };
+
+            // Sign with MXE authority PDA
+            let seeds: &[&[u8]] = &[MXE_AUTHORITY_SEED, &[bump]];
+            let signer_seeds = &[seeds];
+
+            invoke_signed(
+                &ix,
+                &[
+                    mxe_authority_info.clone(),
+                    buy_order.clone(),
+                    sell_order.clone(),
+                ],
+                signer_seeds,
+            )?;
+
+            msg!("CPI to DEX finalize_match complete: prices_match={}", prices_match);
+        }
 
         Ok(())
     }
 
     /// Queue fill amount calculation
+    ///
+    /// If buy_order and sell_order are provided, the callback will CPI to DEX.
     pub fn calculate_fill(
         ctx: Context<CalculateFill>,
         computation_offset: u64,
@@ -255,6 +376,9 @@ pub mod confidex_mxe {
         sell_price_ciphertext: [u8; 32],
         pub_key: [u8; 32],
         nonce: u128,
+        // Optional: DEX order pubkeys for CPI callback
+        buy_order: Option<Pubkey>,
+        sell_order: Option<Pubkey>,
     ) -> Result<()> {
         let args = ArgBuilder::new()
             .x25519_pubkey(pub_key)
@@ -267,6 +391,30 @@ pub mod confidex_mxe {
 
         ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
 
+        // Build callback accounts - include DEX order accounts if provided
+        let mut callback_accounts = Vec::new();
+
+        // If order pubkeys provided, add MXE authority PDA and order accounts for CPI
+        if let (Some(buy), Some(sell)) = (buy_order, sell_order) {
+            // MXE authority PDA for signing CPI to DEX
+            let (mxe_authority, _) = Pubkey::find_program_address(
+                &[MXE_AUTHORITY_SEED],
+                ctx.program_id,
+            );
+            callback_accounts.push(CallbackAccount {
+                pubkey: mxe_authority,
+                is_writable: false,
+            });
+            callback_accounts.push(CallbackAccount {
+                pubkey: buy,
+                is_writable: true,
+            });
+            callback_accounts.push(CallbackAccount {
+                pubkey: sell,
+                is_writable: true,
+            });
+        }
+
         queue_computation(
             ctx.accounts,
             computation_offset,
@@ -275,7 +423,7 @@ pub mod confidex_mxe {
             vec![CalculateFillCallback::callback_ix(
                 computation_offset,
                 &ctx.accounts.mxe_account,
-                &[],
+                &callback_accounts,
             )?],
             1,
             0,
@@ -285,11 +433,15 @@ pub mod confidex_mxe {
     }
 
     /// Callback for fill calculation result
+    ///
+    /// SECURITY: This callback performs cryptographic verification via verify_output()
+    /// before CPI-ing to DEX. This ensures MPC results are authentic.
     #[arcium_callback(encrypted_ix = "calculate_fill")]
     pub fn calculate_fill_callback(
         ctx: Context<CalculateFillCallback>,
         output: SignedComputationOutputs<CalculateFillOutput>,
     ) -> Result<()> {
+        // CRITICAL: Verify MPC output cryptographically
         let result = match output.verify_output(
             &ctx.accounts.cluster_account,
             &ctx.accounts.computation_account,
@@ -301,13 +453,81 @@ pub mod confidex_mxe {
             }
         };
 
+        let fill_amount_ciphertext = result.ciphertexts[0];
+        let buy_fully_filled = result.ciphertexts[1][0] != 0;
+        let sell_fully_filled = result.ciphertexts[2][0] != 0;
+
+        // Emit event for monitoring
         emit!(FillCalculationResult {
             computation_offset: ctx.accounts.computation_account.key(),
-            fill_amount_ciphertext: result.ciphertexts[0], // fill_amount
-            buy_fully_filled: result.ciphertexts[1][0] != 0,
-            sell_fully_filled: result.ciphertexts[2][0] != 0,
+            fill_amount_ciphertext,
+            buy_fully_filled,
+            sell_fully_filled,
             nonce: result.nonce.to_le_bytes(),
         });
+
+        // If order accounts are provided, CPI to DEX to update orders
+        if ctx.remaining_accounts.len() >= 3 {
+            // remaining_accounts[0] = MXE authority account (UncheckedAccount for PDA signing)
+            // remaining_accounts[1] = buy_order
+            // remaining_accounts[2] = sell_order
+            let mxe_authority_info = &ctx.remaining_accounts[0];
+            let buy_order = &ctx.remaining_accounts[1];
+            let sell_order = &ctx.remaining_accounts[2];
+
+            // Derive MXE authority PDA for signing
+            let (expected_mxe_authority, bump) = Pubkey::find_program_address(
+                &[MXE_AUTHORITY_SEED],
+                ctx.program_id,
+            );
+
+            // Verify the passed account matches the derived PDA
+            require!(
+                *mxe_authority_info.key == expected_mxe_authority,
+                ErrorCode::AbortedComputation
+            );
+
+            let request_id = ctx.accounts.computation_account.key().to_bytes();
+
+            // Build result: 64 bytes fill + 1 byte buy_filled + 1 byte sell_filled
+            let mut result_data = Vec::with_capacity(66);
+            result_data.extend_from_slice(&fill_amount_ciphertext);
+            result_data.push(if buy_fully_filled { 1u8 } else { 0u8 });
+            result_data.push(if sell_fully_filled { 1u8 } else { 0u8 });
+
+            // Build CPI to DEX finalize_match (or receive_fill_result)
+            let mut ix_data = Vec::with_capacity(8 + 32 + 4 + result_data.len());
+            ix_data.extend_from_slice(&DEX_FINALIZE_MATCH_DISCRIMINATOR);
+            ix_data.extend_from_slice(&request_id);
+            ix_data.extend_from_slice(&(result_data.len() as u32).to_le_bytes());
+            ix_data.extend_from_slice(&result_data);
+
+            let ix = Instruction {
+                program_id: DEX_PROGRAM_ID,
+                accounts: vec![
+                    AccountMeta::new_readonly(expected_mxe_authority, true),
+                    AccountMeta::new(*buy_order.key, false),
+                    AccountMeta::new(*sell_order.key, false),
+                ],
+                data: ix_data,
+            };
+
+            let seeds: &[&[u8]] = &[MXE_AUTHORITY_SEED, &[bump]];
+            let signer_seeds = &[seeds];
+
+            invoke_signed(
+                &ix,
+                &[
+                    mxe_authority_info.clone(),
+                    buy_order.clone(),
+                    sell_order.clone(),
+                ],
+                signer_seeds,
+            )?;
+
+            msg!("CPI to DEX finalize_match complete: buy_filled={}, sell_filled={}",
+                 buy_fully_filled, sell_fully_filled);
+        }
 
         Ok(())
     }

@@ -34,7 +34,7 @@ pub const USDT_MAINNET_MINT: Pubkey = Pubkey::new_from_array([
 ]);
 
 /// Settlement method selection
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum SettlementMethod {
     /// ShadowWire Bulletproof-based private transfers
     /// Production ready, 1% relayer fee

@@ -1,11 +1,10 @@
 'use client';
 
 import { FC, useState } from 'react';
-import { ArrowsLeftRight, GearSix, TrendUp } from '@phosphor-icons/react';
+import { GearSix } from '@phosphor-icons/react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { WalletButton } from '@/components/wallet-button';
-import { NavDropdown } from '@/components/nav-dropdown';
 import { SettingsPanel } from '@/components/settings-panel';
 import { MarketTicker } from '@/components/market-ticker';
 import { PrivacyBadge, usePrivacyLevel } from '@/components/privacy-indicator';
@@ -15,22 +14,9 @@ interface HeaderProps {
   showMarketTicker?: boolean;
 }
 
-const tradeDropdownItems = [
-  {
-    href: '/trade/perpetuals',
-    icon: TrendUp,
-    title: 'Perpetuals',
-    description: 'Trade perp markets with up to 20x leverage',
-  },
-  {
-    href: '/trade',
-    icon: ArrowsLeftRight,
-    title: 'Spot',
-    description: 'Trade assets',
-  },
-];
-
 const navLinks = [
+  { href: '/trade', label: 'Spot' },
+  { href: '/trade/perpetuals', label: 'Perpetuals' },
   { href: '/predict', label: 'Predict' },
 ];
 
@@ -56,14 +42,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
           {/* Navigation */}
           <div className="flex items-center gap-4">
             <nav className="hidden md:flex items-center gap-1">
-              {/* Trade Dropdown */}
-              <NavDropdown
-                label="Trade"
-                items={tradeDropdownItems}
-                basePath="/trade"
-              />
-
-              {/* Other Nav Links */}
+              {/* Nav Links */}
               {navLinks.map((link) => (
                 <Link
                   key={link.href}

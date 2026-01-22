@@ -31,7 +31,7 @@ export const TextReveal: React.FC<TextRevealProps> = ({
   text,
   startFrame = 0,
   charsPerFrame = 0.5,
-  showCursor = true,
+  showCursor = false,
   cursorBlinkSpeed = 0.5,
   fontSize = TYPOGRAPHY.body.size,
   fontWeight = TYPOGRAPHY.body.weight,

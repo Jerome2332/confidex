@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 use crate::error::ConfidexError;
 use crate::state::{ExchangeState, PerpetualMarket, FundingRateState};
 
+/// Uses Box<Account<>> for large account types to reduce stack usage.
 #[derive(Accounts)]
 #[instruction(
     max_leverage: u8,
@@ -15,7 +16,7 @@ pub struct InitializePerpMarket<'info> {
         seeds = [ExchangeState::SEED],
         bump = exchange.bump,
     )]
-    pub exchange: Account<'info, ExchangeState>,
+    pub exchange: Box<Account<'info, ExchangeState>>,
 
     #[account(
         init,
@@ -24,7 +25,7 @@ pub struct InitializePerpMarket<'info> {
         seeds = [PerpetualMarket::SEED, underlying_mint.key().as_ref()],
         bump
     )]
-    pub perp_market: Account<'info, PerpetualMarket>,
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
 
     #[account(
         init,
@@ -33,7 +34,7 @@ pub struct InitializePerpMarket<'info> {
         seeds = [FundingRateState::SEED, perp_market.key().as_ref()],
         bump
     )]
-    pub funding_state: Account<'info, FundingRateState>,
+    pub funding_state: Box<Account<'info, FundingRateState>>,
 
     /// CHECK: Underlying asset mint (e.g., SOL)
     pub underlying_mint: AccountInfo<'info>,

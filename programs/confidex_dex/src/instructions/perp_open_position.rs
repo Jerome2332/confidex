@@ -1,7 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-use crate::cpi::arcium::verify_position_params_sync;
 use crate::error::ConfidexError;
 use crate::state::{
     ConfidentialPosition, ExchangeState, PerpetualMarket, FundingRateState,
@@ -156,17 +155,17 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
         params.collateral_amount,
     )?;
 
-    // === LAYER 2: MPC VERIFICATION ===
-    // V2: MPC handles threshold verification - sync version returns true
-    verify_position_params_sync(
-        &ctx.accounts.arcium_program,
-        &ctx.accounts.perp_market.arcium_cluster,
-        &params.encrypted_entry_price,
-        0,
-        params.leverage,
-        matches!(params.side, PositionSide::Long),
-        ctx.accounts.perp_market.maintenance_margin_bps,
-    )?;
+    // === LAYER 2: MPC VERIFICATION (ASYNC) ===
+    // V6: Position is created with threshold_verified = false
+    // Crank will detect this position and trigger async MPC verification
+    // MPC callback will set threshold_verified = true and fill in liquidation thresholds
+    //
+    // The async flow:
+    // 1. User calls perp_open_position → position created, threshold_verified = false
+    // 2. Crank detects PositionAwaitingVerification event
+    // 3. Crank calls MXE verify_position_params() with position's encrypted data
+    // 4. MXE callback updates position.encrypted_liq_below/above + threshold_verified = true
+    // 5. Position is now fully operational
 
     // Get coarse timestamp once
     let coarse_time = ConfidentialPosition::coarse_timestamp(Clock::get()?.unix_timestamp);
@@ -232,12 +231,51 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
         position.bump = ctx.bumps.position;
         // Store the position_count used in PDA seeds for close_position
         position.position_seed = ctx.accounts.perp_market.position_count;
+
+        // V6: Initialize async MPC tracking fields
+        // Generate request ID for MPC callback matching
+        let request_id = ConfidentialPosition::generate_request_id(
+            &position.key(),
+            Clock::get()?.slot,
+        );
+        position.pending_mpc_request = request_id;
+        position.pending_margin_amount = 0;
+        position.pending_margin_is_add = false;
+        position.is_liquidatable = false;
     }
 
     // Increment market position count
     ctx.accounts.perp_market.position_count = ctx.accounts.perp_market.position_count.saturating_add(1);
 
-    msg!("Position opened: {:?} {}x (ZK verified)", params.side, params.leverage);
+    // Emit event for crank to detect and process
+    emit!(PositionAwaitingVerification {
+        position: ctx.accounts.position.key(),
+        trader: ctx.accounts.trader.key(),
+        market: ctx.accounts.perp_market.key(),
+        request_id: ctx.accounts.position.pending_mpc_request,
+        side: params.side,
+        leverage: params.leverage,
+        created_at: coarse_time,
+    });
+
+    msg!(
+        "Position opened (awaiting MPC verification): {:?} {}x, request_id={:?}",
+        params.side,
+        params.leverage,
+        &ctx.accounts.position.pending_mpc_request[0..8]
+    );
 
     Ok(())
+}
+
+/// Event emitted when a position is created and awaits MPC verification
+#[event]
+pub struct PositionAwaitingVerification {
+    pub position: Pubkey,
+    pub trader: Pubkey,
+    pub market: Pubkey,
+    pub request_id: [u8; 32],
+    pub side: PositionSide,
+    pub leverage: u8,
+    pub created_at: i64,
 }

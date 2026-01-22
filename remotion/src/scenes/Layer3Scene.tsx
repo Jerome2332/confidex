@@ -439,8 +439,8 @@ const TransferArrow: React.FC<{
   const arrowWidth = 180;
   const packetSize = 32;
 
-  // Packet position
-  const packetX = interpolate(progress, [0, 1], [0, arrowWidth - packetSize]);
+  // Packet position - extends to full arrow width
+  const packetX = interpolate(progress, [0, 1], [0, arrowWidth]);
   const packetOpacity = interpolate(
     progress,
     [0, 0.1, 0.9, 1],
@@ -462,14 +462,14 @@ const TransferArrow: React.FC<{
         position: "relative",
       }}
     >
-      {/* Arrow line with gradient */}
+      {/* Arrow line with gradient that fills as packet moves */}
       <div
         style={{
           width: "100%",
           height: 3,
-          backgroundColor: isComplete
+          background: isComplete
             ? COLORS.accent.privacy.full
-            : COLORS.border.emphasis,
+            : `linear-gradient(to right, ${COLORS.accent.privacy.full} 0%, ${COLORS.accent.privacy.full} ${progress * 100}%, ${COLORS.border.emphasis} ${progress * 100}%, ${COLORS.border.emphasis} 100%)`,
           borderRadius: 2,
           position: "relative",
         }}
@@ -497,12 +497,12 @@ const TransferArrow: React.FC<{
           </div>
         )}
 
-        {/* Arrow head */}
+        {/* Arrow head - turns green when progress reaches end */}
         <ArrowRight
           size={24}
           weight="bold"
           color={
-            isComplete ? COLORS.accent.privacy.full : COLORS.border.emphasis
+            progress >= 0.95 || isComplete ? COLORS.accent.privacy.full : COLORS.border.emphasis
           }
           style={{
             position: "absolute",

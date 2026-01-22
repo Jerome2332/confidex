@@ -86,10 +86,11 @@ Let's break down what each parameter does:
 
 ### Understanding Cluster Offsets
 
-The `--cluster-offset` tells your MXE which Arcium cluster it should connect to. Think of clusters as groups of nodes that will perform your encrypted computations. For devnet, you can choose from these offsets:
+The `--cluster-offset` tells your MXE which Arcium cluster it should connect to. Think of clusters as groups of nodes that will perform your encrypted computations. For devnet:
 
-* `123` - v0.5.4
-* `456` - v0.6.3 (recommended)
+* `456` - v0.6.3 (recommended, 2/2 nodes)
+
+**Important:** Cluster 123 is mentioned in older Arcium documentation but does NOT exist on devnet. Always use cluster 456.
 
 ### Recovery Set Size
 
@@ -174,6 +175,38 @@ arcium deploy --cluster-offset 456 \
 ```
 
 ## After Deployment
+
+### Verify DKG Completion
+
+After `arcium deploy` completes, the MXE account is created and Distributed Key Generation (DKG) begins automatically. The DKG process generates the shared X25519 encryption key used by your MXE.
+
+**Check DKG status:**
+
+```bash
+arcium mxe-info <your-mxe-program-id> -u devnet
+```
+
+Look for:
+- `x25519_public_key`: Should be a 64-character hex string (not zeros)
+- If the key shows all zeros, DKG is not yet complete
+
+**Typical DKG completion time:** 1-5 minutes on devnet cluster 456.
+
+**What if DKG is stuck?**
+
+If DKG doesn't complete after 10+ minutes:
+
+```bash
+# Check if stuck in execpool
+arcium requeue-mxe-keygen <your-mxe-program-id> -u devnet
+
+# If that fails, deploy a fresh MXE with a new keypair
+solana-keygen new -o new-mxe-keypair.json
+arcium deploy --cluster-offset 456 --recovery-set-size 4 \
+  --keypair-path ~/.config/solana/id.json \
+  --program-keypair new-mxe-keypair.json \
+  --rpc-url <your-rpc-url>
+```
 
 ### Initialize Your Computation Definitions
 

@@ -8,7 +8,7 @@ export const CONFIDEX_PROGRAM_ID = new PublicKey(
 
 export const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-    'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
+    'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'
 );
 
 // ZK Eligibility Verifier (deployed via Sunspot)
@@ -233,3 +233,25 @@ export const ENV_ARCIUM_ENABLED =
  */
 export const ENV_AUTO_FALLBACK_ENABLED =
   process.env.NEXT_PUBLIC_AUTO_FALLBACK_ENABLED !== 'false';
+
+// Light Protocol ZK Compression
+// Enables rent-free token accounts via state compression
+// See: https://www.zkcompression.com
+export const LIGHT_PROTOCOL_ENABLED =
+  process.env.NEXT_PUBLIC_LIGHT_PROTOCOL_ENABLED !== 'false';
+
+// Light Protocol program IDs (mainnet/devnet)
+export const LIGHT_COMPRESSED_TOKEN_PROGRAM = new PublicKey(
+  'cTokenmWW8bLPjZEBAUgYy3zKxQZW6VKi7bqNFEVv3m'
+);
+export const LIGHT_ACCOUNT_COMPRESSION_PROGRAM = new PublicKey(
+  'CbjvJc1SNx1aav8tU49dJGHu8EUdzQJSMtkjDmV8miqK'
+);
+export const LIGHT_SYSTEM_PROGRAM = new PublicKey(
+  'SySTEM1eSU2p4BGQfQpimFEWWSC1XDFeun3Nqzz3rT7'
+);
+
+// Rent savings: ~0.00203928 SOL per regular token account
+// Compressed accounts cost ~0.000005 SOL (400x cheaper)
+export const REGULAR_TOKEN_ACCOUNT_RENT_LAMPORTS = BigInt(2039280);
+export const COMPRESSED_ACCOUNT_COST_LAMPORTS = BigInt(5000);

@@ -279,31 +279,62 @@ export async function getOrderAccount(
 }
 
 /**
- * Parse order account from raw data
+ * Parse order account from raw data - V5 format (366 bytes)
+ *
+ * V5 Order Layout:
+ *   0-7:    discriminator (8)
+ *   8-39:   maker (32)
+ *   40-71:  pair (32)
+ *   72:     side (1)
+ *   73:     order_type (1)
+ *   74-137: encrypted_amount (64)
+ *   138-201: encrypted_price (64)
+ *   202-265: encrypted_filled (64)
+ *   266:    status (1)
+ *   267-274: created_at_hour (8)
+ *   275-290: order_id (16)
+ *   291-298: order_nonce (8)
+ *   299:    eligibility_proof_verified (1)
+ *   300-331: pending_match_request (32)
+ *   332:    is_matching (1)
+ *   333:    bump (1)
+ *   334-365: ephemeral_pubkey (32)
  */
 function parseOrderAccount(data: Buffer): OrderAccount {
   // Skip discriminator (8 bytes)
   let offset = 8;
 
-  // Maker (32 bytes)
+  // Maker (32 bytes) - offset 8
   const maker = new PublicKey(data.slice(offset, offset + 32));
   offset += 32;
 
-  // Pair (32 bytes)
+  // Pair (32 bytes) - offset 40
   const pair = new PublicKey(data.slice(offset, offset + 32));
   offset += 32;
 
-  // Side (1 byte)
+  // Side (1 byte) - offset 72
   const sideValue = data[offset];
   const side: Side = sideValue === 0 ? 'buy' : 'sell';
   offset += 1;
 
-  // Order type (1 byte)
+  // Order type (1 byte) - offset 73
   const orderTypeValue = data[offset];
   const orderType: OrderType = orderTypeValue === 0 ? 'limit' : 'market';
   offset += 1;
 
-  // Status (1 byte)
+  // Encrypted amount (64 bytes) - offset 74
+  const encryptedAmount = new Uint8Array(data.slice(offset, offset + 64));
+  offset += 64;
+
+  // Encrypted price (64 bytes) - offset 138
+  const encryptedPrice = new Uint8Array(data.slice(offset, offset + 64));
+  offset += 64;
+
+  // Encrypted filled (64 bytes) - offset 202
+  const encryptedFilled = new Uint8Array(data.slice(offset, offset + 64));
+  offset += 64;
+
+  // Status (1 byte) - offset 266
   const statusValue = data[offset];
   const statusMap: Record<number, OrderStatus> = {
     0: 'Active',
@@ -315,25 +346,16 @@ function parseOrderAccount(data: Buffer): OrderAccount {
   const status = statusMap[statusValue] || 'Active';
   offset += 1;
 
-  // Encrypted amount (64 bytes)
-  const encryptedAmount = new Uint8Array(data.slice(offset, offset + 64));
-  offset += 64;
-
-  // Encrypted price (64 bytes)
-  const encryptedPrice = new Uint8Array(data.slice(offset, offset + 64));
-  offset += 64;
-
-  // Encrypted filled (64 bytes)
-  const encryptedFilled = new Uint8Array(data.slice(offset, offset + 64));
-  offset += 64;
-
-  // Ephemeral pubkey (32 bytes)
-  const ephemeralPubkey = new Uint8Array(data.slice(offset, offset + 32));
-  offset += 32;
-
-  // Created at (8 bytes, i64)
+  // Created at hour (8 bytes, i64) - offset 267
   const createdAt = Number(data.readBigInt64LE(offset));
   offset += 8;
+
+  // Skip order_id (16), order_nonce (8), eligibility_proof_verified (1),
+  // pending_match_request (32), is_matching (1), bump (1)
+  offset += 16 + 8 + 1 + 32 + 1 + 1;
+
+  // Ephemeral pubkey (32 bytes) - offset 334
+  const ephemeralPubkey = new Uint8Array(data.slice(offset, offset + 32));
 
   return {
     maker,

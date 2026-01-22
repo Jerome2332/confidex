@@ -1,10 +1,5 @@
 use anchor_lang::prelude::*;
 
-use crate::cpi::arcium::{
-    check_liquidation_sync, calculate_pnl_sync, calculate_funding_sync,
-    add_encrypted, sub_encrypted, mul_encrypted, encrypt_value,
-    queue_batch_liquidation_check, BatchLiquidationPositionData, EncryptedU64
-};
 use crate::error::ConfidexError;
 use crate::oracle::get_sol_usd_price_for_liquidation;
 use crate::state::{
@@ -82,12 +77,9 @@ pub struct LiquidatePosition<'info> {
     #[account(mut)]
     pub liquidator: Signer<'info>,
 
-    /// CHECK: Arcium program for MPC calculations
-    pub arcium_program: AccountInfo<'info>,
-
     // =========================================================================
-    // HACKATHON: UserConfidentialBalance accounts for interim SPL-based payouts
-    // When C-SPL is available, replace with C-SPL confidential transfers
+    // UserConfidentialBalance accounts for payouts
+    // In production: Replace with C-SPL confidential_transfer CPI
     // =========================================================================
 
     /// Liquidator's quote balance (receives liquidation bonus)
@@ -181,77 +173,18 @@ pub fn handler(ctx: Context<LiquidatePosition>, params: LiquidatePositionParams)
     let perp_market = &mut ctx.accounts.perp_market;
     let position = &mut ctx.accounts.position;
 
-    let is_long = matches!(position.side, PositionSide::Long);
-
-    // === MPC CALCULATIONS FOR LIQUIDATION ===
-
-    // Calculate funding owed since position was opened
-    let current_cumulative_funding = match position.side {
-        PositionSide::Long => perp_market.cumulative_funding_long,
-        PositionSide::Short => perp_market.cumulative_funding_short,
-    };
-    let funding_delta = current_cumulative_funding
-        .saturating_sub(position.entry_cumulative_funding);
-
-    // 1. Calculate PnL at liquidation price (mark_price)
-    let (encrypted_pnl, is_profit) = calculate_pnl_sync(
-        &ctx.accounts.arcium_program,
-        &position.encrypted_size,
-        &position.encrypted_entry_price,
-        mark_price,
-        is_long,
-    )?;
-
-    // 2. Calculate funding payment
-    let (encrypted_funding, is_receiving_funding) = calculate_funding_sync(
-        &ctx.accounts.arcium_program,
-        &position.encrypted_size,
-        funding_delta as i64,
-        is_long,
-    )?;
-
-    // 3. Calculate remaining equity: collateral + pnl - funding
-    let mut remaining_equity = position.encrypted_collateral;
-    if is_profit {
-        remaining_equity = add_encrypted(&ctx.accounts.arcium_program, &remaining_equity, &encrypted_pnl)?;
-    } else {
-        remaining_equity = sub_encrypted(&ctx.accounts.arcium_program, &remaining_equity, &encrypted_pnl)?;
-    }
-    if is_receiving_funding {
-        remaining_equity = add_encrypted(&ctx.accounts.arcium_program, &remaining_equity, &encrypted_funding)?;
-    } else {
-        remaining_equity = sub_encrypted(&ctx.accounts.arcium_program, &remaining_equity, &encrypted_funding)?;
-    }
-
-    // 4. Calculate liquidator bonus: remaining_equity * liquidation_bonus_bps / 10000
-    let fee_multiplier = encrypt_value(
-        &ctx.accounts.arcium_program,
-        &[0u8; 32],
-        liquidation_config.liquidation_bonus_bps as u64,
-    )?;
-    let _liquidator_bonus = mul_encrypted(
-        &ctx.accounts.arcium_program,
-        &remaining_equity,
-        &fee_multiplier,
-    )?;
-    // Note: In production, divide by 10000 via another MPC operation
-
-    // 5. Calculate insurance fund contribution
-    let insurance_multiplier = encrypt_value(
-        &ctx.accounts.arcium_program,
-        &[0u8; 32],
-        liquidation_config.insurance_fund_share_bps as u64,
-    )?;
-    let _insurance_contribution = mul_encrypted(
-        &ctx.accounts.arcium_program,
-        &remaining_equity,
-        &insurance_multiplier,
-    )?;
-
     // ==========================================================================
-    // HACKATHON PAYOUT (Interim until C-SPL SDK available)
-    // Uses plaintext values from first 8 bytes of encrypted fields
-    // In production: Replace with C-SPL confidential_transfer CPI
+    // LIQUIDATION PAYOUT
+    //
+    // The MPC batch liquidation check has already verified this position is
+    // liquidatable. Now we distribute the remaining collateral:
+    // - Liquidator receives bonus (incentive)
+    // - Insurance fund receives its share
+    // - Trader receives any remaining equity
+    //
+    // NOTE: In V5/production, MPC would calculate encrypted PnL and funding.
+    // For hackathon, we use the plaintext collateral value stored in the
+    // position account (see UserConfidentialBalance pattern).
     // ==========================================================================
 
     // Get remaining equity using plaintext helper (hackathon only)

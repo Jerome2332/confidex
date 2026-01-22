@@ -5,8 +5,9 @@ import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
 import { CONFIDEX_PROGRAM_ID, SOL_USDC_PAIR_PDA } from '@/lib/constants';
 
-// V4 order account size (390 bytes) - see CLAUDE.md for format
-const ORDER_ACCOUNT_SIZE_V4 = 390;
+// V5 order account size (366 bytes) - see CLAUDE.md for format
+// V5 removed plaintext fields (amount_plaintext, price_plaintext, filled_plaintext)
+const ORDER_ACCOUNT_SIZE_V5 = 366;
 
 // Rate limiting configuration
 const MIN_FETCH_INTERVAL_MS = 10000; // Minimum 10 seconds between fetches
@@ -41,8 +42,8 @@ interface ParsedOrder {
   pair: PublicKey;
   side: Side;
   status: OrderStatus;
-  priceU64: bigint; // From price_plaintext field (V4)
-  amountU64: bigint; // From amount_plaintext field (V4)
+  priceU64: bigint; // From first 8 bytes of encrypted_price (V5 hackathon plaintext)
+  amountU64: bigint; // From first 8 bytes of encrypted_amount (V5 hackathon plaintext)
 }
 
 // Simple in-memory cache
@@ -56,27 +57,47 @@ let orderBookCache: CachedData | null = null;
 const CACHE_TTL_MS = 10000; // Cache valid for 10 seconds
 
 /**
- * Parse V4 order account data (390 bytes)
+ * Parse V5 order account data (366 bytes)
+ * V5 format removes plaintext fields for privacy hardening
  * See CLAUDE.md for full field layout
+ *
+ * V5 Order Layout:
+ *   0-7:    discriminator (8)
+ *   8-39:   maker (32)
+ *   40-71:  pair (32)
+ *   72:     side (1)
+ *   73:     order_type (1)
+ *   74-137: encrypted_amount (64)
+ *   138-201: encrypted_price (64)
+ *   202-265: encrypted_filled (64)
+ *   266:    status (1)
+ *   267-274: created_at_hour (8)
+ *   275-290: order_id (16)
+ *   291-298: order_nonce (8)
+ *   299:    eligibility_proof_verified (1)
+ *   300-331: pending_match_request (32)
+ *   332:    is_matching (1)
+ *   333:    bump (1)
+ *   334-365: ephemeral_pubkey (32)
  */
-function parseV4Order(data: Uint8Array): ParsedOrder | null {
-  if (data.length !== ORDER_ACCOUNT_SIZE_V4) {
+function parseV5Order(data: Uint8Array): ParsedOrder | null {
+  if (data.length !== ORDER_ACCOUNT_SIZE_V5) {
     return null;
   }
 
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
-  // Offsets based on V4 order format
+  // Offsets based on V5 order format
   const maker = new PublicKey(data.slice(8, 40));
   const pair = new PublicKey(data.slice(40, 72));
   const side = data[72] as Side;
   const status = data[266] as OrderStatus;
 
-  // V4 hackathon plaintext fields (after bump at 333)
-  // amount_plaintext: offset 334 (8 bytes)
-  // price_plaintext: offset 342 (8 bytes)
-  const amountU64 = view.getBigUint64(334, true); // little-endian
-  const priceU64 = view.getBigUint64(342, true);
+  // V5 has NO plaintext fields - read from first 8 bytes of encrypted fields
+  // encrypted_amount: offset 74-137 (first 8 bytes = hackathon plaintext)
+  // encrypted_price: offset 138-201 (first 8 bytes = hackathon plaintext)
+  const amountU64 = view.getBigUint64(74, true); // first 8 bytes of encrypted_amount
+  const priceU64 = view.getBigUint64(138, true); // first 8 bytes of encrypted_price
 
   return {
     maker,
@@ -141,9 +162,9 @@ export function useOrderBook(pairPubkey?: PublicKey, refreshIntervalMs = DEFAULT
     lastFetchRef.current = now;
 
     try {
-      // Fetch all V4 (390 byte) orders from the DEX program
+      // Fetch all V5 (366 byte) orders from the DEX program
       const accounts = await connection.getProgramAccounts(CONFIDEX_PROGRAM_ID, {
-        filters: [{ dataSize: ORDER_ACCOUNT_SIZE_V4 }],
+        filters: [{ dataSize: ORDER_ACCOUNT_SIZE_V5 }],
       });
 
       // Reset backoff on success
@@ -154,7 +175,7 @@ export function useOrderBook(pairPubkey?: PublicKey, refreshIntervalMs = DEFAULT
       const bidLevels = new Map<number, { count: number; totalAmount: bigint }>();
 
       for (const { account } of accounts) {
-        const order = parseV4Order(account.data as Uint8Array);
+        const order = parseV5Order(account.data as Uint8Array);
         if (!order) continue;
 
         // Only include orders for the target pair

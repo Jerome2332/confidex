@@ -38,6 +38,7 @@ function buildCSP() {
       'wss://api.mainnet-beta.solana.com',
       'https://*.helius-rpc.com',
       'wss://*.helius-rpc.com',
+      'https://api.helius.xyz', // Helius REST API (transaction history)
       // Pyth price feeds
       'https://hermes.pyth.network',
       'wss://hermes.pyth.network',

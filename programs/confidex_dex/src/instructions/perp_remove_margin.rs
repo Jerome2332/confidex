@@ -1,10 +1,17 @@
 use anchor_lang::prelude::*;
 
-use crate::cpi::arcium::{sub_encrypted, verify_position_params_sync};
 use crate::error::ConfidexError;
 use crate::oracle::get_sol_usd_price;
 use crate::state::{ConfidentialPosition, PerpetualMarket, PositionSide};
 
+/// Accounts for removing margin from a position (V6 - Async MPC)
+///
+/// The async flow:
+/// 1. User calls remove_margin → position marked pending (no transfer yet)
+/// 2. Crank detects MarginOperationInitiated event
+/// 3. Crank calls MXE sub_encrypted() with position's encrypted data
+/// 4. MXE verifies safety (new threshold won't cause immediate liquidation)
+/// 5. MXE callback transfers tokens and updates position
 #[derive(Accounts)]
 pub struct RemoveMargin<'info> {
     #[account(
@@ -25,112 +32,123 @@ pub struct RemoveMargin<'info> {
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
         constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
         constraint = position.is_open() @ ConfidexError::PositionNotOpen,
-        constraint = position.threshold_verified @ ConfidexError::ThresholdNotVerified
+        constraint = position.threshold_verified @ ConfidexError::ThresholdNotVerified,
+        constraint = !position.has_pending_mpc_request() @ ConfidexError::OperationPending
     )]
     pub position: Account<'info, ConfidentialPosition>,
 
-    /// CHECK: Pyth oracle for current mark price
+    /// CHECK: Pyth oracle for current mark price (safety check)
     #[account(
         constraint = oracle.key() == perp_market.oracle_price_feed @ ConfidexError::InvalidOraclePrice
     )]
     pub oracle: AccountInfo<'info>,
 
-    /// CHECK: Trader's confidential collateral token account (C-SPL USDC)
-    #[account(mut)]
-    pub trader_collateral_account: AccountInfo<'info>,
-
-    /// CHECK: Market's confidential collateral vault (C-SPL USDC)
-    #[account(
-        mut,
-        constraint = collateral_vault.key() == perp_market.collateral_vault @ ConfidexError::InvalidVault
-    )]
-    pub collateral_vault: AccountInfo<'info>,
-
-    /// CHECK: Arcium program for MPC computations
-    pub arcium_program: AccountInfo<'info>,
-
     #[account(mut)]
     pub trader: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
 }
 
-/// Parameters for removing margin
+/// Parameters for removing margin (V6 - simplified for async MPC)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct RemoveMarginParams {
-    /// Encrypted amount of collateral to remove (64 bytes via Arcium)
-    pub encrypted_amount: [u8; 64],
-    /// New encrypted liquidation threshold after removing margin (64 bytes via Arcium)
-    /// Must be verified by MPC to match new position parameters
-    /// MPC will verify position won't be immediately liquidatable
-    pub new_encrypted_liq_threshold: [u8; 64],
+    /// Plaintext amount of collateral to remove (USDC with 6 decimals)
+    /// The MPC will compute new encrypted values and verify safety
+    pub amount: u64,
 }
 
+/// Initiate margin remove operation
+///
+/// V6: This instruction marks the position as pending MPC update.
+/// The actual token transfer happens in margin_operation_callback
+/// after MPC verifies the position won't be immediately liquidatable.
 pub fn handler(ctx: Context<RemoveMargin>, params: RemoveMarginParams) -> Result<()> {
     let clock = Clock::get()?;
-    let perp_market = &ctx.accounts.perp_market;
     let position = &mut ctx.accounts.position;
 
-    // Get current mark price from oracle (6 decimal precision)
-    // Note: With encrypted thresholds, the safety check is done via MPC
-    let _mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+    // Validate amount
+    require!(params.amount > 0, ConfidexError::InvalidCollateral);
 
-    // Subtract margin from encrypted collateral via MPC
-    let new_encrypted_collateral = sub_encrypted(
-        &ctx.accounts.arcium_program,
-        &position.encrypted_collateral,
-        &params.encrypted_amount,
-    )?;
-
-    // Verify new threshold matches updated collateral via MPC
-    // MPC also verifies position won't be immediately liquidatable with 5% safety buffer
-    let is_long = matches!(position.side, PositionSide::Long);
-    let threshold_valid = verify_position_params_sync(
-        &ctx.accounts.arcium_program,
-        &perp_market.key(), // Using market key as cluster placeholder
-        &position.encrypted_entry_price,
-        // For encrypted thresholds, MPC verifies the encrypted one
-        0u64,
-        position.leverage,
-        is_long,
-        perp_market.maintenance_margin_bps,
-    )?;
-
-    require!(threshold_valid, ConfidexError::ThresholdMismatch);
-
-    // Store the updated encrypted collateral
-    position.encrypted_collateral = new_encrypted_collateral;
-    position.threshold_verified = true;
-
-    // TODO: Transfer encrypted collateral from vault to trader via C-SPL CPI
-    // This would use confidential_transfer instruction (blocked on C-SPL SDK)
-
-    // Update encrypted liquidation threshold
-    // This moves the threshold closer to current price, increasing liquidation risk
-    match position.side {
-        PositionSide::Long => {
-            position.encrypted_liq_below = params.new_encrypted_liq_threshold;
-        }
-        PositionSide::Short => {
-            position.encrypted_liq_above = params.new_encrypted_liq_threshold;
-        }
-    }
-
-    // Update threshold commitment
-    position.threshold_commitment = ConfidentialPosition::compute_threshold_commitment(
-        &position.encrypted_entry_price,
-        position.leverage,
-        perp_market.maintenance_margin_bps,
-        is_long,
+    // =========================================================================
+    // PRELIMINARY SAFETY CHECKS (plaintext validation)
+    // =========================================================================
+    // These checks use the plaintext prefix of encrypted_collateral for fast
+    // on-chain validation BEFORE the expensive MPC computation.
+    //
+    // This is acceptable because:
+    // 1. It only REJECTS obvious bad requests early (saves gas + MPC resources)
+    // 2. It does NOT bypass MPC - the actual encrypted computation still happens
+    // 3. MPC will perform the authoritative encrypted safety verification
+    // 4. Worst case: a legitimate request is rejected early (user retries)
+    //
+    // The plaintext prefix is set by the frontend during encryption for UI display
+    // and matches the actual encrypted value (enforced by MPC callback).
+    // =========================================================================
+    let current_collateral = position.get_collateral_plaintext();
+    require!(
+        params.amount <= current_collateral,
+        ConfidexError::InsufficientCollateral
     );
 
+    // Get current mark price for safety check reference (logged for debugging)
+    let mark_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+    msg!("Mark price for margin remove safety check: {}", mark_price);
+
+    // Minimum collateral check (5% safety buffer)
+    // This is a PRELIMINARY check - MPC will verify position won't be
+    // immediately liquidatable after the margin removal
+    let min_required = current_collateral
+        .saturating_mul(5)
+        .saturating_div(100);
+    let remaining = current_collateral.saturating_sub(params.amount);
+    require!(
+        remaining >= min_required || remaining == 0, // Allow full withdrawal if closing
+        ConfidexError::InsufficientCollateral
+    );
+
+    // Generate unique request ID for MPC callback matching
+    let request_id = ConfidentialPosition::generate_request_id(
+        &position.key(),
+        clock.slot,
+    );
+
+    // Store margin operation intent
+    // Note: Tokens NOT transferred yet - MPC must verify safety first
+    position.pending_mpc_request = request_id;
+    position.pending_margin_amount = params.amount;
+    position.pending_margin_is_add = false; // This is a remove operation
+
     let coarse_now = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
-    position.last_threshold_update_hour = coarse_now;
     position.last_updated_hour = coarse_now;
 
+    emit!(MarginRemoveInitiated {
+        position: position.key(),
+        trader: ctx.accounts.trader.key(),
+        market: ctx.accounts.perp_market.key(),
+        request_id,
+        amount: params.amount,
+        mark_price,
+        timestamp: coarse_now,
+    });
+
     msg!(
-        "Margin removed from position {} #{:?} (threshold now encrypted)",
-        position.trader,
-        position.position_id
+        "Margin remove initiated: position={}, amount={}, request_id={:?}",
+        position.key(),
+        params.amount,
+        &request_id[0..8]
     );
 
     Ok(())
+}
+
+/// Event emitted when a margin remove operation is initiated
+#[event]
+pub struct MarginRemoveInitiated {
+    pub position: Pubkey,
+    pub trader: Pubkey,
+    pub market: Pubkey,
+    pub request_id: [u8; 32],
+    pub amount: u64,
+    pub mark_price: u64,
+    pub timestamp: i64,
 }

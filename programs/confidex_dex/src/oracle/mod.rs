@@ -6,7 +6,6 @@
 //! Reference: https://docs.pyth.network/price-feeds/solana
 
 use anchor_lang::prelude::*;
-use pyth_sdk_solana::state::SolanaPriceAccount;
 
 /// Maximum age for price data (production - 60 seconds per PRD-001)
 /// This is the CRITICAL threshold for liquidation safety.
@@ -44,8 +43,39 @@ pub const INTERNAL_PRICE_DECIMALS: u32 = 6;
 /// * `Ok(u64)` - Price in micro-dollars (6 decimals)
 /// * `Err(_)` - If price feed is stale, invalid, or parsing fails
 pub fn get_sol_usd_price(price_feed: &AccountInfo) -> Result<u64> {
-    let price_feed_data = SolanaPriceAccount::account_info_to_feed(price_feed)
+    // Load price account from raw data using pyth_sdk_solana::state module
+    // This avoids AccountInfo type mismatches between Anchor 0.32.1 and pyth-sdk-solana
+    // SolanaPriceAccount = GenericPriceAccount<32, ()>
+    let data = price_feed.try_borrow_data()?;
+    let price_account = pyth_sdk_solana::state::load_price_account::<32, ()>(&data)
         .map_err(|_| OracleError::InvalidFeedId)?;
+
+    // Manually create PriceFeed to avoid Pubkey type mismatch between
+    // Anchor 0.32.1 (solana_pubkey) and pyth-sdk-solana (solana_program::pubkey)
+    let price_id = pyth_sdk_solana::PriceIdentifier::new(price_feed.key.to_bytes());
+    let status = price_account.agg.status;
+    let price = if status == pyth_sdk_solana::state::PriceStatus::Trading {
+        pyth_sdk_solana::Price {
+            conf: price_account.agg.conf,
+            expo: price_account.expo,
+            price: price_account.agg.price,
+            publish_time: price_account.timestamp,
+        }
+    } else {
+        pyth_sdk_solana::Price {
+            conf: price_account.prev_conf,
+            expo: price_account.expo,
+            price: price_account.prev_price,
+            publish_time: price_account.timestamp,
+        }
+    };
+    let ema_price = pyth_sdk_solana::Price {
+        conf: price_account.ema_conf.val as u64,
+        expo: price_account.expo,
+        price: price_account.ema_price.val,
+        publish_time: price_account.timestamp,
+    };
+    let price_feed_data = pyth_sdk_solana::PriceFeed::new(price_id, price, ema_price);
 
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;
@@ -125,8 +155,39 @@ pub struct PriceWithMetadata {
 /// This function does NOT enforce staleness - caller must validate `age_seconds`.
 /// Use `get_sol_usd_price()` for standard price fetching with staleness check.
 pub fn get_sol_usd_price_with_metadata(price_feed: &AccountInfo) -> Result<PriceWithMetadata> {
-    let price_feed_data = SolanaPriceAccount::account_info_to_feed(price_feed)
+    // Load price account from raw data using pyth_sdk_solana::state module
+    // This avoids AccountInfo type mismatches between Anchor 0.32.1 and pyth-sdk-solana
+    // SolanaPriceAccount = GenericPriceAccount<32, ()>
+    let data = price_feed.try_borrow_data()?;
+    let price_account = pyth_sdk_solana::state::load_price_account::<32, ()>(&data)
         .map_err(|_| OracleError::InvalidFeedId)?;
+
+    // Manually create PriceFeed to avoid Pubkey type mismatch between
+    // Anchor 0.32.1 (solana_pubkey) and pyth-sdk-solana (solana_program::pubkey)
+    let price_id = pyth_sdk_solana::PriceIdentifier::new(price_feed.key.to_bytes());
+    let status = price_account.agg.status;
+    let price = if status == pyth_sdk_solana::state::PriceStatus::Trading {
+        pyth_sdk_solana::Price {
+            conf: price_account.agg.conf,
+            expo: price_account.expo,
+            price: price_account.agg.price,
+            publish_time: price_account.timestamp,
+        }
+    } else {
+        pyth_sdk_solana::Price {
+            conf: price_account.prev_conf,
+            expo: price_account.expo,
+            price: price_account.prev_price,
+            publish_time: price_account.timestamp,
+        }
+    };
+    let ema_price = pyth_sdk_solana::Price {
+        conf: price_account.ema_conf.val as u64,
+        expo: price_account.expo,
+        price: price_account.ema_price.val,
+        publish_time: price_account.timestamp,
+    };
+    let price_feed_data = pyth_sdk_solana::PriceFeed::new(price_id, price, ema_price);
 
     let clock = Clock::get()?;
     let current_time = clock.unix_timestamp;

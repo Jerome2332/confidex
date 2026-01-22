@@ -8,7 +8,7 @@
 /**
  * Available settlement methods
  */
-export type SettlementMethod = 'shadowwire' | 'cspl' | 'auto';
+export type SettlementMethod = 'shadowwire' | 'cspl' | 'light' | 'auto';
 
 /**
  * Token symbols supported for settlement

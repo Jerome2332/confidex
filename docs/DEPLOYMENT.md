@@ -55,7 +55,8 @@ Configure these variables in GitHub Settings → Secrets and Variables → Actio
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NEXT_PUBLIC_PROGRAM_ID` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | DEX program ID |
-| `NEXT_PUBLIC_MXE_PROGRAM_ID` | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | MXE program ID |
+| `NEXT_PUBLIC_MXE_PROGRAM_ID` | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` | MXE program ID |
+| `NEXT_PUBLIC_MXE_X25519_PUBKEY` | `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b` | MXE encryption key |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | RPC endpoint |
 | `VERCEL_PROJECT_ID` | - | Vercel project ID |
 
@@ -164,8 +165,8 @@ pnpm install
 # 2. Create .env.production
 cat > .env.production << EOF
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
-NEXT_PUBLIC_MXE_X25519_PUBKEY=<YOUR_MXE_PUBKEY>
+NEXT_PUBLIC_MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+NEXT_PUBLIC_MXE_X25519_PUBKEY=46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b
 NEXT_PUBLIC_NETWORK=devnet
 NEXT_PUBLIC_ARCIUM_ENABLED=true
 EOF
@@ -466,7 +467,7 @@ arcium mxe-info <MXE_PROGRAM_ID> -u devnet
 
 - [ ] All programs deployed to devnet/mainnet
   - `confidex_dex`: `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`
-  - `confidex_mxe`: `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM`
+  - `confidex_mxe`: `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS`
   - `eligibility_verifier`: `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`
 - [ ] ExchangeState initialized with correct `fee_recipient`
 - [ ] Trading pair(s) created and active
@@ -483,9 +484,10 @@ arcium mxe-info <MXE_PROGRAM_ID> -u devnet
 
 ### MPC Configuration
 
-- [ ] MXE deployed and keygen complete
-- [ ] `NEXT_PUBLIC_MXE_X25519_PUBKEY` set
-- [ ] Cluster 456 accessible (v0.6.3)
+- [ ] MXE deployed and keygen complete (DKG auto-completes on deploy)
+- [ ] `NEXT_PUBLIC_MXE_X25519_PUBKEY` set to `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b`
+- [ ] Cluster 456 accessible (v0.6.3 with 2/2 nodes)
+- [ ] Computation definitions initialized (11 circuits)
 - [ ] Circuit files on GitHub Releases
 
 ### Frontend

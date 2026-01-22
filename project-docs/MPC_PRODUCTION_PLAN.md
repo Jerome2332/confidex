@@ -238,7 +238,7 @@ After successful match:
 
 ### PDAs
 ```
-MXE_PROGRAM_ID = DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+MXE_PROGRAM_ID = HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
 DEX_PROGRAM_ID = 63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
 
 mxe_config     = ["mxe_config"]

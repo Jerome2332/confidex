@@ -2,11 +2,13 @@
 
 import { FC, useState, useRef, useEffect } from 'react';
 import { CaretDown, Check } from '@phosphor-icons/react';
+import Image from 'next/image';
 
 export interface Token {
   symbol: string;
   name: string;
   color?: string;
+  icon?: string;
 }
 
 export interface TokenSelectorProps {
@@ -16,7 +18,13 @@ export interface TokenSelectorProps {
   disabled?: boolean;
 }
 
-// Default token colors following brand guidelines
+// Token icon paths
+const TOKEN_ICONS: Record<string, string> = {
+  SOL: '/coin-icons/SOL-logo.png',
+  USDC: '/coin-icons/USDC-logo.png',
+};
+
+// Default token colors following brand guidelines (used as fallback)
 const getTokenColor = (symbol: string, customColor?: string): string => {
   if (customColor) return customColor;
 
@@ -29,6 +37,53 @@ const getTokenColor = (symbol: string, customColor?: string): string => {
   };
 
   return colors[symbol] || '#ffffff';
+};
+
+// Token icon component with fallback to colored circle
+const TokenIcon: FC<{ symbol: string; color?: string; size?: number }> = ({
+  symbol,
+  color,
+  size = 20,
+}) => {
+  const [hasError, setHasError] = useState(false);
+  const iconPath = TOKEN_ICONS[symbol];
+
+  if (iconPath && !hasError) {
+    return (
+      <div
+        className="rounded-full overflow-hidden ring-1 ring-white/10 flex-shrink-0"
+        style={{ width: size, height: size }}
+      >
+        <Image
+          src={iconPath}
+          alt={`${symbol} icon`}
+          width={size}
+          height={size}
+          className="object-cover"
+          onError={() => setHasError(true)}
+        />
+      </div>
+    );
+  }
+
+  // Fallback to colored circle with initial
+  return (
+    <div
+      className="rounded-full flex items-center justify-center ring-1 ring-white/10 flex-shrink-0"
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: getTokenColor(symbol, color),
+      }}
+    >
+      <span
+        className="font-medium text-white/90"
+        style={{ fontSize: size * 0.45 }}
+      >
+        {symbol.charAt(0)}
+      </span>
+    </div>
+  );
 };
 
 export const TokenSelector: FC<TokenSelectorProps> = ({
@@ -120,14 +175,7 @@ export const TokenSelector: FC<TokenSelectorProps> = ({
       >
         <div className="flex items-center gap-2.5">
           {/* Token Avatar */}
-          <div
-            className="w-5 h-5 rounded-full flex items-center justify-center ring-1 ring-white/10"
-            style={{ backgroundColor: getTokenColor(selectedToken.symbol, selectedToken.color) }}
-          >
-            <span className="text-[9px] font-medium text-white/90">
-              {selectedToken.symbol.charAt(0)}
-            </span>
-          </div>
+          <TokenIcon symbol={selectedToken.symbol} color={selectedToken.color} size={20} />
 
           {/* Token Info */}
           <div className="flex items-center gap-2">
@@ -191,14 +239,7 @@ export const TokenSelector: FC<TokenSelectorProps> = ({
               >
                 <div className="flex items-center gap-2.5">
                   {/* Token Avatar */}
-                  <div
-                    className="w-5 h-5 rounded-full flex items-center justify-center ring-1 ring-white/10"
-                    style={{ backgroundColor: getTokenColor(token.symbol, token.color) }}
-                  >
-                    <span className="text-[9px] font-medium text-white/90">
-                      {token.symbol.charAt(0)}
-                    </span>
-                  </div>
+                  <TokenIcon symbol={token.symbol} color={token.color} size={20} />
 
                   {/* Token Info */}
                   <div className="flex items-center gap-2">
@@ -234,3 +275,6 @@ export const AVAILABLE_TOKENS: Token[] = [
   // { symbol: 'USDC', name: 'USD Coin' },
   // { symbol: 'ETH', name: 'Ethereum' },
 ];
+
+// Export TokenIcon for use in other components
+export { TokenIcon, TOKEN_ICONS };

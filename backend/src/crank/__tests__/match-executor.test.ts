@@ -106,12 +106,15 @@ describe('MatchExecutor', () => {
         pairPda: commonPair,
       };
 
-      const transaction = await executor.buildMatchTransaction(candidate);
+      const result = await executor.buildMatchTransaction(candidate);
 
-      expect(transaction).toBeDefined();
-      expect(transaction.instructions).toHaveLength(1);
-      expect(transaction.recentBlockhash).toBe('test-blockhash-123');
-      expect(transaction.feePayer?.equals(crankKeypair.publicKey)).toBe(true);
+      expect(result).toBeDefined();
+      expect(result.transaction).toBeDefined();
+      expect(result.computationOffset).toBeDefined();
+      expect(result.ephemeralPrivateKey).toBeDefined();
+      expect(result.transaction.instructions).toHaveLength(1);
+      expect(result.transaction.recentBlockhash).toBe('test-blockhash-123');
+      expect(result.transaction.feePayer?.equals(crankKeypair.publicKey)).toBe(true);
     });
 
     it('includes buy and sell order PDAs in accounts', async () => {
@@ -130,11 +133,11 @@ describe('MatchExecutor', () => {
         pairPda: commonPair,
       };
 
-      const transaction = await executor.buildMatchTransaction(candidate);
-      const instruction = transaction.instructions[0];
+      const result = await executor.buildMatchTransaction(candidate);
+      const instruction = result.transaction.instructions[0];
 
       // Check that buy and sell PDAs are in the accounts
-      const accountKeys = instruction.keys.map(k => k.pubkey.toString());
+      const accountKeys = instruction.keys.map((k: { pubkey: PublicKey }) => k.pubkey.toString());
       expect(accountKeys).toContain(buyOrder.pda.toString());
       expect(accountKeys).toContain(sellOrder.pda.toString());
     });
@@ -155,10 +158,10 @@ describe('MatchExecutor', () => {
         pairPda: commonPair,
       };
 
-      const transaction = await executor.buildMatchTransaction(candidate);
-      const instruction = transaction.instructions[0];
+      const result = await executor.buildMatchTransaction(candidate);
+      const instruction = result.transaction.instructions[0];
 
-      const accountKeys = instruction.keys.map(k => k.pubkey.toString());
+      const accountKeys = instruction.keys.map((k: { pubkey: PublicKey }) => k.pubkey.toString());
       expect(accountKeys).toContain(commonPair.toString());
     });
 
@@ -178,11 +181,11 @@ describe('MatchExecutor', () => {
         pairPda: commonPair,
       };
 
-      const transaction = await executor.buildMatchTransaction(candidate);
-      const instruction = transaction.instructions[0];
+      const result = await executor.buildMatchTransaction(candidate);
+      const instruction = result.transaction.instructions[0];
 
       const crankAccount = instruction.keys.find(
-        k => k.pubkey.equals(crankKeypair.publicKey)
+        (k: { pubkey: PublicKey }) => k.pubkey.equals(crankKeypair.publicKey)
       );
 
       expect(crankAccount).toBeDefined();

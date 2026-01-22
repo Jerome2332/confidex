@@ -27,7 +27,7 @@ import { createHash } from 'crypto';
 
 // Configuration
 const MXE_PROGRAM_ID = new PublicKey(
-  process.env.MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
+  process.env.MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'
 );
 const RPC_URL =
   process.env.RPC_URL ||

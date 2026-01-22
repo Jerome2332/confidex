@@ -41,6 +41,9 @@ pub enum ConfidexError {
     #[msg("Orders are not matchable")]
     OrdersNotMatchable,
 
+    #[msg("Order is already in a pending match")]
+    OrderAlreadyMatching,
+
     #[msg("Eligibility proof verification failed")]
     EligibilityProofFailed,
 
@@ -158,4 +161,35 @@ pub enum ConfidexError {
 
     #[msg("Invalid program ID")]
     InvalidProgramId,
+
+    #[msg("Invalid account count in remaining_accounts")]
+    InvalidAccountCount,
+
+    // === V6 Async MPC Errors ===
+
+    #[msg("Operation pending - position has an active MPC request")]
+    OperationPending,
+
+    #[msg("Invalid MPC request ID")]
+    InvalidMpcRequest,
+
+    #[msg("Position already verified")]
+    PositionAlreadyVerified,
+
+    #[msg("Feature is temporarily disabled")]
+    FeatureDisabled,
+
+    // === V7 Close Position Errors ===
+
+    #[msg("Position is pending close - cannot perform other operations")]
+    PositionPendingClose,
+
+    #[msg("Position has a pending operation (margin add/remove)")]
+    PositionHasPendingOperation,
+
+    #[msg("Position is not pending close")]
+    PositionNotPendingClose,
+
+    #[msg("Invalid payout amount from MPC")]
+    InvalidPayoutAmount,
 }

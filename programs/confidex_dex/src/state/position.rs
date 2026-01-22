@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::hash::hash;
+use solana_sha256_hasher::hash;
 
 /// Position side (long or short)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -119,9 +119,47 @@ pub struct ConfidentialPosition {
     /// The position_count value used in PDA seed derivation
     /// Stored so close_position can derive the same PDA
     pub position_seed: u64,
+
+    // === ASYNC MPC TRACKING (V6) ===
+    // Fields to support async MPC operations for position verification,
+    // margin operations, and liquidation checks.
+
+    /// Pending MPC request ID (all zeros if no pending request)
+    /// Used to match callbacks to the correct position operation
+    pub pending_mpc_request: [u8; 32],
+
+    /// Pending margin operation amount (plaintext, will be encrypted by MPC)
+    /// Non-zero when a margin add/remove is pending MPC completion
+    pub pending_margin_amount: u64,
+
+    /// Type of pending margin operation (true = add, false = remove)
+    /// Only valid when pending_margin_amount > 0
+    pub pending_margin_is_add: bool,
+
+    /// Cached liquidation eligibility (set by batch liquidation check MPC callback)
+    /// Used by execute_adl to verify position should be liquidated
+    pub is_liquidatable: bool,
+
+    // === ASYNC CLOSE POSITION TRACKING (V7) ===
+
+    /// Whether this position is pending close (waiting for MPC payout calculation)
+    /// When true, no other operations (add/remove margin, liquidation) are allowed
+    pub pending_close: bool,
+
+    /// Exit price at time of close initiation (public oracle price)
+    /// Stored so MPC can compute PnL correctly
+    pub pending_close_exit_price: u64,
+
+    /// Whether this is a full close (vs partial close)
+    pub pending_close_full: bool,
+
+    /// Encrypted close size for partial closes (ignored for full close)
+    pub pending_close_size: [u8; 64],
 }
 
 impl ConfidentialPosition {
+    /// V7 account size - includes async close position tracking fields
+    /// Increased from 618 bytes to 692 bytes (+74 for close tracking)
     pub const SIZE: usize = 8 +   // discriminator
         32 +  // trader
         32 +  // market
@@ -147,8 +185,18 @@ impl ConfidentialPosition {
         8 +   // last_margin_add_hour
         1 +   // margin_add_count
         1 +   // bump
-        8;    // position_seed
-    // Total: 576 bytes (8 + 32+32+16+8+8+1+1 + 64*6 + 32+8+1+16+1+1+1+8+8+1+1+8)
+        8 +   // position_seed
+        // V6 fields:
+        32 +  // pending_mpc_request
+        8 +   // pending_margin_amount
+        1 +   // pending_margin_is_add
+        1 +   // is_liquidatable
+        // V7 fields (close position tracking):
+        1 +   // pending_close
+        8 +   // pending_close_exit_price
+        1 +   // pending_close_full
+        64;   // pending_close_size
+    // Total: 692 bytes
 
     pub const SEED: &'static [u8] = b"position";
 
@@ -293,6 +341,80 @@ impl ConfidentialPosition {
         let current = self.get_realized_pnl_plaintext();
         let new_pnl = current.saturating_add(delta);
         self.set_realized_pnl_plaintext(new_pnl);
+    }
+
+    // =========================================================================
+    // ASYNC MPC HELPERS (V6)
+    // =========================================================================
+
+    /// Check if position has a pending MPC operation
+    pub fn has_pending_mpc_request(&self) -> bool {
+        self.pending_mpc_request != [0u8; 32]
+    }
+
+    /// Check if position has a pending margin operation
+    pub fn has_pending_margin_operation(&self) -> bool {
+        self.pending_margin_amount > 0
+    }
+
+    /// Clear pending MPC request state
+    pub fn clear_pending_mpc_request(&mut self) {
+        self.pending_mpc_request = [0u8; 32];
+        self.pending_margin_amount = 0;
+        self.pending_margin_is_add = false;
+    }
+
+    /// Generate a unique request ID from position key and slot
+    /// Uses fixed-size array to avoid heap allocation
+    pub fn generate_request_id(position_key: &Pubkey, slot: u64) -> [u8; 32] {
+        let mut data = [0u8; 40];
+        data[..32].copy_from_slice(position_key.as_ref());
+        data[32..40].copy_from_slice(&slot.to_le_bytes());
+        hash(&data).to_bytes()
+    }
+
+    /// Check if position is awaiting initial MPC verification
+    /// (opened but threshold not yet verified by MPC)
+    pub fn is_awaiting_verification(&self) -> bool {
+        self.is_open() && !self.threshold_verified && self.has_pending_mpc_request()
+    }
+
+    // =========================================================================
+    // ASYNC CLOSE POSITION HELPERS (V7)
+    // =========================================================================
+
+    /// Check if position is pending close
+    pub fn is_pending_close(&self) -> bool {
+        self.pending_close
+    }
+
+    /// Check if position can be closed (open and not already pending close)
+    pub fn can_initiate_close(&self) -> bool {
+        self.is_open() && !self.pending_close && !self.has_pending_margin_operation()
+    }
+
+    /// Set pending close state
+    pub fn set_pending_close(
+        &mut self,
+        exit_price: u64,
+        full_close: bool,
+        close_size: [u8; 64],
+        request_id: [u8; 32],
+    ) {
+        self.pending_close = true;
+        self.pending_close_exit_price = exit_price;
+        self.pending_close_full = full_close;
+        self.pending_close_size = close_size;
+        self.pending_mpc_request = request_id;
+    }
+
+    /// Clear pending close state (called after close callback completes)
+    pub fn clear_pending_close(&mut self) {
+        self.pending_close = false;
+        self.pending_close_exit_price = 0;
+        self.pending_close_full = false;
+        self.pending_close_size = [0u8; 64];
+        self.clear_pending_mpc_request();
     }
 }
 

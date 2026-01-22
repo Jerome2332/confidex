@@ -178,6 +178,13 @@ Flow:
 - Commitment stored alongside 64-byte ciphertext on-chain
 - ZK verifies commitment bounds, MPC operates on ciphertext
 
+**✅ Arcium MPC Integration Complete (January 2026):**
+- MXE program deployed: `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM`
+- MXE callback CPIs to DEX `finalize_match` with `invoke_signed`
+- `verify_output()` called before CPI for cryptographic verification
+- All sync fallbacks removed (no plaintext extraction from ciphertext)
+- See `project-docs/arcium/migration-prd.md` for full migration details
+
 ### 2. Solvency Proof
 
 **Purpose:** Exchange proves `total_reserves ≥ sum(user_balances)` without revealing individual balances.

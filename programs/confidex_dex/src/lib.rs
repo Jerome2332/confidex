@@ -71,14 +71,25 @@ pub mod confidex_dex {
     }
 
     /// Match two orders via MPC price comparison
-    pub fn match_orders(ctx: Context<MatchOrders>) -> Result<()> {
-        instructions::match_orders::handler(ctx)
+    ///
+    /// All 12 Arcium accounts must be provided by the client using Arcium SDK derivation.
+    /// The computation_offset should be a random u64 to prevent computation account collisions.
+    pub fn match_orders<'info>(
+        ctx: Context<'_, '_, 'info, 'info, MatchOrders<'info>>,
+        params: match_orders::MatchOrdersParams,
+    ) -> Result<()> {
+        instructions::match_orders::handler(ctx, params)
     }
 
     /// Settle matched orders by transferring tokens between users
     /// Called after orders have been matched via MPC (status = Inactive, filled > 0)
-    pub fn settle_order(ctx: Context<SettleOrder>) -> Result<()> {
-        instructions::settle_order::handler(ctx)
+    ///
+    /// Settlement methods:
+    /// - 0 = ShadowWire (Bulletproof ZK, 1% fee)
+    /// - 1 = C-SPL (Arcium MPC, 0% fee) - disabled until SDK available
+    /// - 2 = StandardSPL (no privacy, fallback)
+    pub fn settle_order(ctx: Context<SettleOrder>, params: SettleOrderParams) -> Result<()> {
+        instructions::settle_order::handler(ctx, params)
     }
 
     /// Pause trading (admin only)
@@ -229,12 +240,40 @@ pub mod confidex_dex {
         instructions::perp_open_position::handler(ctx, params)
     }
 
-    /// Close a perpetual position (full or partial)
+    /// DEPRECATED: Legacy close position (panics - use initiate_close_position instead)
     pub fn close_position(
         ctx: Context<ClosePosition>,
         params: ClosePositionParams,
     ) -> Result<()> {
         instructions::perp_close_position::handler(ctx, params)
+    }
+
+    /// Initiate closing a perpetual position (V7 - async MPC flow)
+    /// Phase 1: Validates position, captures oracle price, queues MPC PnL computation
+    /// Phase 2 happens via close_position_callback when MPC completes
+    pub fn initiate_close_position(
+        ctx: Context<InitiateClosePosition>,
+        params: InitiateClosePositionParams,
+    ) -> Result<()> {
+        instructions::perp_close_position::initiate_close_position(ctx, params)
+    }
+
+    /// Callback for close position MPC result (V7)
+    /// Receives computed PnL and funding, executes token transfer, closes position
+    pub fn close_position_callback(
+        ctx: Context<ClosePositionCallback>,
+        params: ClosePositionCallbackParams,
+    ) -> Result<()> {
+        instructions::mpc_callback::close_position_callback(ctx, params)
+    }
+
+    /// Callback for funding settlement MPC result (V7)
+    /// Receives computed funding payment and updates encrypted collateral
+    pub fn funding_settlement_callback(
+        ctx: Context<FundingSettlementCallback>,
+        params: FundingSettlementParams,
+    ) -> Result<()> {
+        instructions::mpc_callback::funding_settlement_callback(ctx, params)
     }
 
     /// Add margin/collateral to an existing position
@@ -283,10 +322,23 @@ pub mod confidex_dex {
         instructions::perp_liquidate::handler(ctx, params)
     }
 
-    /// Auto-deleverage when insurance fund is depleted
+    /// Auto-deleverage when insurance fund is depleted (legacy handler)
     /// Force-closes profitable positions to cover underwater liquidations
+    /// Note: Uses cached is_liquidatable flag from batch MPC check (V6)
     pub fn auto_deleverage(ctx: Context<AutoDeleverage>) -> Result<()> {
         instructions::perp_auto_deleverage::handler(ctx)
+    }
+
+    /// Execute auto-deleverage using cached liquidation status (V6)
+    /// Requires position.is_liquidatable = true from prior batch MPC check
+    pub fn execute_adl(ctx: Context<ExecuteAdl>) -> Result<()> {
+        instructions::perp_auto_deleverage::execute_adl(ctx)
+    }
+
+    /// Initiate batch liquidation check for multiple positions (V6)
+    /// Marks positions as pending and emits event for crank to trigger MPC
+    pub fn initiate_liquidation_check(ctx: Context<InitiateLiquidationCheck>) -> Result<()> {
+        instructions::perp_auto_deleverage::initiate_liquidation_check(ctx)
     }
 
     /// Settle accumulated funding payments for a position
@@ -325,5 +377,47 @@ pub mod confidex_dex {
         result: Vec<u8>,
     ) -> Result<()> {
         instructions::mpc_callback::receive_fill_result(ctx, request_id, result)
+    }
+
+    /// Update orders from MPC computation result (event-driven pattern)
+    /// Called by backend after receiving MXE events (PriceCompareResult, FillCalculationResult)
+    /// This decouples MXE from DEX - backend subscribes to MXE events and updates DEX state
+    pub fn update_orders_from_result(
+        ctx: Context<UpdateOrdersFromResult>,
+        params: UpdateOrdersFromResultParams,
+    ) -> Result<()> {
+        instructions::mpc_callback::update_orders_from_result(ctx, params)
+    }
+
+    // === V6: Async MPC Callback Instructions ===
+
+    /// Callback for position verification from MXE (V6)
+    /// Called after verify_position_params MPC computes liquidation thresholds
+    /// Updates position with encrypted thresholds and marks as verified
+    pub fn position_verification_callback(
+        ctx: Context<PositionVerificationCallback>,
+        params: PositionVerificationParams,
+    ) -> Result<()> {
+        instructions::mpc_callback::position_verification_callback(ctx, params)
+    }
+
+    /// Callback for margin operation from MXE (V6)
+    /// Called after add/sub_encrypted MPC completes
+    /// Updates position with new collateral and thresholds, executes token transfer
+    pub fn margin_operation_callback(
+        ctx: Context<MarginOperationCallback>,
+        params: MarginOperationParams,
+    ) -> Result<()> {
+        instructions::mpc_callback::margin_operation_callback(ctx, params)
+    }
+
+    /// Callback for batch liquidation check from MXE (V6)
+    /// Called after batch_liquidation_check MPC determines which positions are underwater
+    /// Updates is_liquidatable flag on each position passed in remaining_accounts
+    pub fn liquidation_check_callback(
+        ctx: Context<LiquidationCheckCallback>,
+        params: LiquidationCheckParams,
+    ) -> Result<()> {
+        instructions::mpc_callback::liquidation_check_callback(ctx, params)
     }
 }

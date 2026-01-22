@@ -581,7 +581,7 @@ pub struct UpdateProgramIds<'info> {
     pub authority: Signer<'info>,
 }
 
-/// Parameters for updating program IDs
+/// Parameters for updating program IDs and cluster configuration
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct UpdateProgramIdsParams {
     /// New Arcium core program ID (None = keep current)
@@ -590,6 +590,9 @@ pub struct UpdateProgramIdsParams {
     pub mxe_program_id: Option<Pubkey>,
     /// New verifier program ID (None = keep current)
     pub verifier_program_id: Option<Pubkey>,
+    /// New Arcium cluster account (None = keep current)
+    /// This is the cluster PDA derived from offset (e.g., 456 for devnet v0.6.3)
+    pub arcium_cluster: Option<Pubkey>,
 }
 
 pub fn update_program_ids_handler(
@@ -623,6 +626,15 @@ pub fn update_program_ids_handler(
         );
         exchange.verifier_program_id = verifier_program_id;
         msg!("Verifier program ID updated: {}", verifier_program_id);
+    }
+
+    if let Some(arcium_cluster) = params.arcium_cluster {
+        require!(
+            ExchangeState::validate_program_id(&arcium_cluster),
+            ConfidexError::InvalidProgramId
+        );
+        exchange.arcium_cluster = arcium_cluster;
+        msg!("Arcium cluster updated: {}", arcium_cluster);
     }
 
     msg!("Program IDs update complete");

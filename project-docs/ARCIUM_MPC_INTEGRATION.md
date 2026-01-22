@@ -15,8 +15,10 @@ Confidex uses Arcium's MPC infrastructure to enable **true encrypted order match
 | Program | Program ID | Network |
 |---------|-----------|---------|
 | **confidex_dex** | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Devnet |
-| **arcium_mxe** | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | Devnet |
+| **confidex_mxe** | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` | Devnet |
 | **Arcium Core** | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` | Devnet |
+
+**MXE X25519 Public Key:** `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b`
 
 ## Architecture
 
@@ -278,15 +280,16 @@ When `USE_REAL_MPC = false`, the system uses simulated MPC that extracts plainte
 ### Cluster Configuration
 
 ```rust
-pub const DEFAULT_CLUSTER_OFFSET: u16 = 456;  // Devnet clusters: 456, 789 (NOTE: 123 does NOT exist)
+pub const DEFAULT_CLUSTER_OFFSET: u16 = 456;  // Devnet cluster v0.6.3
 ```
 
 **Valid Devnet Clusters:**
-| Offset | Version | Status |
-|--------|---------|--------|
-| 123 | N/A | ❌ Does NOT exist |
-| 456 | v0.6.3 | ✅ **Recommended** |
-| 789 | v0.5.1 | ✅ Available |
+| Offset | Version | Nodes | Status |
+|--------|---------|-------|--------|
+| 123 | N/A | N/A | Does NOT exist (despite old docs) |
+| 456 | v0.6.3 | 2/2 | **Recommended** - current production cluster |
+
+**Important:** Cluster 123 is mentioned in older Arcium documentation but does not exist on devnet. Always use cluster 456.
 
 ## Frontend Integration
 
@@ -451,8 +454,8 @@ cd frontend && npx tsx test-mpc-integration.ts
 Configuration:
   RPC URL: https://api.devnet.solana.com
   DEX Program: 63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-  MXE Program: DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
-  X25519 Key: 14706bf82ff9e9ce...
+  MXE Program: HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+  X25519 Key: 46589a2f72e04b04...
 
 --- Test 1: MXE Account Status ---
 ✅ MXE account exists (Size: 319 bytes)

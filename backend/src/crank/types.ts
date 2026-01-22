@@ -72,6 +72,8 @@ export interface MatchResult {
   buyOrderPda: PublicKey;
   sellOrderPda: PublicKey;
   timestamp: number;
+  /** Computation offset for MPC tracking (only on success) */
+  computationOffset?: string;
 }
 
 // ============================================
@@ -124,4 +126,100 @@ export interface TradingPairInfo {
   baseMint: PublicKey;
   quoteMint: PublicKey;
   active: boolean;
+}
+
+// ============================================
+// Position Types (V7 - includes close tracking)
+// ============================================
+
+export enum PositionStatus {
+  Open = 0,
+  Closed = 1,
+  Liquidated = 2,
+  AutoDeleveraged = 3,
+  PendingLiquidationCheck = 4,
+}
+
+export enum PositionSide {
+  Long = 0,
+  Short = 1,
+}
+
+/**
+ * V7 ConfidentialPosition - includes async close position tracking
+ * Total on-chain size: 692 bytes (8 discriminator + 684 data)
+ */
+export interface ConfidentialPosition {
+  trader: PublicKey;
+  market: PublicKey;
+  positionId: Uint8Array;           // 16 bytes
+  createdAtHour: bigint;
+  lastUpdatedHour: bigint;
+  side: PositionSide;
+  leverage: number;
+  encryptedSize: Uint8Array;        // 64 bytes
+  encryptedEntryPrice: Uint8Array;  // 64 bytes
+  encryptedCollateral: Uint8Array;  // 64 bytes
+  encryptedRealizedPnl: Uint8Array; // 64 bytes
+  encryptedLiqBelow: Uint8Array;    // 64 bytes
+  encryptedLiqAbove: Uint8Array;    // 64 bytes
+  thresholdCommitment: Uint8Array;  // 32 bytes
+  lastThresholdUpdateHour: bigint;
+  thresholdVerified: boolean;
+  entryCumulativeFunding: bigint;   // i128
+  status: PositionStatus;
+  eligibilityProofVerified: boolean;
+  partialCloseCount: number;
+  autoDeleveragePriority: bigint;
+  lastMarginAddHour: bigint;
+  marginAddCount: number;
+  bump: number;
+  positionSeed: bigint;
+  // V6 fields
+  pendingMpcRequest: Uint8Array;    // 32 bytes
+  pendingMarginAmount: bigint;
+  pendingMarginIsAdd: boolean;
+  isLiquidatable: boolean;
+  // V7 fields (close position tracking)
+  pendingClose: boolean;
+  pendingCloseExitPrice: bigint;
+  pendingCloseFull: boolean;
+  pendingCloseSize: Uint8Array;     // 64 bytes
+}
+
+export interface PositionWithPda {
+  pda: PublicKey;
+  position: ConfidentialPosition;
+}
+
+// ============================================
+// Close Position Event Types
+// ============================================
+
+export interface ClosePositionInitiatedEvent {
+  position: PublicKey;
+  trader: PublicKey;
+  market: PublicKey;
+  exitPrice: bigint;
+  fullClose: boolean;
+  requestId: Uint8Array;  // 32 bytes
+  timestamp: bigint;
+}
+
+export interface PositionClosedEvent {
+  position: PublicKey;
+  trader: PublicKey;
+  market: PublicKey;
+  payoutAmount: bigint;
+  isProfit: boolean;
+  partialCloseCount: number;
+  timestamp: bigint;
+}
+
+export interface PositionCloseFailedEvent {
+  position: PublicKey;
+  trader: PublicKey;
+  requestId: Uint8Array;  // 32 bytes
+  errorCode: number;
+  timestamp: bigint;
 }

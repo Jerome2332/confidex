@@ -203,7 +203,7 @@ export const IntroScene: React.FC<IntroSceneProps> = ({
             fontSize={TYPOGRAPHY.h2.size}
             fontWeight={TYPOGRAPHY.h2.weight}
             color={COLORS.text.secondary}
-            showCursor={true}
+            showCursor={false}
           />
         )}
       </div>

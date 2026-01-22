@@ -7,6 +7,7 @@ import { OpenOrders } from './open-orders';
 import { TradeHistory } from './trade-history';
 import { PositionRow, NoPositions } from './position-row';
 import { Funnel, ArrowsClockwise, Lock, X, CaretUp, CaretDown, TrendUp, TrendDown, SpinnerGap, Eye, EyeSlash } from '@phosphor-icons/react';
+import { TokenIcon } from './token-selector';
 import { ToggleSwitch } from './ui/toggle-switch';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 import { useSolPrice } from '@/hooks/use-pyth-price';
@@ -258,15 +259,7 @@ const BalancesTab: FC<{ hideSmall: boolean; filter: FilterOption; connected: boo
             className="grid grid-cols-5 gap-4 px-4 py-2.5 text-xs hover:bg-secondary/30 transition-colors"
           >
             <span className="font-medium flex items-center gap-2">
-              <div
-                className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white ${
-                  balance.coin === 'SOL'
-                    ? 'bg-gradient-to-br from-purple-500 to-blue-500'
-                    : 'bg-gradient-to-br from-green-500 to-teal-500'
-                }`}
-              >
-                {balance.coin.charAt(0)}
-              </div>
+              <TokenIcon symbol={balance.coin} size={20} />
               {balance.coin}
             </span>
             <span className="text-right font-mono">{balance.total.toFixed(4)}</span>
@@ -567,9 +560,7 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
           >
             {/* Market */}
             <span className="font-medium flex items-center gap-2">
-              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-[8px] font-bold text-white">
-                S
-              </div>
+              <TokenIcon symbol="SOL" size={20} />
               {position.marketSymbol}
             </span>
 

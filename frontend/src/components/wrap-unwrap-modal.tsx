@@ -2,11 +2,18 @@
 
 import { FC, useState, useEffect } from 'react';
 import { useWallet, useConnection } from '@solana/wallet-adapter-react';
-import { X, ArrowDown, ArrowUp, SpinnerGap, Lock, Wallet } from '@phosphor-icons/react';
+import { X, ArrowDown, ArrowUp, SpinnerGap, Lock, Wallet, Lightning, CheckCircle } from '@phosphor-icons/react';
+import { TokenIcon } from './token-selector';
 import { toast } from 'sonner';
 import { PublicKey, ComputeBudgetProgram } from '@solana/web3.js';
-import { buildWrapTransaction, buildUnwrapTransaction } from '@/lib/confidex-client';
-import { TRADING_PAIRS } from '@/lib/constants';
+import {
+  buildWrapTransaction,
+  buildUnwrapTransaction,
+  buildCompressedWrapTransaction,
+  isLightProtocolAvailable,
+  calculateCompressionSavings,
+} from '@/lib/confidex-client';
+import { TRADING_PAIRS, LIGHT_PROTOCOL_ENABLED } from '@/lib/constants';
 import { useEncryptedBalance } from '@/hooks/use-encrypted-balance';
 import { useTokenBalance } from '@/hooks/use-token-balance';
 
@@ -36,6 +43,11 @@ export const WrapUnwrapModal: FC<WrapUnwrapModalProps> = ({
   const [token, setToken] = useState<TokenType>('SOL');
   const [amount, setAmount] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Light Protocol compression toggle - defaults to enabled if available
+  const [useCompression, setUseCompression] = useState(LIGHT_PROTOCOL_ENABLED && isLightProtocolAvailable());
+
+  // Calculate rent savings for display
+  const compressionSavings = calculateCompressionSavings(1);
 
   // Reset form when modal opens
   useEffect(() => {
@@ -108,14 +120,32 @@ export const WrapUnwrapModal: FC<WrapUnwrapModalProps> = ({
       let transaction;
 
       if (mode === 'wrap') {
-        transaction = await buildWrapTransaction({
-          connection,
-          user: publicKey,
-          baseMint: SOL_MINT,
-          quoteMint: USDC_MINT,
-          tokenMint,
-          amount: amountLamports,
-        });
+        // Use compressed wrap if compression is enabled
+        if (useCompression && isLightProtocolAvailable()) {
+          const result = await buildCompressedWrapTransaction({
+            connection,
+            user: publicKey,
+            baseMint: SOL_MINT,
+            quoteMint: USDC_MINT,
+            tokenMint,
+            amount: amountLamports,
+            useCompression: true,
+          });
+          transaction = result.transaction;
+
+          if (result.rentSavings) {
+            console.log('[Wrap] Using Light Protocol compression, saving', result.rentSavings.savingsSOL, 'SOL');
+          }
+        } else {
+          transaction = await buildWrapTransaction({
+            connection,
+            user: publicKey,
+            baseMint: SOL_MINT,
+            quoteMint: USDC_MINT,
+            tokenMint,
+            amount: amountLamports,
+          });
+        }
       } else {
         transaction = await buildUnwrapTransaction({
           connection,
@@ -236,22 +266,24 @@ export const WrapUnwrapModal: FC<WrapUnwrapModalProps> = ({
             <div className="flex gap-2">
               <button
                 onClick={() => setToken('SOL')}
-                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-colors border ${
+                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-colors border flex items-center justify-center gap-2 ${
                   token === 'SOL'
                     ? 'bg-primary/10 text-primary border-primary/30'
                     : 'bg-secondary text-foreground border-border hover:bg-secondary/80'
                 }`}
               >
+                <TokenIcon symbol="SOL" size={20} />
                 SOL
               </button>
               <button
                 onClick={() => setToken('USDC')}
-                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-colors border ${
+                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-colors border flex items-center justify-center gap-2 ${
                   token === 'USDC'
                     ? 'bg-primary/10 text-primary border-primary/30'
                     : 'bg-secondary text-foreground border-border hover:bg-secondary/80'
                 }`}
               >
+                <TokenIcon symbol="USDC" size={20} />
                 USDC
               </button>
             </div>
@@ -317,6 +349,41 @@ export const WrapUnwrapModal: FC<WrapUnwrapModalProps> = ({
             </div>
           </div>
 
+          {/* Light Protocol Compression Toggle (wrap only) */}
+          {mode === 'wrap' && LIGHT_PROTOCOL_ENABLED && (
+            <div className="p-3 bg-gradient-to-r from-purple-500/10 to-blue-500/10 border border-purple-500/20 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Lightning size={16} className="text-purple-400" weight="fill" />
+                  <div>
+                    <span className="text-sm font-medium text-foreground">ZK Compression</span>
+                    <p className="text-xs text-muted-foreground">
+                      Save {compressionSavings.savingsSOL.toFixed(4)} SOL ({compressionSavings.savingsMultiplier}x cheaper)
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setUseCompression(!useCompression)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    useCompression ? 'bg-purple-500' : 'bg-secondary'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      useCompression ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+              {useCompression && (
+                <div className="mt-2 flex items-center gap-1 text-xs text-purple-300">
+                  <CheckCircle size={12} weight="fill" />
+                  <span>Powered by Light Protocol</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Info message */}
           <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
             <p className="text-xs text-muted-foreground">
@@ -324,6 +391,7 @@ export const WrapUnwrapModal: FC<WrapUnwrapModalProps> = ({
                 <>
                   Wrapping moves tokens from your wallet to your trading balance.
                   Your trading balance is encrypted for private trading.
+                  {useCompression && ' Using ZK Compression for rent-free storage.'}
                 </>
               ) : (
                 <>

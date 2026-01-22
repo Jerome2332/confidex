@@ -40,6 +40,7 @@ import { NATIVE_MINT } from '@solana/spl-token';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { OrderProgress, useOrderProgress } from './order-progress';
 import { WrapUnwrapModal } from './wrap-unwrap-modal';
+import { SettlementSelector } from './settlement-selector';
 
 type OrderSide = 'buy' | 'sell';
 type PositionSide = 'long' | 'short';
@@ -354,8 +355,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           eligibilityProof: proofResult?.proof || new Uint8Array(324),
         });
 
-        // Add compute budget
-        verifyTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 200_000 }));
+        // Add compute budget (ZK proof verification requires ~175K CUs, plus account creation)
+        verifyTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }));
 
         const { blockhash: verifyBlockhash } = await connection.getLatestBlockhash('confirmed');
         verifyTx.recentBlockhash = verifyBlockhash;
@@ -1495,6 +1496,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
                 Wrap tokens above to start trading privately
               </p>
             )}
+          </div>
+
+          {/* Settlement Method Selector */}
+          <div className="pt-2 border-t border-border/50">
+            <SettlementSelector variant="compact" />
           </div>
 
           {/* Encryption Status */}

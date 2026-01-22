@@ -12,6 +12,7 @@ import type {
 } from './types';
 import { shadowWireProvider } from './providers/shadowwire-provider';
 import { csplProvider } from './providers/cspl-provider';
+import { lightProvider } from './providers/light-provider';
 
 import { createLogger } from '@/lib/logger';
 
@@ -29,6 +30,7 @@ class SettlementManagerClass {
     // Register available providers
     this.providers.set('shadowwire', shadowWireProvider);
     this.providers.set('cspl', csplProvider);
+    this.providers.set('light', lightProvider);
 
     console.log('[Settlement Manager] Registered providers:',
       Array.from(this.providers.keys())
@@ -46,18 +48,60 @@ class SettlementManagerClass {
   }
 
   /**
+   * Select provider based on user preference
+   * If preference is 'auto' or unavailable, falls back to best available
+   *
+   * @param userPreference - User's preferred settlement method from settings
+   * @param allowFallback - Whether to fallback if preferred is unavailable (default: true)
+   * @returns Selected provider or null if none available
+   */
+  selectProvider(
+    userPreference: SettlementMethod = 'auto',
+    allowFallback = true
+  ): ISettlementProvider | null {
+    // If user explicitly selected a method (not auto)
+    if (userPreference !== 'auto') {
+      const preferred = this.providers.get(userPreference);
+
+      // If preferred is ready, use it
+      if (preferred?.isReady() && preferred.capabilities.isAvailable) {
+        log.debug(`User-selected: ${userPreference}`);
+        return preferred;
+      }
+
+      // If no fallback allowed, return null
+      if (!allowFallback) {
+        log.warn(`${userPreference} not available and fallback disabled`);
+        return null;
+      }
+
+      log.debug(`${userPreference} not available, falling back to auto-selection`);
+    }
+
+    // Auto-select best available provider
+    return this.selectBestProvider();
+  }
+
+  /**
    * Select the best available provider
-   * Priority: C-SPL (if available and ready) > ShadowWire
+   * Priority: C-SPL (full privacy, no fees) > Light (rent-free) > ShadowWire (full privacy, 1% fee)
    */
   private selectBestProvider(): ISettlementProvider | null {
-    // C-SPL has priority (no fees)
+    // C-SPL has highest priority (full privacy, no fees)
     const cspl = this.providers.get('cspl');
     if (cspl?.isReady() && cspl.capabilities.isAvailable) {
       log.debug('Auto-selected: C-SPL');
       return cspl;
     }
 
-    // Fallback to ShadowWire (production-ready, 1% fee)
+    // Light Protocol second priority (rent-free, partial privacy)
+    const light = this.providers.get('light');
+    if (light?.isReady() && light.capabilities.isAvailable) {
+      log.debug('Auto-selected: Light Protocol');
+      return light;
+    }
+
+    // Fallback to ShadowWire (production-ready, full privacy, 1% fee)
     const shadowWire = this.providers.get('shadowwire');
     if (shadowWire?.isReady() && shadowWire.capabilities.isAvailable) {
       log.debug('Auto-selected: ShadowWire');

@@ -17,6 +17,10 @@ import {
   spring,
   interpolate,
   AbsoluteFill,
+  Img,
+  staticFile,
+  Audio,
+  Sequence,
 } from "remotion";
 import {
   Shield,
@@ -32,13 +36,33 @@ import {
 import { COLORS, SPRINGS } from "../lib/constants";
 import { pulse } from "../lib/animations";
 
+// Token icon paths
+const SOL_ICON = staticFile("coin-icons/SOL-logo.png");
+const USDC_ICON = staticFile("coin-icons/USDC-logo.png");
+
+// Sound effects
+const SUCCESS_SFX = staticFile("audio/sfx/648212__philip_berger__ui-sounds-shimmering-success.wav");
+
 export const DemoScene: React.FC = () => {
   const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
+  const { fps, durationInFrames } = useVideoConfig();
 
-  // UI entrance
-  const uiEntrance = spring({
+  // Fade out at end of scene (last 15 frames = 0.5 seconds)
+  const fadeOutStart = durationInFrames - 15;
+  const fadeOut = interpolate(
     frame,
+    [fadeOutStart, durationInFrames],
+    [1, 0],
+    {
+      extrapolateLeft: "clamp",
+      extrapolateRight: "clamp",
+    }
+  );
+
+  // UI entrance (delayed by 0.5s / 15 frames)
+  const uiEntranceDelay = 15;
+  const uiEntrance = spring({
+    frame: frame - uiEntranceDelay,
     fps,
     config: SPRINGS.snappy,
   });
@@ -68,6 +92,7 @@ export const DemoScene: React.FC = () => {
         alignItems: "center",
         justifyContent: "center",
         padding: 80,
+        opacity: fadeOut,
       }}
     >
       {/* Mock Trading UI - fixed positions to prevent layout jumping */}
@@ -109,9 +134,6 @@ export const DemoScene: React.FC = () => {
           />
         </div>
       </div>
-
-      {/* Mouse cursor */}
-      <MouseCursor frame={frame} fps={fps} clickFrame={clickFrame} />
 
       {/* Success toast */}
       {frame >= toastStart && (
@@ -176,7 +198,7 @@ const MockTradingPanel: React.FC<{
   const buttonScale = interpolate(buttonPress, [0, 0.5, 1], [1, 0.95, 1]);
 
   // Animated typing effect for amount
-  const amountChars = "1.5000";
+  const amountChars = "1.5";
   const typingStart = 15;
   const charsPerFrame = 0.15;
   const typedAmount = frame < typingStart
@@ -242,12 +264,12 @@ const MockTradingPanel: React.FC<{
           gap: 8,
         }}
       >
-        <div
+        <Img
+          src={SOL_ICON}
           style={{
             width: 24,
             height: 24,
             borderRadius: 12,
-            background: "linear-gradient(135deg, #9945FF, #14F195)",
           }}
         />
         <span style={{ fontSize: 14, fontWeight: 500, color: COLORS.text.primary, fontFamily: "'Inter', system-ui, sans-serif" }}>

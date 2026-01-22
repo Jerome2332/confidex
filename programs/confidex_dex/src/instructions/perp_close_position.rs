@@ -1,13 +1,241 @@
+//! Close Position Instruction (V7 - Async MPC)
+//!
+//! Two-phase async close position flow:
+//!
+//! Phase 1: User calls initiate_close_position
+//!   - Validate position can be closed
+//!   - Capture oracle exit price
+//!   - Set pending_close = true
+//!   - Queue MPC computation for PnL + funding
+//!   - Emit ClosePositionInitiated event
+//!
+//! Phase 2: Crank triggers close_position_callback (via MPC callback)
+//!   - Receive computed encrypted_pnl, encrypted_funding from MPC
+//!   - Calculate final payout: collateral + pnl - funding - fees
+//!   - Transfer tokens to trader
+//!   - Mark position as Closed (or update for partial close)
+//!   - Emit PositionClosed event
+
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
-use crate::cpi::arcium::{
-    calculate_pnl_sync, calculate_funding_sync, add_encrypted, sub_encrypted, EncryptedU64
-};
+use crate::cpi::arcium::{calculate_pnl, MxeCpiAccounts};
 use crate::error::ConfidexError;
 use crate::oracle::get_sol_usd_price;
 use crate::state::{ConfidentialPosition, PerpetualMarket, PositionSide, PositionStatus};
 
+/// Accounts for initiating position close (Phase 1)
+/// MXE accounts are included to queue the PnL computation
+#[derive(Accounts)]
+pub struct InitiateClosePosition<'info> {
+    #[account(
+        mut,
+        seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
+        bump = perp_market.bump,
+    )]
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
+
+    #[account(
+        mut,
+        seeds = [
+            ConfidentialPosition::SEED,
+            trader.key().as_ref(),
+            perp_market.key().as_ref(),
+            &position.position_seed.to_le_bytes()
+        ],
+        bump = position.bump,
+        constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
+        constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
+        constraint = position.is_open() @ ConfidexError::PositionNotOpen,
+        constraint = !position.pending_close @ ConfidexError::PositionPendingClose,
+        constraint = !position.has_pending_margin_operation() @ ConfidexError::PositionHasPendingOperation
+    )]
+    pub position: Box<Account<'info, ConfidentialPosition>>,
+
+    /// CHECK: Pyth oracle for mark price / exit price
+    #[account(
+        constraint = oracle.key() == perp_market.oracle_price_feed @ ConfidexError::InvalidOraclePrice
+    )]
+    pub oracle: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub trader: Signer<'info>,
+
+    // === MXE CPI ACCOUNTS ===
+    // Required to queue PnL computation
+
+    /// CHECK: MXE signer PDA
+    #[account(mut)]
+    pub mxe_sign_pda: AccountInfo<'info>,
+
+    /// CHECK: MXE account
+    #[account(mut)]
+    pub mxe_account: AccountInfo<'info>,
+
+    /// CHECK: Cluster mempool
+    #[account(mut)]
+    pub mempool_account: AccountInfo<'info>,
+
+    /// CHECK: Cluster executing pool
+    #[account(mut)]
+    pub executing_pool: AccountInfo<'info>,
+
+    /// CHECK: Computation account
+    #[account(mut)]
+    pub computation_account: AccountInfo<'info>,
+
+    /// CHECK: Computation definition for calculate_pnl circuit
+    pub comp_def_account: AccountInfo<'info>,
+
+    /// CHECK: Cluster account
+    #[account(mut)]
+    pub cluster_account: AccountInfo<'info>,
+
+    /// CHECK: Arcium fee pool
+    #[account(mut)]
+    pub pool_account: AccountInfo<'info>,
+
+    /// CHECK: Arcium clock
+    #[account(mut)]
+    pub clock_account: AccountInfo<'info>,
+
+    /// System program
+    pub system_program: Program<'info, System>,
+
+    /// CHECK: Arcium main program
+    pub arcium_program: AccountInfo<'info>,
+
+    /// CHECK: MXE program
+    pub mxe_program: AccountInfo<'info>,
+}
+
+/// Parameters for initiating position close
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct InitiateClosePositionParams {
+    /// Encrypted amount to close (64 bytes) - for partial closes
+    /// If full_close is true, this is ignored
+    pub encrypted_close_size: [u8; 64],
+    /// Whether to close the full position
+    pub full_close: bool,
+    /// Computation offset for MXE (unique per computation)
+    pub computation_offset: u64,
+    /// MXE public key for encryption
+    pub mxe_pub_key: [u8; 32],
+    /// Nonce for MXE encryption
+    pub nonce: u128,
+}
+
+/// Initiate position close - Phase 1
+///
+/// Validates position can be closed, captures oracle price, and queues
+/// MPC computation for PnL calculation. Actual transfer happens in callback.
+pub fn initiate_close_position(
+    ctx: Context<InitiateClosePosition>,
+    params: InitiateClosePositionParams,
+) -> Result<()> {
+    let clock = Clock::get()?;
+    let position = &mut ctx.accounts.position;
+    let perp_market = &ctx.accounts.perp_market;
+
+    // Fetch current oracle price for exit
+    let exit_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+
+    // Calculate funding owed since position was opened
+    let current_cumulative_funding = match position.side {
+        PositionSide::Long => perp_market.cumulative_funding_long,
+        PositionSide::Short => perp_market.cumulative_funding_short,
+    };
+    let _funding_delta = current_cumulative_funding
+        .saturating_sub(position.entry_cumulative_funding);
+
+    msg!(
+        "Initiating close for position {:?}, exit_price={}, funding_delta={}",
+        position.position_id,
+        exit_price,
+        _funding_delta
+    );
+
+    // Build MXE CPI accounts
+    let mxe_accounts = MxeCpiAccounts {
+        payer: &ctx.accounts.trader.to_account_info(),
+        sign_pda_account: &ctx.accounts.mxe_sign_pda,
+        mxe_account: &ctx.accounts.mxe_account,
+        mempool_account: &ctx.accounts.mempool_account,
+        executing_pool: &ctx.accounts.executing_pool,
+        computation_account: &ctx.accounts.computation_account,
+        comp_def_account: &ctx.accounts.comp_def_account,
+        cluster_account: &ctx.accounts.cluster_account,
+        pool_account: &ctx.accounts.pool_account,
+        clock_account: &ctx.accounts.clock_account,
+        system_program: &ctx.accounts.system_program.to_account_info(),
+        arcium_program: &ctx.accounts.arcium_program,
+        mxe_program: &ctx.accounts.mxe_program,
+    };
+
+    // Queue MPC PnL calculation
+    let is_long = matches!(position.side, PositionSide::Long);
+    let queued = calculate_pnl(
+        mxe_accounts,
+        params.computation_offset,
+        &position.encrypted_size,
+        &position.encrypted_entry_price,
+        exit_price,
+        is_long,
+        &params.mxe_pub_key,
+        params.nonce,
+    )?;
+
+    msg!("Queued PnL MPC computation, request_id={:?}", &queued.request_id[0..8]);
+
+    // Set pending close state
+    position.set_pending_close(
+        exit_price,
+        params.full_close,
+        params.encrypted_close_size,
+        queued.request_id,
+    );
+
+    let coarse_time = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
+    position.last_updated_hour = coarse_time;
+
+    emit!(ClosePositionInitiated {
+        position: position.key(),
+        trader: position.trader,
+        market: position.market,
+        exit_price,
+        full_close: params.full_close,
+        request_id: queued.request_id,
+        timestamp: coarse_time,
+    });
+
+    msg!(
+        "Close position initiated: position={:?}, full_close={}",
+        position.position_id,
+        params.full_close
+    );
+
+    Ok(())
+}
+
+/// Event emitted when close position is initiated
+#[event]
+pub struct ClosePositionInitiated {
+    pub position: Pubkey,
+    pub trader: Pubkey,
+    pub market: Pubkey,
+    /// Exit price from oracle (public)
+    pub exit_price: u64,
+    pub full_close: bool,
+    pub request_id: [u8; 32],
+    pub timestamp: i64,
+}
+
+// ============================================================================
+// LEGACY SYNC HANDLER (DEPRECATED - kept for ABI compatibility)
+// ============================================================================
+
+/// Legacy accounts struct (for backwards compatibility)
+/// NOTE: This instruction will panic if called - use initiate_close_position instead
 #[derive(Accounts)]
 pub struct ClosePosition<'info> {
     #[account(
@@ -39,7 +267,6 @@ pub struct ClosePosition<'info> {
     pub oracle: AccountInfo<'info>,
 
     /// Trader's USDC token account
-    /// NOTE: Using standard SPL token transfer as fallback until C-SPL SDK is available.
     #[account(
         mut,
         constraint = trader_collateral_account.mint == perp_market.quote_mint @ ConfidexError::InvalidMint,
@@ -48,7 +275,6 @@ pub struct ClosePosition<'info> {
     pub trader_collateral_account: Account<'info, TokenAccount>,
 
     /// Market's collateral vault (USDC)
-    /// NOTE: Using standard SPL token vault as fallback until C-SPL SDK is available.
     #[account(
         mut,
         constraint = collateral_vault.key() == perp_market.collateral_vault @ ConfidexError::InvalidVault
@@ -62,7 +288,7 @@ pub struct ClosePosition<'info> {
     )]
     pub fee_recipient: AccountInfo<'info>,
 
-    /// CHECK: Vault authority PDA - seeds = ["vault", perp_market]
+    /// CHECK: Vault authority PDA
     #[account(
         seeds = [b"vault", perp_market.key().as_ref()],
         bump
@@ -72,224 +298,35 @@ pub struct ClosePosition<'info> {
     #[account(mut)]
     pub trader: Signer<'info>,
 
-    /// CHECK: Arcium program for MPC calculations
+    /// CHECK: Arcium program (unused in async flow)
     pub arcium_program: AccountInfo<'info>,
 
-    /// SPL Token program for collateral transfer
+    /// SPL Token program
     pub token_program: Program<'info, Token>,
 }
 
-/// Parameters for closing a position
+/// Legacy parameters (for backwards compatibility)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ClosePositionParams {
-    /// Encrypted amount to close (64 bytes) - for partial closes
-    /// If full_close is true, this is ignored
     pub encrypted_close_size: [u8; 64],
-    /// Encrypted exit price (64 bytes via Arcium)
-    /// Should match oracle price at execution time
     pub encrypted_exit_price: [u8; 64],
-    /// Whether to close the full position
     pub full_close: bool,
-    /// Payout amount in USDC (for SPL token transfer fallback)
-    /// NOTE: This is plaintext until C-SPL SDK is available.
-    /// For full close, this should be the original collateral amount.
-    /// In production with MPC, this would be computed encrypted.
     pub payout_amount: u64,
 }
 
+/// DEPRECATED: Legacy sync handler - always panics
+///
+/// This handler is kept for ABI compatibility but will always panic.
+/// Use initiate_close_position instead for the async MPC flow.
+#[allow(unused_variables)]
 pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Result<()> {
-    let clock = Clock::get()?;
-
-    // Get keys before mutable borrows
-    let perp_market_key = ctx.accounts.perp_market.key();
-    let vault_authority_bump = ctx.bumps.vault_authority;
-
-    let perp_market = &mut ctx.accounts.perp_market;
-    let position = &mut ctx.accounts.position;
-
-    // Calculate funding owed since position was opened
-    let current_cumulative_funding = match position.side {
-        PositionSide::Long => perp_market.cumulative_funding_long,
-        PositionSide::Short => perp_market.cumulative_funding_short,
-    };
-    let funding_delta = current_cumulative_funding
-        .saturating_sub(position.entry_cumulative_funding);
-
-    // === ORACLE PRICE FOR PNL ===
-    let is_long = matches!(position.side, PositionSide::Long);
-
-    // Fetch current oracle price for SOL/USD
-    let oracle_price = get_sol_usd_price(&ctx.accounts.oracle)?;
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot extract exit price from encrypted params anymore.
-    // Use oracle price directly for PnL calculation via MPC.
-    // The MPC will compute PnL using the encrypted entry price and public oracle price.
-    let exit_price = oracle_price;
-
-    // 1. Calculate PnL via MPC
-    // PnL = (exit_price - entry_price) * size for longs
-    //       (entry_price - exit_price) * size for shorts
-    let (encrypted_pnl, is_profit) = calculate_pnl_sync(
-        &ctx.accounts.arcium_program,
-        &position.encrypted_size,
-        &position.encrypted_entry_price,
-        exit_price,
-        is_long,
-    )?;
-
-    #[cfg(feature = "debug")]
-    msg!(
-        "MPC calculated PnL: is_profit={}, position={:?}",
-        is_profit,
-        position.position_id
+    // V7: This sync path is no longer valid
+    // All close operations must use the async two-phase flow:
+    // 1. initiate_close_position (queues MPC)
+    // 2. close_position_callback (receives MPC result, executes transfer)
+    panic!(
+        "FATAL: Legacy close_position handler called. \
+        V7 requires async MPC flow via initiate_close_position. \
+        This sync path attempted to call deprecated calculate_pnl_sync/add_encrypted."
     );
-
-    // 2. Calculate funding payment via MPC
-    // Funding = size * funding_delta
-    let (encrypted_funding, is_receiving_funding) = calculate_funding_sync(
-        &ctx.accounts.arcium_program,
-        &position.encrypted_size,
-        funding_delta as i64,
-        is_long,
-    )?;
-
-    #[cfg(feature = "debug")]
-    msg!(
-        "MPC calculated funding: is_receiving={}, position={:?}",
-        is_receiving_funding,
-        position.position_id
-    );
-
-    // 3. Calculate final payout: collateral + pnl - funding - fees
-    // Start with collateral
-    let mut payout = position.encrypted_collateral;
-
-    // Add/subtract PnL
-    if is_profit {
-        payout = add_encrypted(&ctx.accounts.arcium_program, &payout, &encrypted_pnl)?;
-    } else {
-        payout = sub_encrypted(&ctx.accounts.arcium_program, &payout, &encrypted_pnl)?;
-    }
-
-    // Add/subtract funding
-    if is_receiving_funding {
-        payout = add_encrypted(&ctx.accounts.arcium_program, &payout, &encrypted_funding)?;
-    } else {
-        payout = sub_encrypted(&ctx.accounts.arcium_program, &payout, &encrypted_funding)?;
-    }
-
-    // Update position's realized PnL
-    position.encrypted_realized_pnl = encrypted_pnl;
-
-    // ==========================================================================
-    // HACKATHON PAYOUT + FEE DEDUCTION
-    // Uses plaintext payout_amount until C-SPL SDK is available
-    // ==========================================================================
-
-    // Calculate taker fee: payout * taker_fee_bps / 10000
-    let taker_fee = params.payout_amount
-        .checked_mul(perp_market.taker_fee_bps as u64)
-        .ok_or(ConfidexError::ArithmeticOverflow)?
-        .checked_div(10_000)
-        .ok_or(ConfidexError::ArithmeticOverflow)?;
-
-    let net_payout = params.payout_amount
-        .checked_sub(taker_fee)
-        .ok_or(ConfidexError::ArithmeticOverflow)?;
-
-    msg!("Close position: payout={}, fee={}, net_payout={}",
-         params.payout_amount, taker_fee, net_payout);
-
-    // Transfer collateral back to trader (net of fee)
-    if net_payout > 0 {
-        let vault_authority_seeds = &[
-            b"vault" as &[u8],
-            perp_market_key.as_ref(),
-            &[vault_authority_bump],
-        ];
-        let signer_seeds = &[&vault_authority_seeds[..]];
-
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                Transfer {
-                    from: ctx.accounts.collateral_vault.to_account_info(),
-                    to: ctx.accounts.trader_collateral_account.to_account_info(),
-                    authority: ctx.accounts.vault_authority.to_account_info(),
-                },
-                signer_seeds,
-            ),
-            net_payout,
-        )?;
-
-        msg!(
-            "Transferred {} USDC from vault to trader (net of {} fee)",
-            net_payout, taker_fee
-        );
-    }
-
-    // Log taker fee for now
-    // NOTE: fee_recipient is an AccountInfo, not a TokenAccount.
-    // The fee is deducted from payout but not transferred to a separate account yet.
-    // In production, add a fee_recipient_token_account to the context.
-    if taker_fee > 0 {
-        msg!("Fee collected: {} USDC (fee_recipient={})", taker_fee, ctx.accounts.fee_recipient.key());
-    }
-
-    if params.full_close {
-        // Mark position as closed
-        position.status = PositionStatus::Closed;
-
-        // Update market open interest
-        // Note: Actual OI reduction happens via MPC callback since size is encrypted
-        // For now, we just decrement position count
-
-        msg!(
-            "Position fully closed: {} #{:?} on market {}",
-            position.trader,
-            position.position_id,
-            perp_market.key()
-        );
-    } else {
-        // Partial close
-        position.partial_close_count = position.partial_close_count.saturating_add(1);
-
-        // MPC updates for partial close:
-        // 1. Update encrypted_size = encrypted_size - close_size
-        position.encrypted_size = sub_encrypted(
-            &ctx.accounts.arcium_program,
-            &position.encrypted_size,
-            &params.encrypted_close_size,
-        )?;
-
-        // 2. Update encrypted_collateral proportionally
-        // For simplicity, we reduce collateral by the same proportion as size
-        // In production, this would be a more complex MPC calculation
-        // Note: The payout calculated above is for the closed portion
-        position.encrypted_collateral = sub_encrypted(
-            &ctx.accounts.arcium_program,
-            &position.encrypted_collateral,
-            &payout,
-        )?;
-
-        // 3. Recalculate liquidation threshold
-        // Mark as needing re-verification - position cannot be liquidated until re-verified
-        // TODO (POST-HACKATHON): Queue MPC callback for threshold recalculation:
-        //   queue_verify_position_params(mxe_accounts, position, leverage, mm_bps);
-        // For now, user must call verify_position_params manually to re-enable liquidation
-        position.threshold_verified = false;
-
-        msg!(
-            "Position partially closed: {} #{:?} on market {} (close #{})",
-            position.trader,
-            position.position_id,
-            perp_market.key(),
-            position.partial_close_count
-        );
-    }
-
-    position.last_updated_hour = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
-
-    Ok(())
 }

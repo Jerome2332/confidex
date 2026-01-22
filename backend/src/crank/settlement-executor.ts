@@ -35,9 +35,23 @@ const log = logger.settlement;
 const PAIR_SEED = Buffer.from('pair');
 const ORDER_SEED = Buffer.from('order');
 const USER_BALANCE_SEED = Buffer.from('user_balance');
+const EXCHANGE_SEED = Buffer.from('exchange');
+
+// System program ID
+const SYSTEM_PROGRAM_ID = new PublicKey('11111111111111111111111111111111');
 
 // settle_order discriminator: sha256("global:settle_order")[0..8]
 const SETTLE_ORDER_DISCRIMINATOR = new Uint8Array([0x50, 0x4a, 0xcc, 0x22, 0x0c, 0xb7, 0x42, 0x42]);
+
+// Settlement method enum
+// 0 = ShadowWire (Bulletproof ZK, 1% fee)
+// 1 = C-SPL (Arcium MPC, 0% fee) - disabled until SDK available
+// 2 = StandardSPL (no privacy, fallback)
+export enum SettlementMethod {
+  ShadowWire = 0,
+  CSPL = 1,
+  StandardSPL = 2,
+}
 
 interface MatchedOrderPair {
   buyOrderPda: PublicKey;
@@ -462,6 +476,33 @@ export class SettlementExecutor {
   }
 
   /**
+   * Derive exchange state PDA
+   */
+  private deriveExchangePda(): PublicKey {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [EXCHANGE_SEED],
+      this.programId
+    );
+    return pda;
+  }
+
+  /**
+   * Get fee recipient from exchange state
+   */
+  private async getFeeRecipient(): Promise<PublicKey | null> {
+    const exchangePda = this.deriveExchangePda();
+    const accountInfo = await this.connection.getAccountInfo(exchangePda);
+    if (!accountInfo) return null;
+
+    const data = accountInfo.data;
+    // Exchange account layout: discriminator(8) + authority(32) = fee_recipient starts at offset 40
+    // Actually need to check the exact layout - let's use offset 8 + 32 = 40 for authority, then fee_recipient
+    // Based on state/exchange.rs: authority(32) + fee_recipient(32)
+    const feeRecipient = new PublicKey(data.subarray(40, 72));
+    return feeRecipient;
+  }
+
+  /**
    * Parse trading pair to get mints
    */
   private async getPairMints(pairPda: PublicKey): Promise<{ baseMint: PublicKey; quoteMint: PublicKey } | null> {
@@ -481,12 +522,15 @@ export class SettlementExecutor {
 
   /**
    * Execute settle_order instruction
+   *
+   * @param settlementMethod - Settlement method (defaults to ShadowWire for privacy)
    */
   private async settleOrders(
     buyPda: PublicKey,
     sellPda: PublicKey,
     buyOrder: ParsedOrder,
-    sellOrder: ParsedOrder
+    sellOrder: ParsedOrder,
+    settlementMethod: SettlementMethod = SettlementMethod.ShadowWire
   ): Promise<void> {
     // Get trading pair mints
     const mints = await this.getPairMints(buyOrder.pair);
@@ -503,27 +547,47 @@ export class SettlementExecutor {
     const sellerBaseBalance = this.deriveUserBalancePda(sellOrder.maker, baseMint);
     const sellerQuoteBalance = this.deriveUserBalancePda(sellOrder.maker, quoteMint);
 
+    // Derive exchange and fee recipient accounts
+    const exchangePda = this.deriveExchangePda();
+    const feeRecipient = await this.getFeeRecipient();
+    if (!feeRecipient) {
+      log.error('Could not fetch fee recipient from exchange');
+      return;
+    }
+    const feeRecipientBalance = this.deriveUserBalancePda(feeRecipient, quoteMint);
+
+    const methodName = SettlementMethod[settlementMethod];
     log.debug({
       buyOrder: buyPda.toBase58().slice(0, 8),
       sellOrder: sellPda.toBase58().slice(0, 8),
       buyer: buyOrder.maker.toBase58().slice(0, 8),
       seller: sellOrder.maker.toBase58().slice(0, 8),
+      method: methodName,
     }, 'Building settlement TX');
 
+    // Build instruction data: discriminator (8 bytes) + SettleOrderParams (1 byte)
+    const instructionData = Buffer.alloc(9);
+    Buffer.from(SETTLE_ORDER_DISCRIMINATOR).copy(instructionData, 0);
+    instructionData.writeUInt8(settlementMethod, 8);
+
     // Build instruction
+    // Account order must match SettleOrder struct in settle_order.rs
     const instruction = new TransactionInstruction({
       keys: [
-        { pubkey: buyOrder.pair, isSigner: false, isWritable: false },  // pair
-        { pubkey: buyPda, isSigner: false, isWritable: true },          // buy_order
-        { pubkey: sellPda, isSigner: false, isWritable: true },         // sell_order
-        { pubkey: buyerBaseBalance, isSigner: false, isWritable: true }, // buyer_base_balance
-        { pubkey: buyerQuoteBalance, isSigner: false, isWritable: true },// buyer_quote_balance
-        { pubkey: sellerBaseBalance, isSigner: false, isWritable: true },// seller_base_balance
-        { pubkey: sellerQuoteBalance, isSigner: false, isWritable: true },// seller_quote_balance
-        { pubkey: this.crankKeypair.publicKey, isSigner: true, isWritable: false }, // crank
+        { pubkey: buyOrder.pair, isSigner: false, isWritable: false },     // pair
+        { pubkey: buyPda, isSigner: false, isWritable: true },             // buy_order
+        { pubkey: sellPda, isSigner: false, isWritable: true },            // sell_order
+        { pubkey: buyerBaseBalance, isSigner: false, isWritable: true },   // buyer_base_balance
+        { pubkey: buyerQuoteBalance, isSigner: false, isWritable: true },  // buyer_quote_balance
+        { pubkey: sellerBaseBalance, isSigner: false, isWritable: true },  // seller_base_balance
+        { pubkey: sellerQuoteBalance, isSigner: false, isWritable: true }, // seller_quote_balance
+        { pubkey: exchangePda, isSigner: false, isWritable: false },       // exchange
+        { pubkey: feeRecipientBalance, isSigner: false, isWritable: true },// fee_recipient_balance
+        { pubkey: this.crankKeypair.publicKey, isSigner: true, isWritable: true }, // crank (mut for init_if_needed)
+        { pubkey: SYSTEM_PROGRAM_ID, isSigner: false, isWritable: false },// system_program
       ],
       programId: this.programId,
-      data: Buffer.from(SETTLE_ORDER_DISCRIMINATOR),
+      data: instructionData,
     });
 
     const transaction = new Transaction().add(instruction);

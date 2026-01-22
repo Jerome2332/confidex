@@ -28,15 +28,15 @@ pub const ARCIUM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
     0x47, 0xa0, 0x70, 0x28, 0x03, 0xfa, 0x5d, 0x89,
 ]);
 
-/// Arcium MXE Program ID (our custom MXE)
-/// Base58: CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE
-/// This is our custom MXE that matches the DEX's CPI format (64-byte encrypted values)
-/// Unlike the Arcium SDK-deployed MXE (DoT4u...) which expects different instruction format
+/// Arcium MXE Program ID (production MXE deployed via `arcium deploy`)
+/// Base58: HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+/// Deployed to devnet cluster 456 (v0.6.3) with keygen complete (2025-01-22).
+/// This is the production MXE with full Arcium MPC support.
 pub const ARCIUM_MXE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    0xa6, 0x07, 0x94, 0x3d, 0xdf, 0x43, 0xc1, 0xab,
-    0xf5, 0x9b, 0x85, 0x84, 0x6b, 0x1e, 0xae, 0x6e,
-    0xe9, 0x85, 0x23, 0x63, 0x3b, 0xa3, 0x3d, 0x8a,
-    0x45, 0x19, 0xba, 0x03, 0xde, 0x53, 0xf2, 0x9d,
+    0xfa, 0x53, 0x76, 0xaf, 0xaa, 0xed, 0xce, 0xd4,
+    0xa7, 0x75, 0xc5, 0x68, 0x17, 0x0f, 0x7d, 0xe2,
+    0x79, 0x8e, 0xfa, 0xa5, 0x70, 0x71, 0xc2, 0xb8,
+    0x2f, 0xb9, 0xa1, 0x1b, 0x19, 0x43, 0x4e, 0x61,
 ]);
 
 /// Default cluster offset for devnet
@@ -54,27 +54,26 @@ pub type EncryptedBool = [u8; 32];
 
 /// Instruction discriminators for arcium_mxe program
 /// Computed as sha256("global:<instruction_name>")[0..8]
+///
+/// These are the correct discriminators for the MXE instructions.
+/// The MXE uses Anchor's standard discriminator format.
 pub mod mxe_discriminators {
-    /// queue_compare_prices: sha256("global:queue_compare_prices")[0..8]
-    pub const QUEUE_COMPARE_PRICES: [u8; 8] = [0x40, 0x28, 0xea, 0x8a, 0xf5, 0xa3, 0x0f, 0xf6];
-    /// queue_calculate_fill: sha256("global:queue_calculate_fill")[0..8]
-    pub const QUEUE_CALCULATE_FILL: [u8; 8] = [0xee, 0x2a, 0x2b, 0x88, 0x10, 0x47, 0x1d, 0x48];
+    /// compare_prices: sha256("global:compare_prices")[0..8]
+    pub const COMPARE_PRICES: [u8; 8] = [0x0f, 0xe0, 0x51, 0x76, 0xbb, 0x73, 0xde, 0xa6];
+    /// calculate_fill: sha256("global:calculate_fill")[0..8]
+    pub const CALCULATE_FILL: [u8; 8] = [0xe2, 0xd3, 0xaf, 0xc6, 0x8b, 0xce, 0xa4, 0xd0];
 
     // === Perpetuals Operations ===
-    /// verify_position_params instruction discriminator
-    pub const VERIFY_POSITION_PARAMS: [u8; 8] = [0x3a, 0x4b, 0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0x0b];
-    /// check_liquidation instruction discriminator
-    pub const CHECK_LIQUIDATION: [u8; 8] = [0x4b, 0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0x0b, 0x1c];
-    /// batch_liquidation_check instruction discriminator
-    pub const BATCH_LIQUIDATION_CHECK: [u8; 8] = [0x9a, 0x0b, 0x1c, 0x2d, 0x3e, 0x4f, 0x50, 0x61];
-    /// calculate_pnl instruction discriminator
-    pub const CALCULATE_PNL: [u8; 8] = [0x5c, 0x6d, 0x7e, 0x8f, 0x9a, 0x0b, 0x1c, 0x2d];
-    /// calculate_funding instruction discriminator
-    pub const CALCULATE_FUNDING: [u8; 8] = [0x6d, 0x7e, 0x8f, 0x9a, 0x0b, 0x1c, 0x2d, 0x3e];
-    /// calculate_margin_ratio instruction discriminator
-    pub const CALCULATE_MARGIN_RATIO: [u8; 8] = [0x7e, 0x8f, 0x9a, 0x0b, 0x1c, 0x2d, 0x3e, 0x4f];
-    /// update_collateral instruction discriminator
-    pub const UPDATE_COLLATERAL: [u8; 8] = [0x8f, 0x9a, 0x0b, 0x1c, 0x2d, 0x3e, 0x4f, 0x50];
+    /// verify_position_params: sha256("global:verify_position_params")[0..8]
+    pub const VERIFY_POSITION_PARAMS: [u8; 8] = [0xa8, 0x7c, 0xc9, 0xca, 0x61, 0xbf, 0x86, 0x7c];
+    /// check_liquidation: sha256("global:check_liquidation")[0..8]
+    pub const CHECK_LIQUIDATION: [u8; 8] = [0x11, 0xa4, 0x28, 0xf9, 0xfd, 0xa2, 0x84, 0xb6];
+    /// batch_liquidation_check: sha256("global:batch_liquidation_check")[0..8]
+    pub const BATCH_LIQUIDATION_CHECK: [u8; 8] = [0x3e, 0x33, 0xc0, 0x49, 0x7f, 0xbb, 0xf2, 0xc9];
+    /// calculate_pnl: sha256("global:calculate_pnl")[0..8]
+    pub const CALCULATE_PNL: [u8; 8] = [0x59, 0xdf, 0x00, 0x06, 0xae, 0x49, 0x22, 0xb0];
+    /// calculate_funding: sha256("global:calculate_funding")[0..8]
+    pub const CALCULATE_FUNDING: [u8; 8] = [0x6d, 0x7e, 0x85, 0xc8, 0xe7, 0x30, 0xe3, 0x80];
 }
 
 /// Supported Arcium operations for confidential DEX
@@ -99,56 +98,150 @@ pub struct QueuedComputation {
     pub request_id: [u8; 32],
 }
 
-/// Accounts needed for MXE CPI
+/// Full accounts needed for MXE CPI (12 accounts required)
+///
+/// The MXE uses Arcium's `#[queue_computation_accounts]` macro which requires
+/// exactly these 12 accounts in this order. The DEX must pass all accounts
+/// when CPI-ing to the MXE.
+///
+/// Account derivation:
+/// - sign_pda_account: seeds = ["ArciumSignerAccount"], program = MXE
+/// - mxe_account: seeds = ["MXEAccount"], program = MXE
+/// - mempool_account: from cluster offset via Arcium SDK
+/// - executing_pool: from cluster offset via Arcium SDK
+/// - computation_account: from computation_offset via Arcium SDK
+/// - comp_def_account: from circuit name hash via Arcium SDK
+/// - cluster_account: from cluster offset via Arcium SDK
+/// - pool_account: ARCIUM_FEE_POOL_ACCOUNT_ADDRESS constant
+/// - clock_account: ARCIUM_CLOCK_ACCOUNT_ADDRESS constant
 pub struct MxeCpiAccounts<'a, 'info> {
-    /// MXE config account
-    pub mxe_config: &'a AccountInfo<'info>,
-    /// Computation request account (will be created)
-    pub request_account: &'a AccountInfo<'info>,
-    /// Payer/requester
-    pub requester: &'a AccountInfo<'info>,
+    /// Payer for computation fees (signer)
+    pub payer: &'a AccountInfo<'info>,
+    /// MXE signer PDA (seeds: "ArciumSignerAccount")
+    pub sign_pda_account: &'a AccountInfo<'info>,
+    /// MXE account (seeds: "MXEAccount")
+    pub mxe_account: &'a AccountInfo<'info>,
+    /// Cluster mempool account
+    pub mempool_account: &'a AccountInfo<'info>,
+    /// Cluster executing pool account
+    pub executing_pool: &'a AccountInfo<'info>,
+    /// Computation account (for this specific computation)
+    pub computation_account: &'a AccountInfo<'info>,
+    /// Computation definition account (for the circuit)
+    pub comp_def_account: &'a AccountInfo<'info>,
+    /// Cluster account
+    pub cluster_account: &'a AccountInfo<'info>,
+    /// Arcium fee pool account
+    pub pool_account: &'a AccountInfo<'info>,
+    /// Arcium clock account
+    pub clock_account: &'a AccountInfo<'info>,
     /// System program
     pub system_program: &'a AccountInfo<'info>,
-    /// MXE program
+    /// Arcium program
+    pub arcium_program: &'a AccountInfo<'info>,
+    /// MXE program (target of CPI)
+    pub mxe_program: &'a AccountInfo<'info>,
+}
+
+/// LEGACY: Simplified accounts struct (DEPRECATED)
+/// This was used before the migration to full Arcium patterns.
+/// Use MxeCpiAccounts instead.
+#[deprecated(since = "0.2.0", note = "Use MxeCpiAccounts with full 12 accounts")]
+pub struct LegacyMxeCpiAccounts<'a, 'info> {
+    pub mxe_config: &'a AccountInfo<'info>,
+    pub request_account: &'a AccountInfo<'info>,
+    pub requester: &'a AccountInfo<'info>,
+    pub system_program: &'a AccountInfo<'info>,
     pub mxe_program: &'a AccountInfo<'info>,
 }
 
 /// Queue a price comparison computation via MPC
 ///
-/// CPIs to arcium_mxe program to queue computation.
+/// CPIs to arcium_mxe program to queue computation using the full 12-account structure
+/// required by Arcium's `#[queue_computation_accounts]` macro.
+///
 /// Returns request_id for tracking. Result comes back via callback.
 ///
-/// callback_account_1: buy_order pubkey (for MXE to pass to DEX callback)
-/// callback_account_2: sell_order pubkey (for MXE to pass to DEX callback)
+/// The MXE's compare_prices instruction expects:
+/// - computation_offset: u64 (random seed for computation PDA)
+/// - buy_price_ciphertext: [u8; 32] (only the ciphertext portion, not full 64 bytes)
+/// - sell_price_ciphertext: [u8; 32]
+/// - pub_key: [u8; 32] (X25519 public key for output encryption)
+/// - nonce: u128 (encryption nonce)
+/// - buy_order: Option<Pubkey> (order pubkey for callback CPI)
+/// - sell_order: Option<Pubkey> (order pubkey for callback CPI)
 pub fn queue_compare_prices<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     buy_price: &EncryptedU64,
     sell_price: &EncryptedU64,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
-    callback_account_1: &Pubkey, // buy_order
-    callback_account_2: &Pubkey, // sell_order
+    pub_key: &[u8; 32],
+    nonce: u128,
+    buy_order: Option<&Pubkey>,
+    sell_order: Option<&Pubkey>,
 ) -> Result<QueuedComputation> {
-    msg!("Arcium CPI: queue_compare_prices (MPC)");
+    msg!("Arcium CPI: compare_prices (MPC) via MXE");
 
-    // Build CPI instruction data
-    // Format: discriminator + buy_price + sell_price + callback_program + callback_discriminator + callback_account_1 + callback_account_2
-    let mut ix_data = Vec::with_capacity(8 + 64 + 64 + 32 + 8 + 32 + 32);
-    ix_data.extend_from_slice(&mxe_discriminators::QUEUE_COMPARE_PRICES);
-    ix_data.extend_from_slice(buy_price);
-    ix_data.extend_from_slice(sell_price);
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
-    ix_data.extend_from_slice(&callback_account_1.to_bytes()); // buy_order for callback
-    ix_data.extend_from_slice(&callback_account_2.to_bytes()); // sell_order for callback
+    // Build CPI instruction data matching MXE's expected format
+    // Format: discriminator (8) + computation_offset (8) + buy_ciphertext (32) +
+    //         sell_ciphertext (32) + pub_key (32) + nonce (16) +
+    //         buy_order (Option<Pubkey> = 1 or 33 bytes) + sell_order (Option<Pubkey> = 1 or 33 bytes)
+    //
+    // Borsh serialization for Option<T>:
+    //   None = [0x00]
+    //   Some(value) = [0x01, ...value_bytes...]
+    let buy_order_size = if buy_order.is_some() { 33 } else { 1 };
+    let sell_order_size = if sell_order.is_some() { 33 } else { 1 };
+    let total_size = 8 + 8 + 32 + 32 + 32 + 16 + buy_order_size + sell_order_size;
 
+    let mut ix_data = Vec::with_capacity(total_size);
+    ix_data.extend_from_slice(&mxe_discriminators::COMPARE_PRICES);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
+    // Extract the 32-byte ciphertext portion from the 64-byte encrypted value
+    // V2 format: [nonce (16) | ciphertext (32) | ephemeral_pubkey (16)]
+    ix_data.extend_from_slice(&buy_price[16..48]); // ciphertext only
+    ix_data.extend_from_slice(&sell_price[16..48]); // ciphertext only
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
+
+    // Serialize Option<Pubkey> for buy_order
+    match buy_order {
+        Some(pk) => {
+            ix_data.push(0x01); // Some variant
+            ix_data.extend_from_slice(pk.as_ref());
+        }
+        None => {
+            ix_data.push(0x00); // None variant
+        }
+    }
+
+    // Serialize Option<Pubkey> for sell_order
+    match sell_order {
+        Some(pk) => {
+            ix_data.push(0x01); // Some variant
+            ix_data.extend_from_slice(pk.as_ref());
+        }
+        None => {
+            ix_data.push(0x00); // None variant
+        }
+    }
+
+    // Build the 12-account structure required by Arcium's queue_computation
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
-            AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new(*accounts.payer.key, true),            // 1. payer (signer)
+            AccountMeta::new(*accounts.sign_pda_account.key, false), // 2. sign_pda
+            AccountMeta::new(*accounts.mxe_account.key, false),      // 3. mxe_account
+            AccountMeta::new(*accounts.mempool_account.key, false),  // 4. mempool
+            AccountMeta::new(*accounts.executing_pool.key, false),   // 5. executing_pool
+            AccountMeta::new(*accounts.computation_account.key, false), // 6. computation
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false), // 7. comp_def
+            AccountMeta::new(*accounts.cluster_account.key, false),  // 8. cluster
+            AccountMeta::new(*accounts.pool_account.key, false),     // 9. fee_pool
+            AccountMeta::new(*accounts.clock_account.key, false),    // 10. clock
+            AccountMeta::new_readonly(*accounts.system_program.key, false), // 11. system
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false), // 12. arcium
         ],
         data: ix_data,
     };
@@ -156,30 +249,40 @@ pub fn queue_compare_prices<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    // The MXE wrote the request_id at offset 8 (after discriminator)
-    let request_account_data = accounts.request_account.try_borrow_data()?;
+    // Generate request_id from computation_offset (deterministic)
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete, request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (compare_prices), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous price comparison - REMOVED IN V5
+/// REMOVED IN MIGRATION: Sync price comparison extracted plaintext from ciphertext
 ///
-/// This function previously provided a fallback that could extract plaintext
-/// from encrypted data. In V5, all price comparison MUST use async MPC.
+/// This function has been removed because it:
+/// 1. Extracted plaintext from ciphertext position 16-23 (CRITICAL SECURITY RISK)
+/// 2. Bypassed MPC entirely, defeating the purpose of encryption
 ///
-/// PANICS: This function always panics in V5. Use queue_compare_prices instead.
+/// Use the async MPC flow via queue_compare_prices() or CPI to MXE.compare_prices() instead.
+///
+/// PANICS: This function always panics. Migration to proper MXE CPI required.
+#[deprecated(since = "0.2.0", note = "Use queue_compare_prices() or CPI to MXE instead")]
 #[allow(unused_variables)]
 pub fn compare_encrypted_prices(
     _arcium_program: &AccountInfo,
@@ -187,44 +290,87 @@ pub fn compare_encrypted_prices(
     _buy_price: &EncryptedU64,
     _sell_price: &EncryptedU64,
 ) -> Result<bool> {
-    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
-    // All encrypted operations MUST use async MPC flow
     panic!(
-        "FATAL: compare_encrypted_prices sync fallback called in production. \
-        V5 requires async MPC via queue_compare_prices(). \
-        This indicates a code path that bypasses privacy guarantees."
+        "FATAL: compare_encrypted_prices() sync fallback removed in migration. \
+        This function extracted plaintext from ciphertext, defeating encryption. \
+        Use queue_compare_prices() for async MPC or CPI to MXE.compare_prices()."
     );
 }
 
 /// Queue a fill amount calculation via MPC
+///
+/// CPIs to arcium_mxe program using the full 12-account structure.
+/// Calculates: min(buy_remaining, sell_remaining) where remaining = amount - filled
 pub fn queue_calculate_fill<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     buy_amount: &EncryptedU64,
     buy_filled: &EncryptedU64,
     sell_amount: &EncryptedU64,
     sell_filled: &EncryptedU64,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
+    pub_key: &[u8; 32],
+    nonce: u128,
+    buy_order: Option<&Pubkey>,
+    sell_order: Option<&Pubkey>,
 ) -> Result<QueuedComputation> {
-    msg!("Arcium CPI: queue_calculate_fill (MPC)");
+    msg!("Arcium CPI: calculate_fill (MPC) via MXE");
 
     // Build CPI instruction data
-    let mut ix_data = Vec::with_capacity(8 + 64 * 4 + 32 + 8);
-    ix_data.extend_from_slice(&mxe_discriminators::QUEUE_CALCULATE_FILL);
-    ix_data.extend_from_slice(buy_amount);
-    ix_data.extend_from_slice(buy_filled);
-    ix_data.extend_from_slice(sell_amount);
-    ix_data.extend_from_slice(sell_filled);
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
+    // Format: discriminator (8) + computation_offset (8) + 4x ciphertext (32 each) +
+    //         pub_key (32) + nonce (16) + buy_order (Option) + sell_order (Option)
+    let buy_order_size = if buy_order.is_some() { 33 } else { 1 };
+    let sell_order_size = if sell_order.is_some() { 33 } else { 1 };
+    let total_size = 8 + 8 + 32 * 4 + 32 + 16 + buy_order_size + sell_order_size;
 
+    let mut ix_data = Vec::with_capacity(total_size);
+    ix_data.extend_from_slice(&mxe_discriminators::CALCULATE_FILL);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
+    // Extract 32-byte ciphertext portions from 64-byte encrypted values
+    ix_data.extend_from_slice(&buy_amount[16..48]);
+    ix_data.extend_from_slice(&buy_filled[16..48]);
+    ix_data.extend_from_slice(&sell_amount[16..48]);
+    ix_data.extend_from_slice(&sell_filled[16..48]);
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
+
+    // Serialize Option<Pubkey> for buy_order
+    match buy_order {
+        Some(pk) => {
+            ix_data.push(0x01);
+            ix_data.extend_from_slice(pk.as_ref());
+        }
+        None => {
+            ix_data.push(0x00);
+        }
+    }
+
+    // Serialize Option<Pubkey> for sell_order
+    match sell_order {
+        Some(pk) => {
+            ix_data.push(0x01);
+            ix_data.extend_from_slice(pk.as_ref());
+        }
+        None => {
+            ix_data.push(0x00);
+        }
+    }
+
+    // Build the 12-account structure required by Arcium's queue_computation
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
+            AccountMeta::new(*accounts.payer.key, true),
+            AccountMeta::new(*accounts.sign_pda_account.key, false),
+            AccountMeta::new(*accounts.mxe_account.key, false),
+            AccountMeta::new(*accounts.mempool_account.key, false),
+            AccountMeta::new(*accounts.executing_pool.key, false),
+            AccountMeta::new(*accounts.computation_account.key, false),
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false),
+            AccountMeta::new(*accounts.cluster_account.key, false),
+            AccountMeta::new(*accounts.pool_account.key, false),
+            AccountMeta::new(*accounts.clock_account.key, false),
             AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false),
         ],
         data: ix_data,
     };
@@ -232,29 +378,40 @@ pub fn queue_calculate_fill<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    let request_account_data = accounts.request_account.try_borrow_data()?;
+    // Generate request_id from computation_offset (deterministic)
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete (calculate_fill), request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (calculate_fill), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
 
-/// Synchronous fill calculation - REMOVED IN V5
+/// REMOVED IN MIGRATION: Sync fill calculation extracted plaintext from ciphertext
 ///
-/// This function previously provided a fallback that could extract plaintext
-/// from encrypted data. In V5, all fill calculation MUST use async MPC.
+/// This function has been removed because it:
+/// 1. Extracted plaintext from ciphertext position 16-23 (CRITICAL SECURITY RISK)
+/// 2. Bypassed MPC entirely, defeating the purpose of encryption
 ///
-/// PANICS: This function always panics in V5. Use queue_calculate_fill instead.
+/// Use the async MPC flow via queue_calculate_fill() or CPI to MXE.calculate_fill() instead.
+///
+/// PANICS: This function always panics. Migration to proper MXE CPI required.
+#[deprecated(since = "0.2.0", note = "Use queue_calculate_fill() or CPI to MXE instead")]
 #[allow(unused_variables)]
 pub fn calculate_encrypted_fill(
     _arcium_program: &AccountInfo,
@@ -264,82 +421,86 @@ pub fn calculate_encrypted_fill(
     _sell_amount: &EncryptedU64,
     _sell_filled: &EncryptedU64,
 ) -> Result<(EncryptedU64, bool, bool)> {
-    // V5 PRODUCTION: Sync MPC fallbacks are NOT allowed
-    // All encrypted operations MUST use async MPC flow
     panic!(
-        "FATAL: calculate_encrypted_fill sync fallback called in production. \
-        V5 requires async MPC via queue_calculate_fill(). \
-        This indicates a code path that bypasses privacy guarantees."
+        "FATAL: calculate_encrypted_fill() sync fallback removed in migration. \
+        This function extracted plaintext from ciphertext, defeating encryption. \
+        Use queue_calculate_fill() for async MPC or CPI to MXE.calculate_fill()."
     );
 }
 
-/// Encrypt a plaintext u64 value
+/// REMOVED IN MIGRATION: On-chain "encryption" stored plaintext at known position
 ///
-/// IMPORTANT: On-chain encryption should ONLY be used for public values
-/// (like fee multipliers, constants). User values must be encrypted client-side.
+/// This function has been removed because it:
+/// 1. Stored plaintext at offset 16-23, NOT actual encryption
+/// 2. Created fake "ciphertext" that MPC couldn't decrypt
+/// 3. Provided false sense of security
 ///
-/// With pure ciphertext format (V2), this function stores the value in a
-/// format compatible with MPC operations but does NOT provide privacy
-/// for the encrypted value itself (it's in a known position).
+/// For public constants in MPC operations, use ArgBuilder.plaintext_u64() in the MXE.
+/// User values must be encrypted client-side using RescueCipher.
+///
+/// PANICS: This function always panics. Migration to proper encryption required.
+#[deprecated(since = "0.2.0", note = "Use client-side RescueCipher or ArgBuilder.plaintext_*()")]
+#[allow(unused_variables)]
 pub fn encrypt_value(
     _arcium_program: &AccountInfo,
     _mxe_pubkey: &[u8; 32],
-    value: u64,
+    _value: u64,
 ) -> Result<EncryptedU64> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium: encrypt_value (on-chain - for public constants only)");
-
-    // For on-chain encryption of PUBLIC values (fee rates, multipliers):
-    // Store in bytes 16-23 to match V2 ciphertext position
-    // MPC will interpret this as a "plaintext ciphertext" for constants
-    //
-    // WARNING: This does NOT provide privacy - only use for public values!
-    let mut encrypted = [0u8; 64];
-    encrypted[16..24].copy_from_slice(&value.to_le_bytes());
-
-    Ok(encrypted)
+    panic!(
+        "FATAL: encrypt_value() removed in migration. \
+        This function stored plaintext at known position, NOT actual encryption. \
+        Use client-side RescueCipher for user values or ArgBuilder.plaintext_u64() for constants."
+    );
 }
 
-/// Add two encrypted values
+/// REMOVED IN MIGRATION: Addition on encrypted data requires MPC
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT perform
-/// actual addition on encrypted data. It returns the first operand unchanged.
-/// Real encrypted arithmetic must be done via MPC.
+/// This function has been removed because it:
+/// 1. Returned first operand unchanged (NOT actual addition)
+/// 2. Created incorrect results silently
+/// 3. Cannot perform arithmetic on ciphertext without MPC
+///
+/// Use MXE.add_encrypted() instruction via CPI, or redesign to use
+/// async MPC computation queue.
+///
+/// PANICS: This function always panics. Migration to MXE CPI required.
+#[deprecated(since = "0.2.0", note = "Use MXE CPI for encrypted arithmetic")]
+#[allow(unused_variables)]
 pub fn add_encrypted(
     _arcium_program: &AccountInfo,
-    a: &EncryptedU64,
+    _a: &EncryptedU64,
     _b: &EncryptedU64,
 ) -> Result<EncryptedU64> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: add_encrypted (MPC required - returning first operand)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot perform arithmetic on encrypted data without MPC.
-    // Return first operand unchanged - real addition via async MPC.
-    //
-    // The caller should use queue_*_computation for real encrypted arithmetic.
-
-    Ok(*a)
+    panic!(
+        "FATAL: add_encrypted() cannot perform arithmetic on ciphertext without MPC. \
+        This function returned first operand unchanged (incorrect). \
+        Use MXE.add_encrypted() via CPI or redesign with async MPC queue."
+    );
 }
 
-/// Subtract two encrypted values (a - b)
+/// REMOVED IN MIGRATION: Subtraction on encrypted data requires MPC
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT perform
-/// actual subtraction on encrypted data. It returns the first operand unchanged.
-/// Real encrypted arithmetic must be done via MPC.
+/// This function has been removed because it:
+/// 1. Returned first operand unchanged (NOT actual subtraction)
+/// 2. Created incorrect results silently
+/// 3. Cannot perform arithmetic on ciphertext without MPC
+///
+/// Use MXE.sub_encrypted() instruction via CPI, or redesign to use
+/// async MPC computation queue.
+///
+/// PANICS: This function always panics. Migration to MXE CPI required.
+#[deprecated(since = "0.2.0", note = "Use MXE CPI for encrypted arithmetic")]
+#[allow(unused_variables)]
 pub fn sub_encrypted(
     _arcium_program: &AccountInfo,
-    a: &EncryptedU64,
+    _a: &EncryptedU64,
     _b: &EncryptedU64,
 ) -> Result<EncryptedU64> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: sub_encrypted (MPC required - returning first operand)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot perform arithmetic on encrypted data without MPC.
-    // Return first operand unchanged - real subtraction via async MPC.
-
-    Ok(*a)
+    panic!(
+        "FATAL: sub_encrypted() cannot perform arithmetic on ciphertext without MPC. \
+        This function returned first operand unchanged (incorrect). \
+        Use MXE.sub_encrypted() via CPI or redesign with async MPC queue."
+    );
 }
 
 /// Arcium callback handler for computation results
@@ -363,6 +524,7 @@ pub struct ArciumCallback {
 /// Returns: bool (revealed) - whether the claimed threshold is valid
 pub fn verify_position_params<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     encrypted_collateral: &EncryptedU64,
     encrypted_size: &EncryptedU64,
     encrypted_entry_price: &EncryptedU64,
@@ -370,31 +532,42 @@ pub fn verify_position_params<'info>(
     leverage: u8,
     is_long: bool,
     maintenance_margin_bps: u16,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
+    pub_key: &[u8; 32],
+    nonce: u128,
 ) -> Result<QueuedComputation> {
-    msg!("Arcium CPI: verify_position_params (MPC)");
+    msg!("Arcium CPI: verify_position_params (MPC) via MXE");
 
     // Build CPI instruction data
-    let mut ix_data = Vec::with_capacity(8 + 64 * 3 + 8 + 1 + 1 + 2 + 32 + 8);
+    let mut ix_data = Vec::with_capacity(8 + 8 + 32 * 3 + 8 + 1 + 1 + 2 + 32 + 16);
     ix_data.extend_from_slice(&mxe_discriminators::VERIFY_POSITION_PARAMS);
-    ix_data.extend_from_slice(encrypted_collateral);
-    ix_data.extend_from_slice(encrypted_size);
-    ix_data.extend_from_slice(encrypted_entry_price);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
+    // Extract 32-byte ciphertext portions
+    ix_data.extend_from_slice(&encrypted_collateral[16..48]);
+    ix_data.extend_from_slice(&encrypted_size[16..48]);
+    ix_data.extend_from_slice(&encrypted_entry_price[16..48]);
     ix_data.extend_from_slice(&claimed_threshold.to_le_bytes());
     ix_data.push(leverage);
     ix_data.push(if is_long { 1 } else { 0 });
     ix_data.extend_from_slice(&maintenance_margin_bps.to_le_bytes());
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
 
+    // Build the 12-account structure
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
+            AccountMeta::new(*accounts.payer.key, true),
+            AccountMeta::new(*accounts.sign_pda_account.key, false),
+            AccountMeta::new(*accounts.mxe_account.key, false),
+            AccountMeta::new(*accounts.mempool_account.key, false),
+            AccountMeta::new(*accounts.executing_pool.key, false),
+            AccountMeta::new(*accounts.computation_account.key, false),
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false),
+            AccountMeta::new(*accounts.cluster_account.key, false),
+            AccountMeta::new(*accounts.pool_account.key, false),
+            AccountMeta::new(*accounts.clock_account.key, false),
             AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false),
         ],
         data: ix_data,
     };
@@ -402,19 +575,25 @@ pub fn verify_position_params<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    let request_account_data = accounts.request_account.try_borrow_data()?;
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete (verify_position_params), request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (verify_position_params), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
@@ -449,35 +628,47 @@ pub fn verify_position_params_sync(
 /// Returns: bool (revealed) - whether position should be liquidated
 pub fn check_liquidation<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     encrypted_collateral: &EncryptedU64,
     encrypted_size: &EncryptedU64,
     encrypted_entry_price: &EncryptedU64,
     mark_price: u64,
     is_long: bool,
     maintenance_margin_bps: u16,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
+    pub_key: &[u8; 32],
+    nonce: u128,
 ) -> Result<QueuedComputation> {
-    msg!("Arcium CPI: check_liquidation (MPC)");
+    msg!("Arcium CPI: check_liquidation (MPC) via MXE");
 
-    let mut ix_data = Vec::with_capacity(8 + 64 * 3 + 8 + 1 + 2 + 32 + 8);
+    let mut ix_data = Vec::with_capacity(8 + 8 + 32 * 3 + 8 + 1 + 2 + 32 + 16);
     ix_data.extend_from_slice(&mxe_discriminators::CHECK_LIQUIDATION);
-    ix_data.extend_from_slice(encrypted_collateral);
-    ix_data.extend_from_slice(encrypted_size);
-    ix_data.extend_from_slice(encrypted_entry_price);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
+    // Extract 32-byte ciphertext portions
+    ix_data.extend_from_slice(&encrypted_collateral[16..48]);
+    ix_data.extend_from_slice(&encrypted_size[16..48]);
+    ix_data.extend_from_slice(&encrypted_entry_price[16..48]);
     ix_data.extend_from_slice(&mark_price.to_le_bytes());
     ix_data.push(if is_long { 1 } else { 0 });
     ix_data.extend_from_slice(&maintenance_margin_bps.to_le_bytes());
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
 
+    // Build the 12-account structure
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
+            AccountMeta::new(*accounts.payer.key, true),
+            AccountMeta::new(*accounts.sign_pda_account.key, false),
+            AccountMeta::new(*accounts.mxe_account.key, false),
+            AccountMeta::new(*accounts.mempool_account.key, false),
+            AccountMeta::new(*accounts.executing_pool.key, false),
+            AccountMeta::new(*accounts.computation_account.key, false),
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false),
+            AccountMeta::new(*accounts.cluster_account.key, false),
+            AccountMeta::new(*accounts.pool_account.key, false),
+            AccountMeta::new(*accounts.clock_account.key, false),
             AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false),
         ],
         data: ix_data,
     };
@@ -485,19 +676,25 @@ pub fn check_liquidation<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    let request_account_data = accounts.request_account.try_borrow_data()?;
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete (check_liquidation), request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (check_liquidation), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
@@ -544,41 +741,51 @@ pub struct BatchLiquidationPositionData {
 /// instead of 10 separate calls (~5s total), making liquidation bots efficient.
 pub fn queue_batch_liquidation_check<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     positions: &[BatchLiquidationPositionData],
     mark_price: u64,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
-    batch_request_pubkey: &Pubkey,
+    pub_key: &[u8; 32],
+    nonce: u128,
 ) -> Result<QueuedComputation> {
     if positions.is_empty() || positions.len() > 10 {
         return Err(error!(ArciumError::InvalidResult));
     }
 
-    msg!("Arcium CPI: queue_batch_liquidation_check (MPC) - {} positions", positions.len());
+    msg!("Arcium CPI: batch_liquidation_check (MPC) via MXE - {} positions", positions.len());
 
     // Build CPI instruction data
-    // Format: discriminator + position_count + [encrypted_liq_threshold + is_long] * count + mark_price + callback_program + callback_discriminator + batch_request
-    let mut ix_data = Vec::with_capacity(8 + 1 + (65 * positions.len()) + 8 + 32 + 8 + 32);
+    // Format: discriminator + computation_offset + position_count + [ciphertext (32) + is_long] * count + mark_price + pub_key + nonce
+    let mut ix_data = Vec::with_capacity(8 + 8 + 1 + (33 * positions.len()) + 8 + 32 + 16);
     ix_data.extend_from_slice(&mxe_discriminators::BATCH_LIQUIDATION_CHECK);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
     ix_data.push(positions.len() as u8);
 
     for pos in positions {
-        ix_data.extend_from_slice(&pos.encrypted_liq_threshold);
+        // Extract 32-byte ciphertext portion from 64-byte encrypted value
+        ix_data.extend_from_slice(&pos.encrypted_liq_threshold[16..48]);
         ix_data.push(if pos.is_long { 1 } else { 0 });
     }
 
     ix_data.extend_from_slice(&mark_price.to_le_bytes());
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
-    ix_data.extend_from_slice(&batch_request_pubkey.to_bytes());
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
 
+    // Build the 12-account structure
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
+            AccountMeta::new(*accounts.payer.key, true),
+            AccountMeta::new(*accounts.sign_pda_account.key, false),
+            AccountMeta::new(*accounts.mxe_account.key, false),
+            AccountMeta::new(*accounts.mempool_account.key, false),
+            AccountMeta::new(*accounts.executing_pool.key, false),
+            AccountMeta::new(*accounts.computation_account.key, false),
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false),
+            AccountMeta::new(*accounts.cluster_account.key, false),
+            AccountMeta::new(*accounts.pool_account.key, false),
+            AccountMeta::new(*accounts.clock_account.key, false),
             AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false),
         ],
         data: ix_data,
     };
@@ -586,19 +793,25 @@ pub fn queue_batch_liquidation_check<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    let request_account_data = accounts.request_account.try_borrow_data()?;
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete (batch_liquidation_check), request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (batch_liquidation_check), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
@@ -608,31 +821,43 @@ pub fn queue_batch_liquidation_check<'info>(
 /// Returns: encrypted_pnl (can be negative, stored as signed in first 8 bytes)
 pub fn calculate_pnl<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     encrypted_size: &EncryptedU64,
     encrypted_entry_price: &EncryptedU64,
     exit_price: u64,
     is_long: bool,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
+    pub_key: &[u8; 32],
+    nonce: u128,
 ) -> Result<QueuedComputation> {
-    msg!("Arcium CPI: calculate_pnl (MPC)");
+    msg!("Arcium CPI: calculate_pnl (MPC) via MXE");
 
-    let mut ix_data = Vec::with_capacity(8 + 64 * 2 + 8 + 1 + 32 + 8);
+    let mut ix_data = Vec::with_capacity(8 + 8 + 32 * 2 + 8 + 1 + 32 + 16);
     ix_data.extend_from_slice(&mxe_discriminators::CALCULATE_PNL);
-    ix_data.extend_from_slice(encrypted_size);
-    ix_data.extend_from_slice(encrypted_entry_price);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
+    // Extract 32-byte ciphertext portions
+    ix_data.extend_from_slice(&encrypted_size[16..48]);
+    ix_data.extend_from_slice(&encrypted_entry_price[16..48]);
     ix_data.extend_from_slice(&exit_price.to_le_bytes());
     ix_data.push(if is_long { 1 } else { 0 });
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
 
+    // Build the 12-account structure
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
+            AccountMeta::new(*accounts.payer.key, true),
+            AccountMeta::new(*accounts.sign_pda_account.key, false),
+            AccountMeta::new(*accounts.mxe_account.key, false),
+            AccountMeta::new(*accounts.mempool_account.key, false),
+            AccountMeta::new(*accounts.executing_pool.key, false),
+            AccountMeta::new(*accounts.computation_account.key, false),
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false),
+            AccountMeta::new(*accounts.cluster_account.key, false),
+            AccountMeta::new(*accounts.pool_account.key, false),
+            AccountMeta::new(*accounts.clock_account.key, false),
             AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false),
         ],
         data: ix_data,
     };
@@ -640,19 +865,25 @@ pub fn calculate_pnl<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    let request_account_data = accounts.request_account.try_borrow_data()?;
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete (calculate_pnl), request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (calculate_pnl), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
@@ -685,31 +916,43 @@ pub fn calculate_pnl_sync(
 /// Returns: encrypted_funding_payment
 pub fn calculate_funding<'info>(
     accounts: MxeCpiAccounts<'_, 'info>,
+    computation_offset: u64,
     encrypted_size: &EncryptedU64,
     funding_rate: i64,
     funding_delta: i64,
     is_long: bool,
-    callback_program: &Pubkey,
-    callback_discriminator: [u8; 8],
+    pub_key: &[u8; 32],
+    nonce: u128,
 ) -> Result<QueuedComputation> {
-    msg!("Arcium CPI: calculate_funding (MPC)");
+    msg!("Arcium CPI: calculate_funding (MPC) via MXE");
 
-    let mut ix_data = Vec::with_capacity(8 + 64 + 8 + 8 + 1 + 32 + 8);
+    let mut ix_data = Vec::with_capacity(8 + 8 + 32 + 8 + 8 + 1 + 32 + 16);
     ix_data.extend_from_slice(&mxe_discriminators::CALCULATE_FUNDING);
-    ix_data.extend_from_slice(encrypted_size);
+    ix_data.extend_from_slice(&computation_offset.to_le_bytes());
+    // Extract 32-byte ciphertext portion
+    ix_data.extend_from_slice(&encrypted_size[16..48]);
     ix_data.extend_from_slice(&funding_rate.to_le_bytes());
     ix_data.extend_from_slice(&funding_delta.to_le_bytes());
     ix_data.push(if is_long { 1 } else { 0 });
-    ix_data.extend_from_slice(&callback_program.to_bytes());
-    ix_data.extend_from_slice(&callback_discriminator);
+    ix_data.extend_from_slice(pub_key);
+    ix_data.extend_from_slice(&nonce.to_le_bytes());
 
+    // Build the 12-account structure
     let ix = Instruction {
         program_id: ARCIUM_MXE_PROGRAM_ID,
         accounts: vec![
-            AccountMeta::new(*accounts.mxe_config.key, false),
-            AccountMeta::new(*accounts.request_account.key, false),
-            AccountMeta::new(*accounts.requester.key, true),
+            AccountMeta::new(*accounts.payer.key, true),
+            AccountMeta::new(*accounts.sign_pda_account.key, false),
+            AccountMeta::new(*accounts.mxe_account.key, false),
+            AccountMeta::new(*accounts.mempool_account.key, false),
+            AccountMeta::new(*accounts.executing_pool.key, false),
+            AccountMeta::new(*accounts.computation_account.key, false),
+            AccountMeta::new_readonly(*accounts.comp_def_account.key, false),
+            AccountMeta::new(*accounts.cluster_account.key, false),
+            AccountMeta::new(*accounts.pool_account.key, false),
+            AccountMeta::new(*accounts.clock_account.key, false),
             AccountMeta::new_readonly(*accounts.system_program.key, false),
+            AccountMeta::new_readonly(*accounts.arcium_program.key, false),
         ],
         data: ix_data,
     };
@@ -717,19 +960,25 @@ pub fn calculate_funding<'info>(
     invoke(
         &ix,
         &[
-            accounts.mxe_config.clone(),
-            accounts.request_account.clone(),
-            accounts.requester.clone(),
+            accounts.payer.clone(),
+            accounts.sign_pda_account.clone(),
+            accounts.mxe_account.clone(),
+            accounts.mempool_account.clone(),
+            accounts.executing_pool.clone(),
+            accounts.computation_account.clone(),
+            accounts.comp_def_account.clone(),
+            accounts.cluster_account.clone(),
+            accounts.pool_account.clone(),
+            accounts.clock_account.clone(),
             accounts.system_program.clone(),
+            accounts.arcium_program.clone(),
         ],
     )?;
 
-    // Extract request_id from the created computation request account
-    let request_account_data = accounts.request_account.try_borrow_data()?;
     let mut request_id = [0u8; 32];
-    request_id.copy_from_slice(&request_account_data[8..40]);
+    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
 
-    msg!("MXE CPI complete (calculate_funding), request_id={:?}", &request_id[0..8]);
+    msg!("MXE CPI complete (calculate_funding), computation_offset={}", computation_offset);
 
     Ok(QueuedComputation { request_id })
 }
@@ -756,24 +1005,29 @@ pub fn calculate_funding_sync(
     );
 }
 
-/// Multiply two encrypted values
+/// REMOVED IN MIGRATION: Multiplication on encrypted data requires MPC
 ///
-/// IMPORTANT: With pure ciphertext format (V2), this function CANNOT perform
-/// actual multiplication on encrypted data. It returns the first operand unchanged.
-/// Real encrypted arithmetic must be done via MPC.
+/// This function has been removed because it:
+/// 1. Returned first operand unchanged (NOT actual multiplication)
+/// 2. Created incorrect results silently
+/// 3. Cannot perform arithmetic on ciphertext without MPC
+///
+/// Use MXE.mul_encrypted() instruction via CPI, or redesign to use
+/// async MPC computation queue.
+///
+/// PANICS: This function always panics. Migration to MXE CPI required.
+#[deprecated(since = "0.2.0", note = "Use MXE CPI for encrypted arithmetic")]
+#[allow(unused_variables)]
 pub fn mul_encrypted(
     _arcium_program: &AccountInfo,
-    a: &EncryptedU64,
+    _a: &EncryptedU64,
     _b: &EncryptedU64,
 ) -> Result<EncryptedU64> {
-    #[cfg(feature = "debug")]
-    msg!("Arcium CPI: mul_encrypted (MPC required - returning first operand)");
-
-    // PURE CIPHERTEXT FORMAT (V2):
-    // We cannot perform arithmetic on encrypted data without MPC.
-    // Return first operand unchanged - real multiplication via async MPC.
-
-    Ok(*a)
+    panic!(
+        "FATAL: mul_encrypted() cannot perform arithmetic on ciphertext without MPC. \
+        This function returned first operand unchanged (incorrect). \
+        Use MXE.mul_encrypted() via CPI or redesign with async MPC queue."
+    );
 }
 
 /// Arcium-specific errors
@@ -814,7 +1068,7 @@ mod tests {
     fn verify_arcium_mxe_program_id() {
         assert_eq!(
             ARCIUM_MXE_PROGRAM_ID.to_string(),
-            "CB7P5zmhJHXzGQqU9544VWdJvficPwtJJJ3GXdqAMrPE",
+            "DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM",
             "ARCIUM_MXE_PROGRAM_ID bytes do not match expected Base58"
         );
     }

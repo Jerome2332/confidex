@@ -95,6 +95,11 @@ export const logger = {
   // ZK proofs
   prover: createLogger('prover'),
   blacklist: createLogger('blacklist'),
+
+  // V6 Async MPC services
+  position: createLogger('position'),
+  margin: createLogger('margin'),
+  liquidation: createLogger('liquidation'),
 };
 
 /**

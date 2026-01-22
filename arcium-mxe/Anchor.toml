@@ -1,9 +1,11 @@
+[toolchain]
+
 [features]
-seeds = false
+resolution = true
 skip-lint = false
 
 [programs.devnet]
-confidex_mxe = "DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM"
+confidex_mxe = "HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS"
 
 [registry]
 url = "https://api.apr.dev"

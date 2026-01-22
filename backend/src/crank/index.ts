@@ -23,6 +23,14 @@ import { DatabaseClient } from '../db/client.js';
 import { DatabaseManager } from '../db/index.js';
 import { DistributedLockService, LOCK_NAMES } from './distributed-lock.js';
 import { logger } from '../lib/logger.js';
+// V6 Async MPC services
+import { PositionVerifier } from './position-verifier.js';
+import { MarginProcessor } from './margin-processor.js';
+import { LiquidationChecker } from './liquidation-checker.js';
+// V7 Close position service
+import { ClosePositionProcessor } from './close-position-processor.js';
+// V7 Funding settlement service
+import { FundingSettlementProcessor } from './funding-settlement-processor.js';
 
 const log = logger.crank;
 
@@ -36,6 +44,15 @@ export class CrankService {
   private matchExecutor: MatchExecutor | null = null;
   private mpcPoller: MpcPoller | null = null;
   private settlementExecutor: SettlementExecutor | null = null;
+
+  // V6 Async MPC services for perpetuals
+  private positionVerifier: PositionVerifier | null = null;
+  private marginProcessor: MarginProcessor | null = null;
+  private liquidationChecker: LiquidationChecker | null = null;
+  // V7 Close position processor
+  private closePositionProcessor: ClosePositionProcessor | null = null;
+  // V7 Funding settlement processor
+  private fundingSettlementProcessor: FundingSettlementProcessor | null = null;
 
   // Service state
   private status: CrankStatus = 'stopped';
@@ -289,6 +306,54 @@ export class CrankService {
       this.settlementExecutor.start();
       log.info('Settlement executor started');
 
+      // Initialize V6 async MPC services for perpetuals
+      if (this.config.useAsyncMpc) {
+        // Position verification service
+        this.positionVerifier = new PositionVerifier(
+          this.connection,
+          this.wallet.getKeypair(),
+          this.config
+        );
+        await this.positionVerifier.start();
+        log.info('Position verifier started');
+
+        // Margin operation processor
+        this.marginProcessor = new MarginProcessor(
+          this.connection,
+          this.wallet.getKeypair(),
+          this.config
+        );
+        await this.marginProcessor.start();
+        log.info('Margin processor started');
+
+        // Liquidation checker
+        this.liquidationChecker = new LiquidationChecker(
+          this.connection,
+          this.wallet.getKeypair(),
+          this.config
+        );
+        await this.liquidationChecker.start();
+        log.info('Liquidation checker started');
+
+        // V7 Close position processor
+        this.closePositionProcessor = new ClosePositionProcessor(
+          this.connection,
+          this.wallet.getKeypair(),
+          this.config
+        );
+        await this.closePositionProcessor.start();
+        log.info('Close position processor started');
+
+        // V7 Funding settlement processor
+        this.fundingSettlementProcessor = new FundingSettlementProcessor(
+          this.connection,
+          this.wallet.getKeypair(),
+          this.config
+        );
+        await this.fundingSettlementProcessor.start();
+        log.info('Funding settlement processor started');
+      }
+
       // Start polling loop
       this.status = 'running';
       this.metrics.status = 'running';
@@ -333,6 +398,32 @@ export class CrankService {
     if (this.settlementExecutor) {
       this.settlementExecutor.stop();
       this.settlementExecutor = null;
+    }
+
+    // Stop V6 async MPC services
+    if (this.positionVerifier) {
+      this.positionVerifier.stop();
+      this.positionVerifier = null;
+    }
+
+    if (this.marginProcessor) {
+      this.marginProcessor.stop();
+      this.marginProcessor = null;
+    }
+
+    if (this.liquidationChecker) {
+      this.liquidationChecker.stop();
+      this.liquidationChecker = null;
+    }
+
+    if (this.closePositionProcessor) {
+      this.closePositionProcessor.stop();
+      this.closePositionProcessor = null;
+    }
+
+    if (this.fundingSettlementProcessor) {
+      this.fundingSettlementProcessor.stop();
+      this.fundingSettlementProcessor = null;
     }
 
     this.status = 'stopped';
@@ -622,4 +713,12 @@ export { OrderStateManager } from './order-state-manager.js';
 export { MatchExecutor } from './match-executor.js';
 export { MpcPoller } from './mpc-poller.js';
 export { SettlementExecutor } from './settlement-executor.js';
+// V6 Async MPC services for perpetuals
+export { PositionVerifier } from './position-verifier.js';
+export { MarginProcessor } from './margin-processor.js';
+export { LiquidationChecker } from './liquidation-checker.js';
+// V7 Close position processor
+export { ClosePositionProcessor } from './close-position-processor.js';
+// V7 Funding settlement processor
+export { FundingSettlementProcessor } from './funding-settlement-processor.js';
 export * from './types.js';

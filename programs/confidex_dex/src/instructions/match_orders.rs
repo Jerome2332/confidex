@@ -1,20 +1,29 @@
 use anchor_lang::prelude::*;
 
 use crate::cpi::arcium::{
-    calculate_encrypted_fill, compare_encrypted_prices, add_encrypted,
-    queue_compare_prices, MxeCpiAccounts,
+    queue_compare_prices, MxeCpiAccounts, ARCIUM_MXE_PROGRAM_ID, ARCIUM_PROGRAM_ID,
 };
 use crate::error::ConfidexError;
-use crate::state::{ConfidentialOrder, ExchangeState, OrderStatus, Side, TradingPair};
+use crate::state::{ConfidentialOrder, ExchangeState, Side, TradingPair};
 
+/// Accounts required for order matching with full Arcium MPC support.
+///
+/// The MXE requires 12 accounts per Arcium's `#[queue_computation_accounts]` macro.
+/// All accounts after `system_program` are Arcium infrastructure accounts that must
+/// be derived by the client using the Arcium SDK.
+/// Accounts required for order matching with full Arcium MPC support.
+///
+/// Uses Box<Account<>> for large account types to reduce stack usage.
+/// The MXE accounts are passed via remaining_accounts to keep stack under 4KB.
 #[derive(Accounts)]
+#[instruction(computation_offset: u64)]
 pub struct MatchOrders<'info> {
     #[account(
         seeds = [ExchangeState::SEED],
         bump = exchange.bump,
         constraint = !exchange.paused @ ConfidexError::ExchangePaused
     )]
-    pub exchange: Account<'info, ExchangeState>,
+    pub exchange: Box<Account<'info, ExchangeState>>,
 
     #[account(
         mut,
@@ -25,7 +34,7 @@ pub struct MatchOrders<'info> {
         ],
         bump = pair.bump
     )]
-    pub pair: Account<'info, TradingPair>,
+    pub pair: Box<Account<'info, TradingPair>>,
 
     #[account(
         mut,
@@ -37,9 +46,10 @@ pub struct MatchOrders<'info> {
         bump = buy_order.bump,
         constraint = buy_order.side == Side::Buy @ ConfidexError::InvalidOrderSide,
         constraint = buy_order.is_active() @ ConfidexError::OrderNotOpen,
-        constraint = buy_order.eligibility_proof_verified @ ConfidexError::EligibilityNotVerified
+        constraint = buy_order.eligibility_proof_verified @ ConfidexError::EligibilityNotVerified,
+        constraint = !buy_order.is_matching @ ConfidexError::OrderAlreadyMatching
     )]
-    pub buy_order: Account<'info, ConfidentialOrder>,
+    pub buy_order: Box<Account<'info, ConfidentialOrder>>,
 
     #[account(
         mut,
@@ -51,180 +61,150 @@ pub struct MatchOrders<'info> {
         bump = sell_order.bump,
         constraint = sell_order.side == Side::Sell @ ConfidexError::InvalidOrderSide,
         constraint = sell_order.is_active() @ ConfidexError::OrderNotOpen,
-        constraint = sell_order.eligibility_proof_verified @ ConfidexError::EligibilityNotVerified
+        constraint = sell_order.eligibility_proof_verified @ ConfidexError::EligibilityNotVerified,
+        constraint = !sell_order.is_matching @ ConfidexError::OrderAlreadyMatching
     )]
-    pub sell_order: Account<'info, ConfidentialOrder>,
-
-    /// CHECK: Arcium MXE program for encrypted computations
-    /// Will be validated when CPI integration is complete
-    pub arcium_program: AccountInfo<'info>,
-
-    /// CHECK: MXE config account (for async MPC)
-    #[account(mut)]
-    pub mxe_config: Option<AccountInfo<'info>>,
-
-    /// CHECK: MPC request account (for async MPC, will be initialized)
-    #[account(mut)]
-    pub mpc_request: Option<AccountInfo<'info>>,
+    pub sell_order: Box<Account<'info, ConfidentialOrder>>,
 
     pub system_program: Program<'info, System>,
 
-    /// Crank operator (can be anyone)
+    /// Crank operator (payer for MPC fees)
     #[account(mut)]
     pub crank: Signer<'info>,
+
+    // =========================================================================
+    // ARCIUM MXE ACCOUNTS (11 accounts via remaining_accounts to reduce stack)
+    // Order in remaining_accounts[0..10]:
+    //   0: sign_pda_account (mut)
+    //   1: mxe_account (mut)
+    //   2: mempool_account (mut)
+    //   3: executing_pool (mut)
+    //   4: computation_account (mut)
+    //   5: comp_def_account
+    //   6: cluster_account (mut)
+    //   7: pool_account (mut)
+    //   8: clock_account (mut)
+    //   9: arcium_program
+    //  10: mxe_program
+    // =========================================================================
 }
 
-/// Discriminator for finalize_match callback (sha256("global:finalize_match")[0..8])
-/// Production flow: MXE calls finalize_match with orders passed directly
-pub const FINALIZE_MATCH_CALLBACK: [u8; 8] = [0x06, 0x67, 0x2f, 0x07, 0x42, 0x01, 0x55, 0xcf];
+/// Input parameters for match_orders instruction
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct MatchOrdersParams {
+    /// Random seed for computation account derivation
+    pub computation_offset: u64,
+    /// X25519 public key for output encryption (from ephemeral keypair)
+    pub pub_key: [u8; 32],
+    /// Encryption nonce
+    pub nonce: u128,
+}
 
-/// Discriminator for price comparison callback (legacy flow)
-pub const PRICE_COMPARE_CALLBACK: [u8; 8] = [0x40, 0xfc, 0x33, 0x4b, 0xcd, 0x2e, 0x11, 0xcb];
-/// Discriminator for fill calculation callback (legacy flow)
-pub const FILL_CALC_CALLBACK: [u8; 8] = [0xef, 0x75, 0x28, 0x16, 0xfa, 0xba, 0xda, 0x57];
-
-pub fn handler(ctx: Context<MatchOrders>) -> Result<()> {
-    let pair = &mut ctx.accounts.pair;
-    let buy_order = &mut ctx.accounts.buy_order;
-    let sell_order = &mut ctx.accounts.sell_order;
-    let exchange = &ctx.accounts.exchange;
+pub fn handler<'info>(
+    ctx: Context<'_, '_, 'info, 'info, MatchOrders<'info>>,
+    params: MatchOrdersParams,
+) -> Result<()> {
     let clock = Clock::get()?;
 
     // Verify orders are on the same pair
     require!(
-        buy_order.pair == sell_order.pair && buy_order.pair == pair.key(),
+        ctx.accounts.buy_order.pair == ctx.accounts.sell_order.pair
+            && ctx.accounts.buy_order.pair == ctx.accounts.pair.key(),
         ConfidexError::OrdersNotMatchable
     );
 
-    // Check if async MPC accounts are provided (required for production)
-    let use_async_mpc = ctx.accounts.mxe_config.is_some()
-        && ctx.accounts.mpc_request.is_some();
+    // Extract MXE accounts from remaining_accounts (11 accounts)
+    require!(
+        ctx.remaining_accounts.len() >= 11,
+        ConfidexError::InvalidAccountCount
+    );
 
-    if use_async_mpc {
-        // === ASYNC MPC FLOW (Production) ===
-        // Queue price comparison - result comes back via finalize_match callback
-        // MXE stores callback_account_1 (buy_order) and callback_account_2 (sell_order)
-        // and passes them to the DEX callback for direct order updates
-        let mxe_accounts = MxeCpiAccounts {
-            mxe_config: ctx.accounts.mxe_config.as_ref().unwrap(),
-            request_account: ctx.accounts.mpc_request.as_ref().unwrap(),
-            requester: &ctx.accounts.crank.to_account_info(),
-            system_program: &ctx.accounts.system_program.to_account_info(),
-            mxe_program: &ctx.accounts.arcium_program,
-        };
+    // Copy encrypted prices to avoid borrowing issues
+    let buy_price = ctx.accounts.buy_order.encrypted_price;
+    let sell_price = ctx.accounts.sell_order.encrypted_price;
+    let buy_order_id = ctx.accounts.buy_order.order_id;
+    let sell_order_id = ctx.accounts.sell_order.order_id;
 
-        let buy_order_key = buy_order.key();
-        let sell_order_key = sell_order.key();
+    // Store AccountInfo in local variables to avoid lifetime issues
+    let payer_info = ctx.accounts.crank.to_account_info();
+    let system_program_info = ctx.accounts.system_program.to_account_info();
 
-        let queued = queue_compare_prices(
-            mxe_accounts,
-            &buy_order.encrypted_price,
-            &sell_order.encrypted_price,
-            &crate::ID,  // callback to this program
-            FINALIZE_MATCH_CALLBACK,  // Use production finalize_match callback
-            &buy_order_key,   // callback_account_1: buy_order pubkey
-            &sell_order_key,  // callback_account_2: sell_order pubkey
-        )?;
+    // Build MXE CPI accounts structure from remaining_accounts
+    let mxe_accounts = MxeCpiAccounts {
+        payer: &payer_info,
+        sign_pda_account: &ctx.remaining_accounts[0],
+        mxe_account: &ctx.remaining_accounts[1],
+        mempool_account: &ctx.remaining_accounts[2],
+        executing_pool: &ctx.remaining_accounts[3],
+        computation_account: &ctx.remaining_accounts[4],
+        comp_def_account: &ctx.remaining_accounts[5],
+        cluster_account: &ctx.remaining_accounts[6],
+        pool_account: &ctx.remaining_accounts[7],
+        clock_account: &ctx.remaining_accounts[8],
+        system_program: &system_program_info,
+        arcium_program: &ctx.remaining_accounts[9],
+        mxe_program: &ctx.remaining_accounts[10],
+    };
 
-        // Store pending match state for callback validation
-        // V2: Use is_matching flag instead of Matching status
-        buy_order.pending_match_request = queued.request_id;
-        sell_order.pending_match_request = queued.request_id;
-        buy_order.is_matching = true;
-        sell_order.is_matching = true;
+    // Queue price comparison via MPC
+    // Result will come back via finalize_match callback from MXE
+    // Pass order pubkeys so MXE callback can CPI back to DEX with them
+    let buy_order_key = ctx.accounts.buy_order.key();
+    let sell_order_key = ctx.accounts.sell_order.key();
 
-        // Coarse timestamp for privacy
-        let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
-
-        emit!(MatchQueued {
-            buy_order_id: buy_order.order_id,
-            sell_order_id: sell_order.order_id,
-            request_id: queued.request_id,
-            timestamp: coarse_time,
-        });
-
-        msg!(
-            "Match queued via async MPC: buy={:?} sell={:?} request_id={:?}",
-            buy_order.order_id,
-            sell_order.order_id,
-            &queued.request_id[0..8]
-        );
-
-        return Ok(());
-    }
-
-    // === SYNC MPC FLOW (legacy/simulation) ===
-    // Compare encrypted prices via Arcium MPC
-    // buy_price >= sell_price means match is possible
-    let prices_match = compare_encrypted_prices(
-        &ctx.accounts.arcium_program,
-        &exchange.arcium_cluster,
-        &buy_order.encrypted_price,
-        &sell_order.encrypted_price,
+    let queued = queue_compare_prices(
+        mxe_accounts,
+        params.computation_offset,
+        &buy_price,
+        &sell_price,
+        &params.pub_key,
+        params.nonce,
+        Some(&buy_order_key),
+        Some(&sell_order_key),
     )?;
 
-    require!(prices_match, ConfidexError::OrdersNotMatchable);
+    // Store pending match state for callback validation
+    ctx.accounts.buy_order.pending_match_request = queued.request_id;
+    ctx.accounts.sell_order.pending_match_request = queued.request_id;
+    ctx.accounts.buy_order.is_matching = true;
+    ctx.accounts.sell_order.is_matching = true;
 
-    // Calculate encrypted fill amounts via Arcium MPC
-    let (fill_amount, buy_fully_filled, sell_fully_filled) = calculate_encrypted_fill(
-        &ctx.accounts.arcium_program,
-        &exchange.arcium_cluster,
-        &buy_order.encrypted_amount,
-        &buy_order.encrypted_filled,
-        &sell_order.encrypted_amount,
-        &sell_order.encrypted_filled,
-    )?;
-
-    // Update filled amounts by adding the fill to current filled
-    let new_buy_filled = add_encrypted(
-        &ctx.accounts.arcium_program,
-        &buy_order.encrypted_filled,
-        &fill_amount,
-    )?;
-    let new_sell_filled = add_encrypted(
-        &ctx.accounts.arcium_program,
-        &sell_order.encrypted_filled,
-        &fill_amount,
-    )?;
-
-    // Update order states
-    // V2: Use Active/Inactive status with internal tracking
-    buy_order.encrypted_filled = new_buy_filled;
-    sell_order.encrypted_filled = new_sell_filled;
-
-    if buy_fully_filled {
-        buy_order.status = OrderStatus::Inactive;  // V2: Filled -> Inactive
-        pair.open_order_count = pair.open_order_count.saturating_sub(1);
-    }
-    // V2: No "PartiallyFilled" status - remains Active
-
-    if sell_fully_filled {
-        sell_order.status = OrderStatus::Inactive;  // V2: Filled -> Inactive
-        pair.open_order_count = pair.open_order_count.saturating_sub(1);
-    }
-    // V2: No "PartiallyFilled" status - remains Active
-
-    // TODO: Execute confidential settlement via C-SPL or ShadowWire
-
-    // Coarse timestamp for privacy
+    // Coarse timestamp for privacy (hour precision)
     let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
 
-    emit!(TradeExecuted {
-        buy_order_id: buy_order.order_id,
-        sell_order_id: sell_order.order_id,
-        buyer: buy_order.maker,
-        seller: sell_order.maker,
-        pair: pair.key(),
+    emit!(MatchQueued {
+        buy_order_id,
+        sell_order_id,
+        request_id: queued.request_id,
+        computation_offset: params.computation_offset,
         timestamp: coarse_time,
-        // Note: No amounts or prices emitted for privacy
     });
 
-    msg!("Trade executed: buy order {:?} matched with sell order {:?}",
-         buy_order.order_id, sell_order.order_id);
+    msg!(
+        "Match queued via MPC: buy={:?} sell={:?} computation_offset={}",
+        buy_order_id,
+        sell_order_id,
+        params.computation_offset
+    );
 
     Ok(())
 }
 
+#[event]
+pub struct MatchQueued {
+    /// Hash-based order ID (no sequential correlation)
+    pub buy_order_id: [u8; 16],
+    /// Hash-based order ID (no sequential correlation)
+    pub sell_order_id: [u8; 16],
+    /// Request ID for tracking MPC computation
+    pub request_id: [u8; 32],
+    /// Computation offset used for account derivation
+    pub computation_offset: u64,
+    /// Coarse timestamp (hour precision)
+    pub timestamp: i64,
+}
+
+/// Event emitted after MPC callback confirms match and orders are updated
 #[event]
 pub struct TradeExecuted {
     /// Hash-based order ID (no sequential correlation)
@@ -237,15 +217,4 @@ pub struct TradeExecuted {
     /// Coarse timestamp (hour precision)
     pub timestamp: i64,
     // Note: No amounts or prices for privacy
-}
-
-#[event]
-pub struct MatchQueued {
-    /// Hash-based order ID (no sequential correlation)
-    pub buy_order_id: [u8; 16],
-    /// Hash-based order ID (no sequential correlation)
-    pub sell_order_id: [u8; 16],
-    pub request_id: [u8; 32],
-    /// Coarse timestamp (hour precision)
-    pub timestamp: i64,
 }

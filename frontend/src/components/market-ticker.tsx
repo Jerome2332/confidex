@@ -2,6 +2,7 @@
 
 import { FC, useState, useEffect, useRef } from 'react';
 import { Pulse, Copy, Clock, WifiHigh, WifiSlash, Star, ArrowSquareOut, CaretDown, TrendUp, TrendDown } from '@phosphor-icons/react';
+import { TokenIcon } from './token-selector';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { toast } from 'sonner';
 
@@ -111,9 +112,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
               <Star size={16} weight={isFavorite ? 'fill' : 'regular'} />
             </button>
             <button className="flex items-center gap-2 hover:bg-secondary/50 rounded-lg px-2 py-1 transition-colors">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-[10px] font-bold">
-                SOL
-              </div>
+              <TokenIcon symbol="SOL" size={24} />
               <span className="font-semibold">{marketData.pair}</span>
               <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded font-medium">Spot</span>
               <CaretDown size={16} className="text-muted-foreground" />
@@ -219,9 +218,7 @@ export const MarketTicker: FC<MarketTickerProps> = ({ variant = 'card' }) => {
           >
             <Star size={16} weight={isFavorite ? 'fill' : 'regular'} />
           </button>
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-bold">
-            SOL
-          </div>
+          <TokenIcon symbol="SOL" size={32} />
           <div>
             <h3 className="font-semibold">{marketData.pair}</h3>
             <span className="text-xs text-muted-foreground">Solana</span>

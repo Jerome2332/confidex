@@ -15,6 +15,7 @@ import {
   CaretRight,
   GithubLogo,
   BookOpen,
+  Lightning,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 
@@ -56,7 +57,7 @@ export default function LandingPage() {
   const techStack = [
     { name: 'Arcium MPC', description: 'Multi-party computation for encrypted order matching', animation: 'sonar-sweep' as const },
     { name: 'Noir ZK', description: 'Zero-knowledge proofs for compliance verification', animation: 'cylindrical-analysis' as const },
-    { name: 'C-SPL Tokens', description: 'Confidential token standard for private settlement', animation: 'sphere-scan' as const },
+    { name: 'Light Protocol', description: 'ZK Compression for rent-free token accounts (400x savings)', animation: 'sphere-scan' as const },
     { name: 'ShadowWire', description: 'Bulletproof-based privacy layer for transfers', animation: 'crystalline-refraction' as const },
   ];
 
@@ -190,13 +191,13 @@ export default function LandingPage() {
               Privacy with Accountability
             </h2>
             <p className="text-white/60 max-w-2xl mx-auto text-lg font-light">
-              Our three-layer architecture delivers complete trading privacy while ensuring regulatory compliance — no anonymity without safeguards.
+              Our four-layer architecture delivers complete trading privacy while ensuring regulatory compliance — no anonymity without safeguards.
             </p>
           </div>
 
           {/* Architecture Diagram */}
-          <div className="max-w-5xl mx-auto mb-16">
-            <div className="grid md:grid-cols-3 gap-4 mb-8">
+          <div className="max-w-6xl mx-auto mb-16">
+            <div className="grid md:grid-cols-4 gap-4 mb-8">
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
                   Layer 1: Compliance
@@ -231,7 +232,23 @@ export default function LandingPage() {
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
-                  Layer 3: Settlement
+                  Layer 3: Storage
+                </div>
+                <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
+                  <Lightning size={32} className="text-white" />
+                </div>
+                <h3 className="font-normal mb-2 text-white">Light Protocol</h3>
+                <p className="text-sm text-white/60 font-light">
+                  ZK Compression for rent-free token accounts — 400x cheaper storage
+                </p>
+                <div className="mt-4 text-xs bg-white/10 text-white/80 px-3 py-1.5 rounded-full inline-block font-light">
+                  ZK Compression
+                </div>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
+                  Layer 4: Settlement
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
                   <EyeClosed size={32} className="text-white" />
@@ -247,10 +264,12 @@ export default function LandingPage() {
             </div>
 
             {/* Flow Arrow */}
-            <div className="hidden md:flex justify-center items-center gap-4 text-white/50 text-sm font-light">
+            <div className="hidden md:flex justify-center items-center gap-3 text-white/50 text-sm font-light">
               <span>Prove Eligibility</span>
               <ArrowRight size={16} />
               <span>Encrypt & Match</span>
+              <ArrowRight size={16} />
+              <span>Compress & Store</span>
               <ArrowRight size={16} />
               <span>Settle Privately</span>
             </div>
@@ -382,10 +401,11 @@ export default function LandingPage() {
               </a>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-white/50 font-light">
+            <div className="flex items-center gap-2 text-xs text-white/50 font-light flex-wrap justify-center md:justify-end">
               <span>Powered by</span>
               <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Arcium MPC</span>
               <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Noir ZK</span>
+              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Light Protocol</span>
               <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">ShadowWire</span>
             </div>
           </div>

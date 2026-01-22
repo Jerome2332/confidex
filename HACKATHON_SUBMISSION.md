@@ -12,27 +12,28 @@
 
 ## Executive Summary
 
-**Confidex** is the first confidential decentralized exchange on Solana, implementing a three-layer privacy architecture that enables institutional-grade trading with complete privacy. We combine Arcium MPC for encrypted order matching, Noir ZK proofs for compliance verification, and ShadowWire for private settlement.
+**Confidex** is the first confidential decentralized exchange on Solana, implementing a **four-layer privacy architecture** that enables institutional-grade trading with complete privacy. We combine Arcium MPC for encrypted order matching, Noir ZK proofs for compliance verification, Light Protocol for rent-free storage, and ShadowWire for private settlement.
 
 **Production Readiness Highlights:**
 - ZK verification enabled via Sunspot Groth16 verifier
 - Pyth oracle integration for perpetuals pricing
 - Automatic ShadowWire settlement after order matching
+- Light Protocol ZK Compression for rent-free token accounts
 - Complete frontend flows for all trading operations
 
 ### Prize Tracks
 
-| Track | Prize | Our Integration |
-|-------|-------|-----------------|
-| Arcium | $10,000 | Full MPC integration - encrypted orders, price comparison, settlement |
-| Aztec/Noir | $10,000 | Groth16 eligibility proofs via Sunspot verifier |
-| Open Track | $18,000 | Novel three-layer privacy architecture |
-| Helius | $5,000 | RPC, webhooks, Photon indexing |
-| Radr Labs (ShadowWire) | $15,000 | Bulletproof settlement layer |
-| PNP Exchange | $2,500 | Prediction markets with confidential collateral |
-| **Eating Glass** | Bonus | See Technical Challenges section |
+| Track | Prize | Our Integration | Confidence |
+|-------|-------|-----------------|------------|
+| **Open Track** | $18,000 | Novel four-layer privacy architecture | 85% |
+| **Light Protocol Bonus** | $3,000 | ZK Compression for rent-free balance storage | 75% |
+| **Radr Labs (ShadowWire)** | $15,000 | Bulletproof settlement layer (primary) | 90% |
+| **Arcium** | $10,000 | Full MPC - encrypted orders, price comparison | 85% |
+| **Aztec/Noir** | $10,000 | Groth16 eligibility proofs via Sunspot | 75% |
+| **PNP Exchange** | $2,500 | Prediction markets with confidential collateral | 60% |
+| **Eating Glass** | Bonus | See Technical Challenges section | - |
 
-**Total Prize Pool Target:** $66,500
+**Total Prize Pool Target:** $58,500
 
 ---
 
@@ -47,7 +48,7 @@
 | Order books reveal intent | Large orders move markets before execution |
 | No compliant privacy | Mixers face regulatory challenges |
 
-### Our Solution: Three-Layer Privacy
+### Our Solution: Four-Layer Privacy
 
 ```
 +----------------------------------------------------------+
@@ -61,10 +62,15 @@
 |  - Cerberus protocol (dishonest majority secure)         |
 |  - Private price comparison and matching                 |
 +----------------------------------------------------------+
-|  LAYER 3: SETTLEMENT (C-SPL + ShadowWire)                |
-|  - Persistent encrypted balances                         |
-|  - Bulletproof range proofs for transfers               |
-|  - Dual settlement options for flexibility              |
+|  LAYER 3: STORAGE (Light Protocol ZK Compression)        |
+|  - Rent-free compressed token accounts                   |
+|  - 400x cheaper than regular SPL accounts                |
+|  - Merkle tree state verification                        |
++----------------------------------------------------------+
+|  LAYER 4: SETTLEMENT (ShadowWire)                        |
+|  - Bulletproof range proofs for transfers                |
+|  - Hidden amounts in settlement transactions             |
+|  - 1% relayer fee for privacy service                    |
 +----------------------------------------------------------+
 ```
 
@@ -444,17 +450,29 @@ User                Confidex             Arcium MPC           Solana
 - `circuits/eligibility/src/main.nr`
 - `frontend/src/hooks/use-zk-proof.ts`
 
-### Helius ($5K)
+### Light Protocol ($3K Open Track Bonus)
 
-**Integration:** RPC, webhooks, indexing
+**Integration:** ZK Compression for rent-free token accounts
 
-- Helius SDK for enhanced RPC
-- Transaction webhooks for order updates
-- Photon indexing for historical data
+- Compressed token accounts save 400x on rent (~0.002 SOL per account)
+- `@lightprotocol/stateless.js` and `@lightprotocol/compressed-token` SDKs
+- Compression-aware RPC via Helius (supports Light Protocol indexing)
+- User toggle in wrap modal to enable/disable compression
+- Balance aggregation (regular + compressed) for trading
+
+**Key Innovation:** First DEX combining Light Protocol ZK Compression with Arcium MPC encryption
 
 **Files:**
-- `frontend/src/lib/helius-client.ts`
-- `frontend/src/app/api/webhooks/helius/route.ts`
+- `frontend/src/lib/light-rpc.ts` - Compression-aware RPC singleton
+- `frontend/src/lib/settlement/providers/light-provider.ts` - Settlement provider
+- `frontend/src/lib/confidex-client.ts` - Compressed wrap/unwrap functions
+- `frontend/src/hooks/use-token-balance.ts` - Balance aggregation
+- `frontend/src/components/wrap-unwrap-modal.tsx` - Compression toggle UI
+
+**UI Features:**
+- Purple "ZK Compression" toggle with Lightning icon
+- Shows rent savings: "Save 0.002 SOL (400x cheaper)"
+- "Powered by Light Protocol" badge when enabled
 
 ### Radr Labs/ShadowWire ($15K)
 
@@ -488,9 +506,10 @@ User                Confidex             Arcium MPC           Solana
 
 ## What Makes Confidex Special
 
-1. **First MPC + ZK DEX on Solana** - Novel combination of Arcium MPC + Noir ZK proofs
+1. **First Four-Layer Privacy DEX** - Combines Light Protocol + Arcium MPC + Noir ZK + ShadowWire
 2. **Private Perpetuals** - Solved "impossible" liquidation problem with hybrid privacy model
 3. **Institutional-Ready** - Compliance proofs without identity reveal
+4. **Rent-Free Trading** - Light Protocol compression saves 400x on account storage
 4. **Production Architecture** - Automatic settlement wiring, oracle integration, ZK enabled
 5. **Complete Product** - Not just contracts, full trading terminal with all flows working
 6. **Pyth Oracle Integration** - Real-time price validation for perpetuals
