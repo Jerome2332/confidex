@@ -21,20 +21,6 @@
 - Light Protocol ZK Compression for rent-free token accounts
 - Complete frontend flows for all trading operations
 
-### Prize Tracks
-
-| Track | Prize | Our Integration | Confidence |
-|-------|-------|-----------------|------------|
-| **Open Track** | $18,000 | Novel four-layer privacy architecture | 85% |
-| **Light Protocol Bonus** | $3,000 | ZK Compression for rent-free balance storage | 75% |
-| **Radr Labs (ShadowWire)** | $15,000 | Bulletproof settlement layer (primary) | 90% |
-| **Arcium** | $10,000 | Full MPC - encrypted orders, price comparison | 85% |
-| **Aztec/Noir** | $10,000 | Groth16 eligibility proofs via Sunspot | 75% |
-| **PNP Exchange** | $2,500 | Prediction markets with confidential collateral | 60% |
-| **Eating Glass** | Bonus | See Technical Challenges section | - |
-
-**Total Prize Pool Target:** $58,500
-
 ---
 
 ## The Problem We Solved
@@ -423,7 +409,7 @@ User                Confidex             Arcium MPC           Solana
 
 ## Prize Track Integrations
 
-### Arcium ($10K)
+### Arcium 
 
 **Integration:** Full MPC-encrypted order matching
 
@@ -437,7 +423,7 @@ User                Confidex             Arcium MPC           Solana
 - `frontend/src/lib/confidex-client.ts`
 - `programs/arcium_mxe/`
 
-### Aztec/Noir ($10K)
+### Aztec/Noir 
 
 **Integration:** Groth16 eligibility proofs via Sunspot
 
@@ -450,7 +436,7 @@ User                Confidex             Arcium MPC           Solana
 - `circuits/eligibility/src/main.nr`
 - `frontend/src/hooks/use-zk-proof.ts`
 
-### Light Protocol ($3K Open Track Bonus)
+### Light Protocol 
 
 **Integration:** ZK Compression for rent-free token accounts
 
@@ -474,7 +460,7 @@ User                Confidex             Arcium MPC           Solana
 - Shows rent savings: "Save 0.002 SOL (400x cheaper)"
 - "Powered by Light Protocol" badge when enabled
 
-### Radr Labs/ShadowWire ($15K)
+### Radr Labs/ShadowWire 
 
 **Integration:** Bulletproof settlement layer (PRIMARY)
 
@@ -490,7 +476,7 @@ User                Confidex             Arcium MPC           Solana
 - `programs/confidex_dex/src/instructions/mpc_callback.rs:186` - Settlement trigger
 - `frontend/src/lib/confidex-client.ts` - Wrap/unwrap transactions
 
-### PNP Exchange ($2.5K)
+### PNP Exchange 
 
 **Integration:** Prediction markets with confidential collateral
 
@@ -556,7 +542,6 @@ Built in 2 weeks for Solana Privacy Hack 2026
 
 ## Links
 
-- **Live Demo:** https://frontend-humanoid-tech.vercel.app
 - **GitHub:** https://github.com/Jerome2332/confidex
 - **Documentation:** See `/project-docs/` folder
 
