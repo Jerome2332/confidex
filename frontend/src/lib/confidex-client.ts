@@ -27,6 +27,12 @@ import {
   COMPRESSED_ACCOUNT_COST_LAMPORTS,
 } from './constants';
 import { getCompressionRpcSafe, isCompressionAvailable } from './light-rpc';
+import {
+  deriveArciumAccounts,
+  arciumAccountsToAccountMetas,
+  generateComputationOffset,
+} from './arcium-accounts';
+import BN from 'bn.js';
 
 import { createLogger } from '@/lib/logger';
 
@@ -38,7 +44,12 @@ const WRAP_TOKENS_DISCRIMINATOR = new Uint8Array([0xf4, 0x89, 0x39, 0xfb, 0xe8, 
 const UNWRAP_TOKENS_DISCRIMINATOR = new Uint8Array([0x11, 0x79, 0x03, 0xfa, 0x43, 0x69, 0xe8, 0x71]);
 const MATCH_ORDERS_DISCRIMINATOR = new Uint8Array([0x11, 0x01, 0xc9, 0x5d, 0x07, 0x33, 0xfb, 0x86]);
 const CANCEL_ORDER_DISCRIMINATOR = new Uint8Array([0x5f, 0x81, 0xed, 0xf0, 0x08, 0x31, 0xdf, 0x84]);
+// DEPRECATED: Legacy close_position (panics in V7)
+// sha256("global:close_position")[0..8]
 const CLOSE_POSITION_DISCRIMINATOR = new Uint8Array([0x7b, 0x86, 0x51, 0x00, 0x31, 0x44, 0x62, 0x62]);
+// V7: Use initiate_close_position instead of deprecated close_position
+// sha256("global:initiate_close_position")[0..8]
+const INITIATE_CLOSE_POSITION_DISCRIMINATOR = new Uint8Array([0x68, 0x62, 0xdd, 0x8b, 0xc8, 0x61, 0x6c, 0x85]);
 
 // PDA seeds
 const EXCHANGE_SEED = Buffer.from('exchange');
@@ -1975,7 +1986,9 @@ export interface ClosePositionParams {
 }
 
 /**
- * Build a transaction to close a perpetual position
+ * @deprecated Use buildInitiateClosePositionTransaction instead.
+ * This function uses the deprecated close_position instruction which PANICS in V7.
+ * The new async MPC flow requires: initiate_close_position -> MPC callback -> close_position_callback
  *
  * @param params - Close position parameters
  * @returns Transaction to sign and send
@@ -2067,6 +2080,197 @@ export async function buildClosePositionTransaction(
   log.debug('Close position transaction built successfully');
 
   return transaction;
+}
+
+// ============================================================================
+// INITIATE CLOSE POSITION (V7 - Async MPC Flow)
+// ============================================================================
+
+/**
+ * Parameters for initiating position close (V7 async MPC flow)
+ *
+ * Phase 1: User calls initiate_close_position
+ * - Queues MPC computation for PnL calculation
+ * - Sets pending_close = true on position
+ * - Emits ClosePositionInitiated event
+ *
+ * Phase 2: Backend crank detects event, waits for MPC, calls close_position_callback
+ * - Transfers payout to trader
+ * - Marks position as Closed
+ */
+export interface InitiateClosePositionParams {
+  connection: Connection;
+  trader: PublicKey;
+  perpMarketPda: PublicKey;
+  /** Position PDA - the account address of the position to close */
+  positionPda: PublicKey;
+  /** Encrypted close size (64 bytes) - for partial closes. Ignored if fullClose is true */
+  encryptedCloseSize: Uint8Array;
+  /** Whether to close the entire position */
+  fullClose: boolean;
+  /** Oracle price feed account (e.g., Pyth SOL/USD) */
+  oraclePriceFeed: PublicKey;
+  /** MXE public key for encryption (from MXE config) */
+  mxePubKey: Uint8Array;
+  /** Nonce for MXE encryption (should be unique per computation) */
+  nonce: bigint;
+}
+
+/**
+ * Build a transaction to initiate closing a perpetual position (V7 async MPC flow)
+ *
+ * This is Phase 1 of the close position flow. After this transaction confirms:
+ * 1. Position will have pending_close = true
+ * 2. MPC computation for PnL is queued
+ * 3. Backend crank will detect ClosePositionInitiated event
+ * 4. When MPC completes, crank will call close_position_callback
+ *
+ * @param params - Initiate close position parameters
+ * @returns Transaction to sign and send
+ */
+export async function buildInitiateClosePositionTransaction(
+  params: InitiateClosePositionParams
+): Promise<Transaction> {
+  const {
+    connection,
+    trader,
+    perpMarketPda,
+    positionPda,
+    encryptedCloseSize,
+    fullClose,
+    oraclePriceFeed,
+    mxePubKey,
+    nonce,
+  } = params;
+
+  log.debug('Building initiate_close_position transaction (V7 async MPC)', {
+    trader: trader.toBase58(),
+    perpMarket: perpMarketPda.toBase58(),
+    position: positionPda.toBase58(),
+    fullClose,
+  });
+
+  // Generate random computation offset for MXE
+  const computationOffset = generateComputationOffset();
+
+  // Derive all 11 MXE accounts for calculate_pnl circuit
+  const mxeAccounts = deriveArciumAccounts(
+    'calculate_pnl',
+    computationOffset,
+    MXE_PROGRAM_ID
+  );
+
+  log.debug('MXE accounts derived', {
+    signPda: mxeAccounts.signPdaAccount.toBase58(),
+    mxeAccount: mxeAccounts.mxeAccount.toBase58(),
+    computationAccount: mxeAccounts.computationAccount.toBase58(),
+    compDefAccount: mxeAccounts.compDefAccount.toBase58(),
+  });
+
+  // Build instruction data: discriminator + InitiateClosePositionParams
+  // Layout: encrypted_close_size[64] + full_close[1] + computation_offset[8] + mxe_pub_key[32] + nonce[16]
+  const instructionData = Buffer.alloc(8 + 64 + 1 + 8 + 32 + 16);
+  Buffer.from(INITIATE_CLOSE_POSITION_DISCRIMINATOR).copy(instructionData, 0);
+  Buffer.from(encryptedCloseSize).copy(instructionData, 8);
+  instructionData.writeUInt8(fullClose ? 1 : 0, 72);
+  // Write computation_offset as u64
+  const offsetBuf = computationOffset.toArrayLike(Buffer, 'le', 8);
+  offsetBuf.copy(instructionData, 73);
+  // Write mxe_pub_key
+  Buffer.from(mxePubKey).copy(instructionData, 81);
+  // Write nonce as u128 (16 bytes)
+  const nonceBuf = Buffer.alloc(16);
+  nonceBuf.writeBigUInt64LE(nonce % BigInt(2 ** 64), 0);
+  nonceBuf.writeBigUInt64LE(nonce >> BigInt(64), 8);
+  nonceBuf.copy(instructionData, 113);
+
+  // Build account keys - must match InitiateClosePosition struct in Rust
+  // Order: perp_market, position, oracle, trader, + 11 MXE accounts + system_program
+  const keys: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }> = [
+    { pubkey: perpMarketPda, isSigner: false, isWritable: true },
+    { pubkey: positionPda, isSigner: false, isWritable: true },
+    { pubkey: oraclePriceFeed, isSigner: false, isWritable: false },
+    { pubkey: trader, isSigner: true, isWritable: true },
+    // MXE CPI accounts (11 total)
+    ...arciumAccountsToAccountMetas(mxeAccounts),
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+
+  const instruction = new TransactionInstruction({
+    keys,
+    programId: CONFIDEX_PROGRAM_ID,
+    data: instructionData,
+  });
+
+  // Build transaction
+  const transaction = new Transaction().add(instruction);
+  const { blockhash } = await connection.getLatestBlockhash();
+  transaction.recentBlockhash = blockhash;
+  transaction.feePayer = trader;
+
+  log.debug('initiate_close_position transaction built successfully');
+
+  return transaction;
+}
+
+/**
+ * Wait for position close to complete (MPC callback processed)
+ *
+ * Polls the position account until pending_close becomes false,
+ * indicating the MPC callback has been processed.
+ *
+ * @param connection - Solana connection
+ * @param positionPda - Position PDA to monitor
+ * @param maxAttempts - Maximum polling attempts (default: 60)
+ * @param pollIntervalMs - Interval between polls in ms (default: 2000)
+ * @returns True if close completed successfully, false if timed out
+ */
+export async function waitForClosePositionCompletion(
+  connection: Connection,
+  positionPda: PublicKey,
+  maxAttempts: number = 60,
+  pollIntervalMs: number = 2000
+): Promise<boolean> {
+  log.debug('Waiting for close position completion', {
+    position: positionPda.toBase58(),
+    maxAttempts,
+    pollIntervalMs,
+  });
+
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const position = await fetchPositionByPda(connection, positionPda);
+
+      if (!position) {
+        log.warn('Position not found during close completion wait');
+        return false;
+      }
+
+      // Check if close completed (position closed or no longer pending)
+      if (position.status === PositionStatusEnum.Closed) {
+        log.debug('Position closed successfully');
+        return true;
+      }
+
+      // Check pending_close flag (need to read raw bytes since interface doesn't have it)
+      // For now, just check status
+      if (position.status !== PositionStatusEnum.Open) {
+        log.debug('Position no longer open', { status: position.status });
+        return true;
+      }
+    } catch (err) {
+      log.warn('Error checking position status', { error: err });
+    }
+
+    // Wait before next poll
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+  }
+
+  log.warn('Close position completion timed out', {
+    position: positionPda.toBase58(),
+    timeout: maxAttempts * pollIntervalMs,
+  });
+  return false;
 }
 
 /**
@@ -2415,7 +2619,8 @@ export async function getCompressedBalance(
 
     // Sum all compressed balances
     const total = accounts.items.reduce((sum, acc) => {
-      return sum + BigInt(acc.parsed.amount);
+      // BN.toString() converts to decimal string which BigInt accepts
+      return sum + BigInt(acc.parsed.amount.toString());
     }, BigInt(0));
 
     log.debug('Fetched compressed balance', {

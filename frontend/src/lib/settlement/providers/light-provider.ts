@@ -23,6 +23,7 @@ import {
 import { getCompressionRpc, isCompressionAvailable } from '@/lib/light-rpc';
 import { PublicKey, Keypair } from '@solana/web3.js';
 import { createLogger } from '@/lib/logger';
+import BN from 'bn.js';
 
 const log = createLogger('light-provider');
 
@@ -207,7 +208,8 @@ export class LightProvider implements ISettlementProvider {
 
       // Sum up all compressed balances
       const totalBalance = accounts.items.reduce((sum, acc) => {
-        const amount = BigInt(acc.parsed.amount);
+        // BN.toString() converts to decimal string which BigInt accepts
+        const amount = BigInt(acc.parsed.amount.toString());
         return sum + amount;
       }, BigInt(0));
 
@@ -265,13 +267,15 @@ export class LightProvider implements ISettlementProvider {
       });
 
       // Compress the tokens
+      // Convert bigint to BN for Light Protocol SDK compatibility
+      const amountBN = amount !== undefined ? new BN(amount.toString()) : undefined;
       const txSignature = await compressSplTokenAccount(
         rpc,
         payer,
         mint,
         owner,
         tokenAccount,
-        amount // Optional: amount to keep uncompressed
+        amountBN // Optional: amount to keep uncompressed
       );
 
       log.debug('Tokens compressed successfully', { txSignature });
@@ -302,13 +306,16 @@ export class LightProvider implements ISettlementProvider {
       const rpc = getCompressionRpc();
       const { decompress } = await getCompressedTokenModule();
 
+      // Convert bigint to BN for Light Protocol SDK compatibility
+      const amountBN = new BN(amount.toString());
+
       log.debug('Decompressing tokens', {
         mint: mint.toBase58(),
         amount: amount.toString(),
         destination: destination.toBase58(),
       });
 
-      const txSignature = await decompress(rpc, payer, mint, amount, payer, destination);
+      const txSignature = await decompress(rpc, payer, mint, amountBN, payer, destination);
 
       log.debug('Tokens decompressed successfully', { txSignature });
 

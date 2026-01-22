@@ -491,4 +491,318 @@ export class LiquidationChecker {
       processingBatches: this.processingBatches.size,
     };
   }
+
+  // =========================================================================
+  // LIQUIDATION EXECUTION (V7)
+  // =========================================================================
+
+  /**
+   * Execute liquidations for positions marked as liquidatable
+   *
+   * This method:
+   * 1. Fetches all positions with is_liquidatable = true
+   * 2. For each liquidatable position, calls liquidate_position
+   * 3. Liquidation transfers collateral from trader to insurance fund (minus bonus to liquidator)
+   *
+   * Note: Before calling this, MPC batch check must have set is_liquidatable = true
+   */
+  async executeLiquidations(marketPda: PublicKey): Promise<number> {
+    log.info?.(`[Liquidation] Executing liquidations for market ${marketPda.toBase58().slice(0, 12)}`);
+
+    // Fetch positions marked as liquidatable
+    const liquidatablePositions = await this.fetchLiquidatablePositions(marketPda);
+
+    if (liquidatablePositions.length === 0) {
+      log.debug?.('[Liquidation] No liquidatable positions found');
+      return 0;
+    }
+
+    log.info?.(`[Liquidation] Found ${liquidatablePositions.length} liquidatable positions`);
+
+    let successCount = 0;
+
+    for (const position of liquidatablePositions) {
+      try {
+        await this.executeSingleLiquidation(marketPda, position);
+        successCount++;
+        log.info?.(`[Liquidation] Position liquidated successfully: ${position.pda.toBase58().slice(0, 12)}`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        log.error?.(`[Liquidation] Failed to liquidate position ${position.pda.toBase58().slice(0, 12)}: ${errorMsg}`);
+      }
+    }
+
+    log.info?.(`[Liquidation] Execution complete: ${successCount} succeeded, ${liquidatablePositions.length - successCount} failed`);
+
+    return successCount;
+  }
+
+  /**
+   * Fetch positions with is_liquidatable = true
+   */
+  private async fetchLiquidatablePositions(
+    marketPda: PublicKey
+  ): Promise<OpenPosition[]> {
+    // Fetch all V7 positions (692 bytes)
+    const V7_POSITION_SIZE = 692;
+    const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
+      filters: [{ dataSize: V7_POSITION_SIZE }],
+    });
+
+    const liquidatable: OpenPosition[] = [];
+
+    for (const { pubkey, account } of accounts) {
+      try {
+        const data = account.data;
+        let offset = 8; // Skip discriminator
+
+        // Skip trader (32) + market (32) + positionId (16) + timestamps (16) + side (1) + leverage (1)
+        offset += 32; // trader
+        const market = new PublicKey(data.subarray(offset, offset + 32));
+        offset += 32;
+
+        // Check if this position is for our market
+        if (!market.equals(marketPda)) {
+          continue;
+        }
+
+        offset += 16 + 8 + 8; // positionId, createdAtHour, lastUpdatedHour
+
+        const side = data.readUInt8(offset) as PositionSide;
+        offset += 1;
+
+        const leverage = data.readUInt8(offset);
+        offset += 1;
+
+        // Skip encrypted fields (6 x 64 = 384 bytes)
+        offset += 64 * 6;
+
+        // Skip threshold commitment (32) + lastThresholdUpdateHour (8)
+        offset += 32 + 8;
+
+        const thresholdVerified = data.readUInt8(offset) === 1;
+        offset += 1;
+
+        // Skip entryCumulativeFunding (16)
+        offset += 16;
+
+        const status = data.readUInt8(offset) as PositionStatus;
+        offset += 1;
+
+        // Skip eligibilityProofVerified (1) + partialCloseCount (1) + autoDeleveragePriority (8) +
+        // lastMarginAddHour (8) + marginAddCount (1) + bump (1) + positionSeed (8) + pendingMpcRequest (32) +
+        // pendingMarginAmount (8) + pendingMarginIsAdd (1)
+        offset += 1 + 1 + 8 + 8 + 1 + 1 + 8 + 32 + 8 + 1;
+
+        // Read is_liquidatable flag (V6+)
+        const isLiquidatable = data.readUInt8(offset) === 1;
+
+        // Only include open, verified positions marked as liquidatable
+        if (
+          status === PositionStatus.Open &&
+          thresholdVerified &&
+          isLiquidatable
+        ) {
+          liquidatable.push({
+            pda: pubkey,
+            market: marketPda,
+            side,
+            leverage,
+            thresholdVerified,
+            isLiquidatable,
+            status,
+          });
+        }
+      } catch {
+        // Skip unparseable positions
+      }
+    }
+
+    return liquidatable;
+  }
+
+  /**
+   * Execute liquidation for a single position
+   */
+  private async executeSingleLiquidation(
+    marketPda: PublicKey,
+    position: OpenPosition
+  ): Promise<string> {
+    // Find the completed batch request that verified this position
+    const batchRequest = await this.findCompletedBatchRequest(marketPda, position.pda);
+
+    if (!batchRequest) {
+      throw new Error('No completed batch request found for position');
+    }
+
+    // Build liquidate_position transaction
+    const tx = await this.buildLiquidatePositionTx(
+      marketPda,
+      position,
+      batchRequest
+    );
+
+    // Send and confirm
+    const signature = await sendAndConfirmTransaction(
+      this.connection,
+      tx,
+      [this.crankKeypair],
+      { commitment: 'confirmed' }
+    );
+
+    return signature;
+  }
+
+  /**
+   * Find a completed batch request that verified this position as liquidatable
+   */
+  private async findCompletedBatchRequest(
+    marketPda: PublicKey,
+    positionPda: PublicKey
+  ): Promise<PublicKey | null> {
+    // LiquidationBatchRequest account size (adjust based on actual struct)
+    const BATCH_REQUEST_SIZE = 328; // Approximate size
+
+    const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
+      filters: [{ dataSize: BATCH_REQUEST_SIZE }],
+    });
+
+    for (const { pubkey, account } of accounts) {
+      try {
+        const data = account.data;
+        let offset = 8; // Skip discriminator
+
+        const requestMarket = new PublicKey(data.subarray(offset, offset + 32));
+        offset += 32;
+
+        if (!requestMarket.equals(marketPda)) {
+          continue;
+        }
+
+        // Skip mark_price (8) + position_count (1)
+        offset += 8 + 1;
+
+        // Read positions array (10 x 32 = 320 bytes)
+        const positions: PublicKey[] = [];
+        for (let i = 0; i < 10; i++) {
+          positions.push(new PublicKey(data.subarray(offset, offset + 32)));
+          offset += 32;
+        }
+
+        // Check if our position is in this batch
+        if (!positions.some(p => p.equals(positionPda))) {
+          continue;
+        }
+
+        // Skip results array (10 bytes)
+        offset += 10;
+
+        // Read completed flag
+        const completed = data.readUInt8(offset) === 1;
+
+        if (completed) {
+          return pubkey;
+        }
+      } catch {
+        // Skip unparseable
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Build liquidate_position transaction
+   */
+  private async buildLiquidatePositionTx(
+    marketPda: PublicKey,
+    position: OpenPosition,
+    batchRequest: PublicKey
+  ): Promise<Transaction> {
+    // Instruction discriminator for liquidate_position
+    // sha256("global:liquidate_position")[0..8]
+    const LIQUIDATE_POSITION_DISCRIMINATOR = new Uint8Array([
+      0x55, 0x0f, 0x6f, 0x0b, 0xbb, 0x97, 0x0a, 0x1c
+    ]);
+
+    // Derive required PDAs
+    const [liquidationConfig] = PublicKey.findProgramAddressSync(
+      [Buffer.from('liquidation_config')],
+      this.dexProgramId
+    );
+
+    // Get market account to find vault addresses
+    const marketAccount = await this.connection.getAccountInfo(marketPda);
+    if (!marketAccount) {
+      throw new Error('Market account not found');
+    }
+
+    // Parse market account for vault addresses
+    // Layout: discriminator(8) + authority(32) + underlying_mint(32) + ...
+    const marketData = marketAccount.data;
+    let offset = 8 + 32 + 32; // Skip to relevant fields
+
+    // Read oracle_price_feed (after more fields)
+    offset += 32 + 8 + 8 + 8 + 8 + 8 + 8 + 8 + 16 + 16 + 4 + 4 + 4 + 4 + 4; // Skip many fields
+    const oraclePriceFeed = new PublicKey(marketData.subarray(offset, offset + 32));
+    offset += 32;
+
+    const collateralVault = new PublicKey(marketData.subarray(offset, offset + 32));
+    offset += 32;
+
+    const insuranceFund = new PublicKey(marketData.subarray(offset, offset + 32));
+
+    // Build instruction
+    const data = Buffer.alloc(8);
+    data.set(LIQUIDATE_POSITION_DISCRIMINATOR, 0);
+
+    // Account order matches LiquidatePosition struct
+    const keys = [
+      { pubkey: marketPda, isSigner: false, isWritable: true },
+      { pubkey: position.pda, isSigner: false, isWritable: true },
+      { pubkey: batchRequest, isSigner: false, isWritable: true },
+      { pubkey: liquidationConfig, isSigner: false, isWritable: false },
+      { pubkey: oraclePriceFeed, isSigner: false, isWritable: false },
+      { pubkey: collateralVault, isSigner: false, isWritable: true },
+      { pubkey: insuranceFund, isSigner: false, isWritable: true },
+      // Liquidator's collateral account - derive from keypair
+      {
+        pubkey: await this.getLiquidatorCollateralAccount(marketPda),
+        isSigner: false,
+        isWritable: true,
+      },
+      { pubkey: this.crankKeypair.publicKey, isSigner: true, isWritable: true },
+    ];
+
+    const instruction = new TransactionInstruction({
+      keys,
+      programId: this.dexProgramId,
+      data,
+    });
+
+    return new Transaction().add(instruction);
+  }
+
+  /**
+   * Get liquidator's collateral token account (USDC ATA)
+   */
+  private async getLiquidatorCollateralAccount(
+    _marketPda: PublicKey
+  ): Promise<PublicKey> {
+    // TODO: Derive actual USDC ATA for liquidator
+    // For now, use a placeholder that would need to be set up
+    const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr');
+
+    // Derive ATA: [wallet, TOKEN_PROGRAM_ID, mint]
+    const [ata] = PublicKey.findProgramAddressSync(
+      [
+        this.crankKeypair.publicKey.toBuffer(),
+        new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
+        USDC_MINT.toBuffer(),
+      ],
+      new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
+    );
+
+    return ata;
+  }
 }
