@@ -10,7 +10,8 @@
 
 <p align="center">
   <a href="HACKATHON_SUBMISSION.md"><strong>Hackathon Submission</strong></a> |
-  <a href="EATING_GLASS.md"><strong>Technical Challenges (Eating Glass)</strong></a> |
+  <a href="EATING_GLASS.md"><strong>Technical Challenges</strong></a> |
+  <a href="CLAUDE.md"><strong>Developer Guide</strong></a> |
   <a href="project-docs/"><strong>Documentation</strong></a>
 </p>
 
@@ -22,20 +23,40 @@
 |----------|-----|
 | **Frontend** | [https://frontend-humanoid-tech.vercel.app](https://frontend-humanoid-tech.vercel.app) |
 | **DEX Program** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) |
-| **MXE Program** | [`DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM`](https://explorer.solana.com/address/DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM?cluster=devnet) |
-| **ZK Verifier** | [`6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF`](https://explorer.solana.com/address/6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF?cluster=devnet) |
+| **MXE Program** | [`HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS`](https://explorer.solana.com/address/HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS?cluster=devnet) |
+| **ZK Verifier** | [`9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`](https://explorer.solana.com/address/9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W?cluster=devnet) |
+| **Arcium Core** | [`Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ`](https://explorer.solana.com/address/Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ?cluster=devnet) |
+
+### Token Mints (Devnet)
+
+| Token | Address |
+|-------|---------|
+| Wrapped SOL | `So11111111111111111111111111111111111111112` |
+| Dummy USDC | `Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr` |
 
 ## Overview
 
 Confidex is a confidential order book DEX that enables private trading on Solana. Unlike traditional DEXs where order details are public, Confidex keeps your trade amounts and prices encrypted throughout the entire lifecycle.
 
-### Three-Layer Privacy Architecture
+### Four-Layer Privacy Architecture
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Compliance** | Noir/Groth16 ZK Proofs | Proves eligibility without revealing identity |
-| **Execution** | Arcium MPC | Encrypted order matching |
-| **Settlement** | ShadowWire | Private token transfers |
+| **Compliance** | Noir/Groth16 ZK Proofs (via Sunspot) | Proves eligibility without revealing identity |
+| **Execution** | Arcium MPC (Cerberus protocol) | Encrypted order matching |
+| **Storage** | Light Protocol ZK Compression | Rent-free compressed accounts (~5000x cheaper) |
+| **Settlement** | ShadowWire (Bulletproof) | Private token transfers with hidden amounts |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [CLAUDE.md](CLAUDE.md) | Developer guide with critical rules and patterns |
+| [project-docs/ARCHITECTURE.md](project-docs/ARCHITECTURE.md) | Detailed system architecture (88KB) |
+| [project-docs/ARCIUM_MPC_INTEGRATION.md](project-docs/ARCIUM_MPC_INTEGRATION.md) | MPC integration guide |
+| [project-docs/dev-setup.md](project-docs/dev-setup.md) | Full development setup |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment guide |
+| [project-docs/arcium/](project-docs/arcium/) | Arcium documentation (9 guides) |
 
 ## Features
 
@@ -57,11 +78,14 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 
 ### Prerequisites
 
-- Rust 1.89.0+
-- Solana CLI 2.3.0+
-- Anchor 0.32.1+
-- Node.js 18+
-- pnpm
+| Tool | Version | Notes |
+|------|---------|-------|
+| Rust | **1.89.0** | Required for Arcium v0.6.3 |
+| Solana CLI | 2.3.0+ | |
+| Anchor | 0.32.1 | |
+| Noir | **1.0.0-beta.13** | Locked for Sunspot compatibility |
+| Node.js | 18+ | |
+| pnpm | 8+ | |
 
 ### Installation
 
@@ -70,18 +94,31 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 git clone https://github.com/confidex-dex/confidex
 cd confidex
 
-# Install frontend dependencies
-cd frontend && pnpm install
+# Install all dependencies
+cd frontend && pnpm install && cd ..
+cd backend && pnpm install && cd ..
 
 # Build Anchor programs
-cd .. && anchor build
+anchor build
 ```
 
-### Run Frontend
+### Build ZK Circuits (Optional)
 
 ```bash
-cd frontend
-pnpm dev
+cd circuits/eligibility
+nargo build
+sunspot compile target/eligibility.json
+sunspot setup target/eligibility.ccs
+```
+
+### Run Services
+
+```bash
+# Terminal 1: Frontend
+cd frontend && pnpm dev
+
+# Terminal 2: Backend with Crank (order matching)
+cd backend && pnpm dev
 ```
 
 Visit `http://localhost:3000` to access the trading interface.
@@ -105,17 +142,17 @@ Visit `http://localhost:3000` to access the trading interface.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    PRIVACY LAYER 1: ZK                       │
+│                 PRIVACY LAYER 1: COMPLIANCE                  │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │          Noir Circuit (Groth16 via Sunspot)          │    │
 │  │     SMT Non-Membership Proof for Blacklist Check     │    │
-│  │              Proof Size: 388 bytes                   │    │
+│  │              Proof Size: 324 bytes                   │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  PRIVACY LAYER 2: MPC                        │
+│                  PRIVACY LAYER 2: EXECUTION                  │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │              Arcium MXE (Cerberus Protocol)          │    │
 │  │      Encrypted Price Comparison & Fill Calc          │    │
@@ -125,7 +162,17 @@ Visit `http://localhost:3000` to access the trading interface.
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                PRIVACY LAYER 3: SETTLEMENT                   │
+│                   PRIVACY LAYER 3: STORAGE                   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │           Light Protocol ZK Compression              │    │
+│  │       Rent-Free Accounts (~5000x Cheaper)            │    │
+│  │            Optional Compressed Storage               │    │
+│  └─────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                 PRIVACY LAYER 4: SETTLEMENT                  │
 │  ┌─────────────────────────────────────────────────────┐    │
 │  │         ShadowWire (Bulletproof Transfers)           │    │
 │  │          Private Token Transfer Execution            │    │
@@ -148,37 +195,43 @@ Visit `http://localhost:3000` to access the trading interface.
 ```
 confidex/
 ├── programs/
-│   ├── confidex_dex/          # Core DEX program
-│   │   ├── src/
-│   │   │   ├── instructions/  # place_order, match, cancel
-│   │   │   ├── state/         # Exchange, Pair, Order accounts
-│   │   │   ├── cpi/           # Arcium, Verifier integrations
-│   │   │   └── settlement/    # ShadowWire integration
-│   │   └── Cargo.toml
-│   └── arcium_mxe/            # MPC computation program
+│   └── confidex_dex/           # Core DEX program (Rust/Anchor)
+│       ├── src/
+│       │   ├── instructions/   # place_order, match, cancel, settle
+│       │   ├── state/          # Exchange, Pair, Order, Position
+│       │   ├── cpi/            # Arcium, Verifier integrations
+│       │   └── settlement/     # ShadowWire integration
+│       └── Cargo.toml
+│
+├── arcium-mxe/                 # Arcium MPC integration
+│   ├── encrypted-ixs/          # Arcis MPC circuits
+│   └── programs/confidex_mxe/  # MXE wrapper program
 │
 ├── circuits/
-│   └── eligibility/           # Noir ZK circuit
-│       ├── src/main.nr
-│       └── Nargo.toml
+│   └── eligibility/            # Noir ZK circuit (Groth16)
+│       └── src/main.nr
 │
-├── frontend/
+├── frontend/                   # Next.js 14 application
 │   ├── src/
-│   │   ├── app/               # Next.js pages
-│   │   ├── components/        # React components
-│   │   ├── hooks/             # Custom hooks
-│   │   ├── lib/               # Helius, PNP integrations
-│   │   └── stores/            # Zustand state
-│   └── package.json
+│   │   ├── app/                # Pages and routes
+│   │   ├── components/         # Trading panel, order book, etc.
+│   │   ├── hooks/              # useEncryption, useMpcEvents
+│   │   ├── lib/                # Clients, constants
+│   │   └── stores/             # Zustand state
+│   └── scripts/                # Devnet utilities
 │
-├── backend/
-│   └── src/                   # Proof generation server
+├── backend/                    # Express + Crank service
+│   └── src/
+│       └── crank/              # Order matching automation
+│           ├── match-executor.ts
+│           └── mpc-poller.ts
 │
-├── tests/
-│   └── integration/           # Integration tests
+├── project-docs/               # Detailed documentation
+│   └── arcium/                 # Arcium integration guides
 │
-└── scripts/
-    └── demo.sh                # Interactive demo
+└── tests/
+    ├── e2e/                    # End-to-end tests
+    └── integration/            # Integration tests
 ```
 
 ## Prize Track Integrations
@@ -191,10 +244,10 @@ confidex/
 ### Aztec/Noir ($10K)
 - Groth16 eligibility proofs via Sunspot verifier
 - SMT non-membership circuit for blacklist check
-- 388-byte proofs fit within Solana tx limits
+- 324-byte proofs fit within Solana tx limits
 
 ### Open Track ($18K)
-- Novel three-layer privacy architecture
+- Novel four-layer privacy architecture
 - First confidential order book DEX on Solana
 - Combines ZK, MPC, and private transfers
 
@@ -215,18 +268,57 @@ confidex/
 
 ## Environment Variables
 
-```env
-# Frontend (.env.local)
-NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
-NEXT_PUBLIC_VERIFIER_PROGRAM_ID=6gXWoHY73B1zrPew9UimHoRzKL5Aq1E3DfrDc9ey3hxF
-NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com
-NEXT_PUBLIC_HELIUS_API_KEY=your-helius-api-key
-NEXT_PUBLIC_PROOF_SERVER_URL=http://localhost:3001
+### Frontend (.env.local)
 
-# Backend
-PROOF_SERVER_PORT=3001
+```env
+# Program IDs (Devnet)
+NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
+NEXT_PUBLIC_MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+NEXT_PUBLIC_VERIFIER_PROGRAM_ID=9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W
+
+# MPC Encryption (Required)
+NEXT_PUBLIC_MXE_X25519_PUBKEY=46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b
+
+# RPC
+HELIUS_API_KEY=your-helius-api-key
+
+# Feature Flags
+NEXT_PUBLIC_LIGHT_PROTOCOL_ENABLED=true
 ```
+
+### Backend (.env)
+
+```env
+# Crank Service
+CRANK_ENABLED=true
+CRANK_USE_REAL_MPC=true
+
+# RPC
+HELIUS_API_KEY=your-helius-api-key
+```
+
+## Critical Constraints
+
+These constraints are **non-negotiable** for correct operation:
+
+| Constraint | Value | Why |
+|------------|-------|-----|
+| Arcium Cluster | **456** | Cluster 123 does NOT exist despite older docs |
+| Noir Version | **1.0.0-beta.13** | Locked for Sunspot Groth16 compatibility |
+| Rust Version | **1.89.0** | Required for Arcium v0.6.3 |
+| Order Account Size | **366 bytes (V5)** | Filter with `dataSize: 366` everywhere |
+| Proof Size | **324 bytes** | Fits within Solana transaction limits |
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| `AccountDidNotDeserialize` | Filter for V5 orders (366 bytes) |
+| `InsufficientBalance` | Wrap more tokens via scripts |
+| MXE keygen stuck | Run `arcium requeue-mxe-keygen` |
+| Cluster 123 errors | Use cluster **456** (123 doesn't exist) |
+| `DeclaredProgramIdMismatch` | Rebuild MXE after updating `declare_id!` |
+| `mxeKeysNotSet` (0x1772) | DKG not complete - check `arcium mxe-info` |
 
 ## Development
 

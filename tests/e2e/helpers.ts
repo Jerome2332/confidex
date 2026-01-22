@@ -173,10 +173,21 @@ export interface PlaceOrderParams {
   encryptedPrice: Uint8Array;
   ephemeralPubkey: Uint8Array;
   proof: Uint8Array;
+  /** Token mint for the order side (quote for buy, base for sell) */
+  tokenMint: PublicKey;
 }
 
 /**
  * Create place order instruction
+ *
+ * Account order must match PlaceOrder struct in place_order.rs:
+ * 1. exchange (mut)
+ * 2. pair (mut)
+ * 3. order (init, signer)
+ * 4. user_balance (mut) - derived from user + token mint
+ * 5. verifier_program
+ * 6. maker (signer, mut)
+ * 7. system_program
  */
 export function createPlaceOrderInstruction(params: PlaceOrderParams): TransactionInstruction {
   const {
@@ -191,11 +202,12 @@ export function createPlaceOrderInstruction(params: PlaceOrderParams): Transacti
     encryptedPrice,
     ephemeralPubkey,
     proof,
+    tokenMint,
   } = params;
 
-  // Derive trader eligibility PDA
-  const [traderEligibilityPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('trader_eligibility'), userPubkey.toBuffer()],
+  // Derive user_balance PDA (user + token mint)
+  const [userBalancePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('user_balance'), userPubkey.toBuffer(), tokenMint.toBuffer()],
     programId
   );
 
@@ -214,14 +226,15 @@ export function createPlaceOrderInstruction(params: PlaceOrderParams): Transacti
     Buffer.from(proof),
   ]);
 
+  // Account order must match PlaceOrder struct in place_order.rs
   const keys = [
-    { pubkey: exchangePda, isSigner: false, isWritable: false },
-    { pubkey: pairPda, isSigner: false, isWritable: true },
-    { pubkey: orderPubkey, isSigner: true, isWritable: true },
-    { pubkey: userPubkey, isSigner: true, isWritable: true },
-    { pubkey: traderEligibilityPda, isSigner: false, isWritable: true },
-    { pubkey: VERIFIER_PROGRAM_ID, isSigner: false, isWritable: false },
-    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: exchangePda, isSigner: false, isWritable: true },      // exchange (mut for order_count)
+    { pubkey: pairPda, isSigner: false, isWritable: true },          // pair
+    { pubkey: orderPubkey, isSigner: true, isWritable: true },       // order (init)
+    { pubkey: userBalancePda, isSigner: false, isWritable: true },   // user_balance
+    { pubkey: VERIFIER_PROGRAM_ID, isSigner: false, isWritable: false }, // verifier_program
+    { pubkey: userPubkey, isSigner: true, isWritable: true },        // maker
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false }, // system_program
   ];
 
   return new TransactionInstruction({
@@ -257,6 +270,109 @@ export function createCancelOrderInstruction(params: CancelOrderParams): Transac
     keys,
     data: discriminator,
   });
+}
+
+// =============================================================================
+// USER BALANCE INITIALIZATION
+// =============================================================================
+
+export interface WrapTokensParams {
+  programId: PublicKey;
+  exchangePda: PublicKey;
+  pairPda: PublicKey;
+  tokenMint: PublicKey;
+  userTokenAccount: PublicKey;
+  vault: PublicKey;
+  userPubkey: PublicKey;
+  amount: bigint;
+}
+
+/**
+ * Create wrap_tokens instruction to initialize user balance
+ *
+ * Account order must match WrapTokens struct in wrap_tokens.rs:
+ * 1. exchange
+ * 2. pair
+ * 3. token_mint
+ * 4. user_token_account (mut)
+ * 5. vault (mut)
+ * 6. user_confidential_balance (init_if_needed)
+ * 7. user (signer, mut)
+ * 8. token_program
+ * 9. system_program
+ */
+export function createWrapTokensInstruction(params: WrapTokensParams): TransactionInstruction {
+  const {
+    programId,
+    exchangePda,
+    pairPda,
+    tokenMint,
+    userTokenAccount,
+    vault,
+    userPubkey,
+    amount,
+  } = params;
+
+  // Derive user_confidential_balance PDA
+  const [userBalancePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('user_balance'), userPubkey.toBuffer(), tokenMint.toBuffer()],
+    programId
+  );
+
+  // wrap_tokens discriminator: sha256("global:wrap_tokens")[0..8]
+  const discriminator = Buffer.from([0xf4, 0x89, 0x39, 0xfb, 0xe8, 0xe0, 0x36, 0x0e]);
+
+  // Instruction data: discriminator + amount (u64)
+  const data = Buffer.alloc(16);
+  discriminator.copy(data, 0);
+  data.writeBigUInt64LE(amount, 8);
+
+  const keys = [
+    { pubkey: exchangePda, isSigner: false, isWritable: false },
+    { pubkey: pairPda, isSigner: false, isWritable: false },
+    { pubkey: tokenMint, isSigner: false, isWritable: false },
+    { pubkey: userTokenAccount, isSigner: false, isWritable: true },
+    { pubkey: vault, isSigner: false, isWritable: true },
+    { pubkey: userBalancePda, isSigner: false, isWritable: true },
+    { pubkey: userPubkey, isSigner: true, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+
+  return new TransactionInstruction({
+    programId,
+    keys,
+    data,
+  });
+}
+
+/**
+ * Derive user balance PDA
+ */
+export function deriveUserBalancePda(
+  programId: PublicKey,
+  user: PublicKey,
+  mint: PublicKey
+): PublicKey {
+  const [pda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('user_balance'), user.toBuffer(), mint.toBuffer()],
+    programId
+  );
+  return pda;
+}
+
+/**
+ * Check if user balance account exists
+ */
+export async function userBalanceExists(
+  connection: Connection,
+  programId: PublicKey,
+  user: PublicKey,
+  mint: PublicKey
+): Promise<boolean> {
+  const pda = deriveUserBalancePda(programId, user, mint);
+  const accountInfo = await connection.getAccountInfo(pda);
+  return accountInfo !== null && accountInfo.owner.equals(programId);
 }
 
 // =============================================================================
@@ -482,6 +598,10 @@ async function getAtaAddress(owner: PublicKey, mint: PublicKey): Promise<PublicK
 
 /**
  * Place a test order and return the order PDA
+ *
+ * Note: User must have a user_balance account initialized for the order's token.
+ * For buy orders: need USDC (quote) balance
+ * For sell orders: need SOL (base) balance
  */
 export async function placeTestOrder(
   ctx: TestContext,
@@ -491,6 +611,10 @@ export async function placeTestOrder(
   amount: bigint = 100_000_000n // 0.1 SOL default
 ): Promise<PublicKey> {
   console.log(`[E2E Order] Placing ${side} order at price ${price} for amount ${amount}`);
+
+  // Determine token mint for this order side
+  // Buy orders spend quote (USDC), sell orders spend base (SOL)
+  const tokenMint = side === 'buy' ? ctx.quoteMint : ctx.baseMint;
 
   // Generate proof and encrypt values
   const proof = await generateEligibilityProof(user.publicKey);
@@ -516,6 +640,7 @@ export async function placeTestOrder(
       encryptedPrice,
       ephemeralPubkey,
       proof,
+      tokenMint,
     })
   );
 
