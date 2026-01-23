@@ -8,23 +8,26 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Install build dependencies (Python for native modules like better-sqlite3)
+RUN apk add --no-cache python3 make g++
+
 # Install pnpm
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
 # Copy package files
 COPY package.json pnpm-lock.yaml ./
 
-# Install dependencies
-RUN pnpm install --frozen-lockfile
+# Install dependencies (ignore workspace to avoid monorepo detection)
+RUN pnpm install --frozen-lockfile --ignore-workspace
 
 # Copy source code
 COPY . .
 
-# Build TypeScript
-RUN pnpm build
+# Build TypeScript (run tsc directly to avoid workspace detection)
+RUN npx tsc
 
 # Prune dev dependencies
-RUN pnpm prune --prod
+RUN pnpm prune --prod --ignore-workspace
 
 # ============================================
 # Stage 2: Production
