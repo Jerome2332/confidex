@@ -28,8 +28,8 @@ const PORT = process.env.PORT || 3001;
 // Strict CORS whitelist
 const ALLOWED_ORIGINS = [
   // Production
-  'https://app.confidex.exchange',
-  'https://confidex.exchange',
+  'https://www.confidex.xyz',
+  'https://confidex.xyz',
   // Staging
   'https://staging.confidex.exchange',
   // Custom frontend URL from env
