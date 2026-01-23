@@ -1,0 +1,176 @@
+# Confidex Alert Rules
+
+groups:
+  # ============================================
+  # Backend Service Alerts
+  # ============================================
+  - name: backend
+    rules:
+      - alert: BackendDown
+        expr: up{job="confidex-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backend service is down"
+          description: "The Confidex backend service has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(confidex_http_requests_total{status=~"5.."}[5m])) /
+          sum(rate(confidex_http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is above 5% for the last 5 minutes."
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(confidex_http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High API latency"
+          description: "95th percentile latency is above 2 seconds."
+
+  # ============================================
+  # Crank Service Alerts
+  # ============================================
+  - name: crank
+    rules:
+      - alert: CrankStopped
+        expr: confidex_crank_status == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Crank service is stopped"
+          description: "The crank service has been stopped for more than 2 minutes."
+
+      - alert: CrankPaused
+        expr: confidex_crank_status == -1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Crank service is paused"
+          description: "The crank service has been paused (circuit breaker) for more than 5 minutes."
+
+      - alert: HighCrankErrors
+        expr: confidex_crank_consecutive_errors > 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High consecutive crank errors"
+          description: "Crank service has {{ $value }} consecutive errors."
+
+      - alert: LargePendingMatchQueue
+        expr: confidex_crank_pending_matches > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Large pending match queue"
+          description: "There are {{ $value }} pending MPC matches waiting to be processed."
+
+  # ============================================
+  # MPC Alerts
+  # ============================================
+  - name: mpc
+    rules:
+      - alert: HighMpcFailureRate
+        expr: |
+          sum(rate(confidex_mpc_operations_total{status="failed"}[5m])) /
+          sum(rate(confidex_mpc_operations_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High MPC failure rate"
+          description: "MPC operation failure rate is above 10%."
+
+      - alert: SlowMpcOperations
+        expr: |
+          histogram_quantile(0.95, sum(rate(confidex_mpc_operation_duration_seconds_bucket[5m])) by (le, operation)) > 30
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Slow MPC operations"
+          description: "95th percentile MPC operation duration is above 30 seconds."
+
+  # ============================================
+  # RPC Alerts
+  # ============================================
+  - name: rpc
+    rules:
+      - alert: HighRpcFailureRate
+        expr: |
+          sum(rate(confidex_rpc_requests_total{status="failed"}[5m])) /
+          sum(rate(confidex_rpc_requests_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High RPC failure rate"
+          description: "RPC request failure rate is above 10%."
+
+      - alert: RpcFailover
+        expr: increase(confidex_rpc_failovers_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "RPC failover occurred"
+          description: "RPC endpoint failover has occurred."
+
+  # ============================================
+  # Wallet Alerts
+  # ============================================
+  - name: wallet
+    rules:
+      - alert: LowCrankBalance
+        expr: confidex_wallet_balance_sol{wallet="crank"} < 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low crank wallet balance"
+          description: "Crank wallet balance is {{ $value }} SOL, below 0.1 SOL threshold."
+
+      - alert: CriticalCrankBalance
+        expr: confidex_wallet_balance_sol{wallet="crank"} < 0.01
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical crank wallet balance"
+          description: "Crank wallet balance is critically low at {{ $value }} SOL."
+
+  # ============================================
+  # Resource Alerts
+  # ============================================
+  - name: resources
+    rules:
+      - alert: HighMemoryUsage
+        expr: |
+          (confidex_process_resident_memory_bytes / 1024 / 1024 / 1024) > 1.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Backend process is using {{ $value | printf \"%.2f\" }}GB of memory."
+
+      - alert: HighEventLoopLag
+        expr: confidex_nodejs_eventloop_lag_seconds > 0.1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High event loop lag"
+          description: "Node.js event loop lag is {{ $value | printf \"%.3f\" }} seconds."

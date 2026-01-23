@@ -1,0 +1,45 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output
+dist
+
+# Development files
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Test files
+coverage/
+*.test.ts
+*.spec.ts
+__tests__/
+
+# Database files
+*.db
+*.sqlite
+data/
+
+# Keys (mount as volume)
+keys/
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml

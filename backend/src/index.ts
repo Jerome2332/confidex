@@ -10,6 +10,7 @@ import { CrankService, loadCrankConfig } from './crank/index.js';
 import { validateEnv } from './config/env.js';
 import { logger, requestLogger } from './lib/logger.js';
 import { initSentry, setupSentryForExpress, flushSentry, captureException } from './lib/sentry.js';
+import { initRedisRateLimiter, closeRedisRateLimiter } from './middleware/rate-limit-redis.js';
 
 config();
 
@@ -122,6 +123,9 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 async function gracefulShutdown(signal: string) {
   log.info({ signal }, 'Received shutdown signal, starting graceful shutdown');
 
+  // Close Redis rate limiter
+  await closeRedisRateLimiter();
+
   // Flush Sentry events
   await flushSentry();
 
@@ -146,6 +150,11 @@ process.on('unhandledRejection', (reason) => {
 
 app.listen(PORT, async () => {
   log.info({ port: PORT, env: process.env.NODE_ENV }, 'Confidex backend server started');
+
+  // Initialize Redis rate limiter (falls back to in-memory if unavailable)
+  await initRedisRateLimiter().catch((err) => {
+    log.warn({ err }, 'Redis rate limiter initialization failed, using in-memory fallback');
+  });
   log.info({ endpoints: {
     health: `/health`,
     metrics: `/metrics`,

@@ -1,0 +1,41 @@
+{{ define "slack.title" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.alertname }}
+{{ end }}
+
+{{ define "slack.title.critical" }}
+:rotating_light: [{{ .Status | toUpper }}] CRITICAL: {{ .GroupLabels.alertname }}
+{{ end }}
+
+{{ define "slack.text" }}
+{{ range .Alerts }}
+*Alert:* {{ .Annotations.summary }}
+*Description:* {{ .Annotations.description }}
+*Severity:* {{ .Labels.severity }}
+{{ if .Labels.instance }}*Instance:* {{ .Labels.instance }}{{ end }}
+*Started:* {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}
+{{ if eq .Status "resolved" }}*Resolved:* {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}{{ end }}
+---
+{{ end }}
+{{ end }}
+
+{{ define "grafana.url" }}
+http://localhost:3002/d/confidex-overview/confidex-overview?orgId=1&refresh=30s
+{{ end }}
+
+{{ define "pagerduty.description" }}
+{{ .GroupLabels.alertname }}: {{ (index .Alerts 0).Annotations.summary }}
+{{ end }}
+
+{{ define "pagerduty.firing" }}
+{{ range .Alerts.Firing }}
+- {{ .Annotations.summary }}
+{{ end }}
+{{ end }}
+
+{{ define "__alert_severity_prefix" }}
+{{ if ne .Status "firing" }}:white_check_mark:{{ else if eq .Labels.severity "critical" }}:rotating_light:{{ else if eq .Labels.severity "warning" }}:warning:{{ else }}:information_source:{{ end }}
+{{ end }}
+
+{{ define "__alert_severity_prefix_title" }}
+{{ if ne .Status "firing" }}:white_check_mark:{{ else if eq .Labels.severity "critical" }}:rotating_light:{{ else if eq .Labels.severity "warning" }}:warning:{{ else if eq .Labels.severity "info" }}:information_source:{{ else }}:question:{{ end }}
+{{ end }}

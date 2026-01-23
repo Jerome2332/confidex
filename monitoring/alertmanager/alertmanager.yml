@@ -1,0 +1,123 @@
+# Confidex Alertmanager Configuration
+# Configure SLACK_WEBHOOK_URL and PAGERDUTY_SERVICE_KEY in .env.docker
+
+global:
+  resolve_timeout: 5m
+  # Slack API URL - set via environment variable or replace directly
+  slack_api_url: '${SLACK_WEBHOOK_URL}'
+
+# Route configuration
+route:
+  receiver: 'slack-notifications'
+  group_by: ['alertname', 'severity', 'instance']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+  routes:
+    # Critical alerts - immediate notification to all channels
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 1h
+      continue: true
+
+    # Warning alerts - Slack only
+    - match:
+        severity: warning
+      receiver: 'slack-notifications'
+      group_wait: 1m
+      repeat_interval: 4h
+
+    # Info alerts - less urgent
+    - match:
+        severity: info
+      receiver: 'slack-notifications'
+      group_wait: 5m
+      repeat_interval: 12h
+
+# Receivers
+receivers:
+  # Default Slack notifications (#confidex-alerts channel)
+  - name: 'slack-notifications'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#confidex-alerts'
+        send_resolved: true
+        username: 'Confidex Alertmanager'
+        icon_emoji: ':warning:'
+        title: '{{ template "slack.title" . }}'
+        text: '{{ template "slack.text" . }}'
+        actions:
+          - type: button
+            text: 'Runbook'
+            url: 'https://github.com/your-org/confidex/blob/main/project-docs/deployment/DEPLOYMENT.md#troubleshooting'
+          - type: button
+            text: 'Grafana'
+            url: '{{ template "grafana.url" . }}'
+
+  # Critical alerts (#confidex-critical channel)
+  - name: 'critical-alerts'
+    slack_configs:
+      - api_url: '${SLACK_CRITICAL_WEBHOOK_URL}'
+        channel: '#confidex-critical'
+        send_resolved: true
+        username: 'Confidex CRITICAL'
+        icon_emoji: ':rotating_light:'
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        title: '{{ template "slack.title.critical" . }}'
+        text: '{{ template "slack.text" . }}'
+    # Uncomment and configure for PagerDuty
+    # pagerduty_configs:
+    #   - service_key: '${PAGERDUTY_SERVICE_KEY}'
+    #     description: '{{ template "pagerduty.description" . }}'
+    #     severity: critical
+    #     details:
+    #       firing: '{{ template "pagerduty.firing" . }}'
+    #       num_firing: '{{ .Alerts.Firing | len }}'
+    #       num_resolved: '{{ .Alerts.Resolved | len }}'
+
+    # Uncomment for email alerts
+    # email_configs:
+    #   - to: 'oncall@confidex.exchange'
+    #     send_resolved: true
+    #     headers:
+    #       Subject: '[CRITICAL] Confidex Alert: {{ .GroupLabels.alertname }}'
+
+  # Webhook for custom integrations (Discord, Telegram, etc.)
+  - name: 'webhook-notifications'
+    webhook_configs:
+      - url: '${ALERT_WEBHOOK_URL}'
+        send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'alertmanager'
+            password: '${ALERT_WEBHOOK_PASSWORD}'
+
+# Inhibit rules - prevent duplicate alerts
+inhibit_rules:
+  # If backend is down, suppress other backend alerts
+  - source_match:
+      alertname: 'BackendDown'
+    target_match_re:
+      alertname: 'High.*|Slow.*|Crank.*'
+    equal: ['instance']
+
+  # If crank is stopped, suppress crank-related alerts
+  - source_match:
+      alertname: 'CrankStopped'
+    target_match_re:
+      alertname: 'CrankPaused|HighCrankErrors|LargePendingMatchQueue'
+    equal: ['instance']
+
+  # Critical alerts inhibit warnings for same alert
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'instance']
+
+# Templates
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
