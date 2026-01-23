@@ -889,7 +889,7 @@ module.exports = {
 ### Task 6: Deployment Runbook
 
 **New Files:**
-- `docs/DEPLOYMENT.md`
+- `project-docs/deployment/DEPLOYMENT.md`
 
 ```markdown
 # Deployment Runbook

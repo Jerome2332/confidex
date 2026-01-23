@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Planning & Task Breakdown
 
-When planning work on this project, follow the guidelines in [docs/spec.md](docs/spec.md):
+When planning work on this project:
 - Every task/ticket should be an atomic, commitable piece of work with tests (or other validation)
 - Every sprint should result in a demoable piece of software that can be run, tested, and built upon
 - Focus on small atomic tasks that compose into clear sprint goals

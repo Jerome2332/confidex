@@ -173,7 +173,7 @@ Detailed documentation moved to `project-docs/`:
 - [Architecture Details](project-docs/ARCHITECTURE.md)
 - [Arcium Integration](project-docs/arcium/)
 - [Privacy Model](project-docs/PRIVACY_MODEL.md)
-- [Deployment Guide](project-docs/DEPLOYMENT.md)
+- [Deployment Guide](project-docs/deployment/DEPLOYMENT.md)
 
 ## Performance Targets
 

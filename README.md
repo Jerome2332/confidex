@@ -55,7 +55,7 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 | [project-docs/ARCHITECTURE.md](project-docs/ARCHITECTURE.md) | Detailed system architecture (88KB) |
 | [project-docs/ARCIUM_MPC_INTEGRATION.md](project-docs/ARCIUM_MPC_INTEGRATION.md) | MPC integration guide |
 | [project-docs/dev-setup.md](project-docs/dev-setup.md) | Full development setup |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | Production deployment guide |
+| [project-docs/deployment/DEPLOYMENT.md](project-docs/deployment/DEPLOYMENT.md) | Production deployment guide |
 | [project-docs/arcium/](project-docs/arcium/) | Arcium documentation (9 guides) |
 
 ## Features
