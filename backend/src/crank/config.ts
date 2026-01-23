@@ -81,6 +81,8 @@ export function loadCrankConfig(): CrankConfig {
 
     minSolBalance: parseFloat(process.env.CRANK_MIN_SOL_BALANCE || '0.1'),
 
+    // Wallet can be loaded from CRANK_WALLET_SECRET_KEY env var (JSON array or base58)
+    // or from file at this path. Env var takes priority.
     walletPath: process.env.CRANK_WALLET_PATH || './keys/crank-wallet.json',
 
     rpcUrl: process.env.HELIUS_RPC_URL || process.env.RPC_URL || 'https://api.devnet.solana.com',

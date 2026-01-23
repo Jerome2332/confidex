@@ -3,9 +3,14 @@
  *
  * Handles loading and monitoring the crank wallet keypair.
  * The crank wallet pays for match transaction fees.
+ *
+ * Supports loading from:
+ * 1. CRANK_WALLET_SECRET_KEY env var (JSON array of bytes) - recommended for production
+ * 2. File path (for local development)
  */
 
 import { Keypair, Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import bs58 from 'bs58';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,21 +27,67 @@ export class CrankWallet {
   }
 
   /**
-   * Load the crank wallet keypair from file
+   * Load the crank wallet keypair from environment variable or file.
+   * Priority:
+   * 1. CRANK_WALLET_SECRET_KEY env var (JSON array or base58 string)
+   * 2. File at walletPath
    */
   async load(): Promise<void> {
+    const secretKeyEnv = process.env.CRANK_WALLET_SECRET_KEY;
+
+    if (secretKeyEnv) {
+      try {
+        this.keypair = this.parseSecretKey(secretKeyEnv);
+        console.log(`[CrankWallet] Loaded wallet from env: ${this.keypair.publicKey.toString()}`);
+        return;
+      } catch (error) {
+        throw new Error(`Failed to parse CRANK_WALLET_SECRET_KEY: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+
+    // Fall back to file-based loading
     const resolvedPath = path.resolve(this.walletPath);
 
     if (!fs.existsSync(resolvedPath)) {
-      throw new Error(`Crank wallet not found at: ${resolvedPath}`);
+      throw new Error(
+        `Crank wallet not found. Either set CRANK_WALLET_SECRET_KEY env var ` +
+        `or provide wallet file at: ${resolvedPath}`
+      );
     }
 
     try {
       const keypairData = JSON.parse(fs.readFileSync(resolvedPath, 'utf-8'));
       this.keypair = Keypair.fromSecretKey(Uint8Array.from(keypairData));
-      console.log(`[CrankWallet] Loaded wallet: ${this.keypair.publicKey.toString()}`);
+      console.log(`[CrankWallet] Loaded wallet from file: ${this.keypair.publicKey.toString()}`);
     } catch (error) {
-      throw new Error(`Failed to load crank wallet: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to load crank wallet from file: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Parse a secret key from string (JSON array or base58)
+   */
+  private parseSecretKey(secretKey: string): Keypair {
+    const trimmed = secretKey.trim();
+
+    // Try JSON array format first: [1,2,3,...] (64 bytes)
+    if (trimmed.startsWith('[')) {
+      const bytes = JSON.parse(trimmed);
+      if (!Array.isArray(bytes) || bytes.length !== 64) {
+        throw new Error('JSON secret key must be an array of 64 bytes');
+      }
+      return Keypair.fromSecretKey(Uint8Array.from(bytes));
+    }
+
+    // Try base58 format
+    try {
+      const decoded = bs58.decode(trimmed);
+      if (decoded.length !== 64) {
+        throw new Error(`Base58 secret key decoded to ${decoded.length} bytes, expected 64`);
+      }
+      return Keypair.fromSecretKey(decoded);
+    } catch (e) {
+      throw new Error(`Invalid secret key format. Expected JSON array [1,2,3,...] or base58 string. Error: ${e}`);
     }
   }
 
