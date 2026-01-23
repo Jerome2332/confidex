@@ -15,7 +15,7 @@ import { Request, Response, NextFunction } from 'express';
 import { createClient, RedisClientType } from 'redis';
 import { logger } from '../lib/logger.js';
 
-const log = logger.rateLimit || logger.http;
+const log = logger.rate_limit || logger.http;
 
 interface RedisRateLimitOptions {
   /** Time window in milliseconds */
