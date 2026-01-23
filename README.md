@@ -19,13 +19,25 @@
 
 ## Live Demo
 
-| Resource | URL |
-|----------|-----|
-| **Frontend** | [https://frontend-humanoid-tech.vercel.app](https://frontend-humanoid-tech.vercel.app) |
-| **DEX Program** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) |
-| **MXE Program** | [`HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS`](https://explorer.solana.com/address/HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS?cluster=devnet) |
-| **ZK Verifier** | [`9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`](https://explorer.solana.com/address/9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W?cluster=devnet) |
-| **Arcium Core** | [`Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ`](https://explorer.solana.com/address/Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ?cluster=devnet) |
+| Resource | URL | Status |
+|----------|-----|--------|
+| **Frontend** | [https://www.confidex.xyz](https://www.confidex.xyz) | Live |
+| **Backend API** | [https://confidex-uflk.onrender.com](https://confidex-uflk.onrender.com) | Live |
+| **DEX Program** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) | Deployed |
+| **MXE Program** | [`HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS`](https://explorer.solana.com/address/HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS?cluster=devnet) | Deployed |
+| **ZK Verifier** | [`9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`](https://explorer.solana.com/address/9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W?cluster=devnet) | Deployed |
+| **Arcium Core** | [`Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ`](https://explorer.solana.com/address/Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ?cluster=devnet) | Active |
+
+### Backend Services (Running 24/7)
+
+| Service | Description | Status |
+|---------|-------------|--------|
+| **Crank Service** | Automated order matching with 5s polling | Running |
+| **MPC Poller** | Real Arcium MPC (not simulated) | Running |
+| **Settlement Executor** | Dual settlement (ShadowWire + C-SPL) | Running |
+| **Position Verifier** | V6 perpetual position verification | Running |
+| **Liquidation Checker** | Batch liquidation (10 positions/batch) | Running |
+| **Margin Processor** | Async margin add/remove with MPC | Running |
 
 ### Token Mints (Devnet)
 

@@ -276,6 +276,8 @@ const eventFields = [
 
 ## Live Deployment (Devnet)
 
+### On-Chain Programs
+
 | Component | Address | Status |
 |-----------|---------|--------|
 | confidex_dex | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Deployed |
@@ -283,13 +285,41 @@ const eventFields = [
 | eligibility_verifier | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` | Deployed |
 | Arcium Cluster | Cluster 456 | Active |
 
+### Production Infrastructure
+
+| Service | URL | Status |
+|---------|-----|--------|
+| **Frontend** | [https://www.confidex.xyz](https://www.confidex.xyz) | Live |
+| **Backend API** | [https://confidex-uflk.onrender.com](https://confidex-uflk.onrender.com) | Live |
+| **Health Check** | [/health](https://confidex-uflk.onrender.com/health) | OK |
+
+### 24/7 Automated Services
+
+| Service | Function | Polling |
+|---------|----------|---------|
+| **Crank Service** | Order matching automation | 5 seconds |
+| **MPC Poller** | Arcium MPC result polling | Real-time |
+| **Settlement Executor** | Matched order settlement | Continuous |
+| **Position Verifier** | V6 perpetual verification | Continuous |
+| **Margin Processor** | Async margin operations | Event-driven |
+| **Liquidation Checker** | Batch liquidation (10/batch) | Continuous |
+| **Funding Settlement** | Perpetual funding rates | 8-hour intervals |
+
+### Crank Wallet (Devnet)
+
+| Property | Value |
+|----------|-------|
+| **Public Key** | `8LPCkBETLQNaDcbaFqFmeiZJJDoqjUipjEW6G2sf3TJr` |
+| **Balance** | ~0.94 SOL (auto-topped up) |
+| **Function** | Pays transaction fees for order matching |
+
 ---
 
 ## Technical Differentiators
 
 ### 1. Production MPC (Not Simulated)
 
-Unlike demo projects, Confidex uses **real Arcium MPC computation**:
+Unlike demo projects, Confidex uses **real Arcium MPC computation** running 24/7 on Render:
 
 ```typescript
 // config.ts
@@ -300,6 +330,13 @@ mpc: {
   timeoutMs: 120000,   // 2 minute timeout
 }
 ```
+
+**Production deployment features:**
+- Docker containerized backend on Render
+- Environment-based wallet loading (no keys in Docker image)
+- Supports JSON array or base58 secret key formats
+- Automatic health checks and restarts
+- CORS whitelisting for confidex.xyz
 
 ### 2. Versioned Account Schema
 

@@ -271,8 +271,18 @@ The crank service requires these environment variables:
 ```env
 # Required
 CRANK_ENABLED=true
+CRANK_RPC_PRIMARY=https://api.devnet.solana.com
+CONFIDEX_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
+MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+ADMIN_API_KEY=<generate with: openssl rand -hex 32>
+
+# Wallet Configuration (use ONE of these options)
+# Option 1: File path (for local development)
 CRANK_WALLET_PATH=./keys/crank-wallet.json
-RPC_URL=https://api.devnet.solana.com
+
+# Option 2: Secret key directly (RECOMMENDED for production/Docker)
+# Accepts JSON array format [1,2,3,...] or base58 string
+CRANK_WALLET_SECRET_KEY=[your,secret,key,bytes,here]
 
 # Optional tuning
 CRANK_POLLING_INTERVAL_MS=5000
@@ -282,6 +292,33 @@ CRANK_MIN_SOL_BALANCE=0.1
 CRANK_ERROR_THRESHOLD=10
 CRANK_PAUSE_DURATION_MS=60000
 ```
+
+### Render Deployment (Recommended for Production)
+
+Confidex backend is deployed on Render with Docker containerization.
+
+**Live URL:** https://confidex-uflk.onrender.com
+
+#### Required Environment Variables for Render
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `NODE_ENV` | Environment mode | `production` |
+| `ADMIN_API_KEY` | Admin authentication | `<openssl rand -hex 32>` |
+| `CONFIDEX_PROGRAM_ID` | DEX program address | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` |
+| `MXE_PROGRAM_ID` | MXE program address | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` |
+| `CRANK_RPC_PRIMARY` | Solana RPC endpoint | `https://api.devnet.solana.com` |
+| `CRANK_WALLET_SECRET_KEY` | Wallet secret key | `[104,33,2,...]` (JSON array) |
+| `CRANK_ENABLED` | Enable crank service | `true` |
+| `CRANK_USE_REAL_MPC` | Use real Arcium MPC | `true` |
+
+#### Wallet Loading Priority
+
+The crank wallet is loaded in this order:
+1. `CRANK_WALLET_SECRET_KEY` env var (JSON array or base58 string)
+2. File at `CRANK_WALLET_PATH` (fallback for local dev)
+
+**Security:** Never commit wallet keys to git or bake them into Docker images. Use environment variables for production deployments.
 
 ---
 
@@ -308,11 +345,14 @@ solana account <PROGRAM_ID> -u devnet | grep executable
 ### Backend Verification
 
 ```bash
-# Health check
-curl https://your-backend.com/health
+# Health check (requires Origin header in production due to CORS)
+curl -H "Origin: https://www.confidex.xyz" https://confidex-uflk.onrender.com/health
 
-# Crank status
-curl https://your-backend.com/admin/crank/status
+# Example response:
+# {"status":"ok","timestamp":"...","version":"0.1.0","uptime":147,...}
+
+# Crank status (requires admin API key)
+curl -H "X-API-Key: YOUR_ADMIN_KEY" https://confidex-uflk.onrender.com/api/admin/crank/status
 ```
 
 ### MPC Integration Verification
