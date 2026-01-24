@@ -18,6 +18,7 @@ import client, {
   Registry,
   collectDefaultMetrics,
 } from 'prom-client';
+import { rateLimiters } from '../middleware/rate-limit.js';
 
 // Create a custom registry
 export const metricsRegistry = new Registry();
@@ -226,6 +227,9 @@ export const tradesExecutedTotal = new Counter({
 // ============================================
 
 export const metricsRouter: RouterType = Router();
+
+// Apply rate limiting to metrics endpoint (1000 req/min - permissive for monitoring)
+metricsRouter.use(rateLimiters.health);
 
 /**
  * GET /metrics

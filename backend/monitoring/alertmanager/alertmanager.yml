@@ -1,0 +1,138 @@
+global:
+  # Resolve timeout - if an alert doesn't update for this duration, consider it resolved
+  resolve_timeout: 5m
+
+  # SMTP configuration for email alerts (optional)
+  # smtp_smarthost: 'smtp.gmail.com:587'
+  # smtp_from: 'alerts@confidex.xyz'
+  # smtp_auth_username: '${SMTP_USERNAME}'
+  # smtp_auth_password: '${SMTP_PASSWORD}'
+
+# Inhibition rules - prevent lower severity alerts when higher severity is firing
+inhibit_rules:
+  # If service is down, suppress all other alerts for that component
+  - source_match:
+      alertname: ConfidexBackendDown
+    target_match_re:
+      component: '.*'
+    equal: ['instance']
+
+  # If crank is stopped, suppress crank operational alerts
+  - source_match:
+      alertname: CrankServiceDown
+    target_match_re:
+      alertname: 'Crank.*'
+    equal: ['instance']
+
+# Routing tree
+route:
+  # Default receiver
+  receiver: 'slack-default'
+
+  # Group alerts by alertname and severity
+  group_by: ['alertname', 'severity', 'component']
+
+  # Wait before sending first notification for a group
+  group_wait: 30s
+
+  # Wait before sending notifications about new alerts in a group
+  group_interval: 5m
+
+  # Wait before re-sending a notification
+  repeat_interval: 4h
+
+  # Child routes for specific severity levels
+  routes:
+    # Critical alerts go to PagerDuty and Slack
+    - match:
+        severity: critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      repeat_interval: 1h
+
+    # Warning alerts go to Slack only
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+      group_wait: 1m
+      repeat_interval: 4h
+
+    # Specific routing for wallet alerts (always urgent)
+    - match:
+        alertname: CrankWalletLowBalance
+      receiver: 'critical-alerts'
+      group_wait: 0s
+      repeat_interval: 30m
+
+# Receivers define notification destinations
+receivers:
+  # Default receiver - general Slack channel
+  - name: 'slack-default'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/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'
+        channel: '#confidex-alerts'
+        send_resolved: true
+        icon_emoji: ':warning:'
+        title: '{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }} - {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Component:* {{ .Labels.component }}
+          {{ if .Annotations.runbook_url }}*Runbook:* {{ .Annotations.runbook_url }}{{ end }}
+          {{ end }}
+
+  # Critical alerts - PagerDuty + Slack
+  - name: 'critical-alerts'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/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'
+        channel: '#confidex-critical'
+        send_resolved: true
+        icon_emoji: ':rotating_light:'
+        color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+        title: ':rotating_light: {{ .Status | toUpper }}{{ if eq .Status "firing" }}: {{ .Alerts.Firing | len }}{{ end }} - {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Component:* {{ .Labels.component }}
+          {{ if .Annotations.runbook_url }}*Runbook:* <{{ .Annotations.runbook_url }}|View Runbook>{{ end }}
+          {{ end }}
+        actions:
+          - type: button
+            text: 'View in Grafana'
+            url: 'http://localhost:3002/d/confidex-overview'
+          - type: button
+            text: 'Silence Alert'
+            url: '{{ template "__alertmanagerURL" . }}/#/silences/new?filter=%7Balertname%3D%22{{ .CommonLabels.alertname }}%22%7D'
+    # Uncomment to enable PagerDuty
+    # pagerduty_configs:
+    #   - service_key: '${PAGERDUTY_SERVICE_KEY}'
+    #     severity: 'critical'
+    #     description: '{{ .CommonAnnotations.summary }}'
+    #     details:
+    #       firing: '{{ template "pagerduty.default.instances" .Alerts.Firing }}'
+    #       num_firing: '{{ .Alerts.Firing | len }}'
+    #       resolved: '{{ template "pagerduty.default.instances" .Alerts.Resolved }}'
+    #       num_resolved: '{{ .Alerts.Resolved | len }}'
+
+  # Warning alerts - Slack only (uses same webhook as default)
+  - name: 'slack-warnings'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/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'
+        channel: '#confidex-warnings'
+        send_resolved: true
+        icon_emoji: ':warning:'
+        color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+        title: '{{ .Status | toUpper }}{{ if eq .Status "firing" }}: {{ .Alerts.Firing | len }}{{ end }} - {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Component:* {{ .Labels.component }}
+          {{ end }}
+
+# Templates for notifications (optional customization)
+templates: []

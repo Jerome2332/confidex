@@ -38,6 +38,8 @@
 | **Position Verifier** | V6 perpetual position verification | Running |
 | **Liquidation Checker** | Batch liquidation (10 positions/batch) | Running |
 | **Margin Processor** | Async margin add/remove with MPC | Running |
+| **WebSocket Server** | Real-time streaming via Socket.IO | Running |
+| **Pyth Oracle** | Price streaming via Hermes SSE | Running |
 
 ### Token Mints (Devnet)
 
@@ -66,6 +68,7 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 | [CLAUDE.md](CLAUDE.md) | Developer guide with critical rules and patterns |
 | [project-docs/ARCHITECTURE.md](project-docs/ARCHITECTURE.md) | Detailed system architecture (88KB) |
 | [project-docs/ARCIUM_MPC_INTEGRATION.md](project-docs/ARCIUM_MPC_INTEGRATION.md) | MPC integration guide |
+| [project-docs/implementation/STREAMING_IMPLEMENTATION.md](project-docs/implementation/STREAMING_IMPLEMENTATION.md) | Real-time streaming infrastructure |
 | [project-docs/dev-setup.md](project-docs/dev-setup.md) | Full development setup |
 | [project-docs/deployment/DEPLOYMENT.md](project-docs/deployment/DEPLOYMENT.md) | Production deployment guide |
 | [project-docs/arcium/](project-docs/arcium/) | Arcium documentation (9 guides) |
@@ -78,6 +81,7 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 - **Private Settlement**: Bulletproof-based transfers hide amounts
 - **MEV Protection**: Orders invisible until matched
 - **Institutional Ready**: Compliant trading with privacy
+- **Real-Time Updates**: WebSocket streaming for instant order/trade notifications
 
 ### Private Perpetuals (NEW)
 - **Leveraged Positions**: 1-20x leverage with encrypted position data

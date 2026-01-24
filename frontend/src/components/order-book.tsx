@@ -1,12 +1,13 @@
 'use client';
 
 import { FC, useState, useEffect, useMemo, useRef } from 'react';
-import { TrendUp, TrendDown, Lock, Pulse, CloudSlash, Spinner } from '@phosphor-icons/react';
+import { TrendUp, TrendDown, Lock, Pulse, CloudSlash, Spinner, WifiHigh, WifiSlash } from '@phosphor-icons/react';
 import { PrecisionSelector, PrecisionOption } from './precision-selector';
 import { useOrderStore } from '@/stores/order-store';
 import { useSolPrice } from '@/hooks/use-pyth-price';
 import { useOrderBook, OrderBookLevel } from '@/hooks/use-order-book';
 import { useRecentTrades } from '@/hooks/use-recent-trades';
+import { useOrderStream, useTradeStream } from '@/hooks/streaming';
 
 interface OrderBookEntry {
   price: number;
@@ -65,13 +66,35 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
     setIsMounted(true);
   }, []);
 
-  // Fetch real order book data from chain
+  // Fetch real order book data from chain (polling)
   const {
     asks: chainAsks,
     bids: chainBids,
     loading: orderBookLoading,
     error: orderBookError,
   } = useOrderBook();
+
+  // Real-time order events via WebSocket
+  // These augment the polling data with instant updates
+  const {
+    events: orderEvents,
+    isConnected: wsConnected,
+    placements,
+    cancellations,
+  } = useOrderStream();
+
+  // Real-time trade events via WebSocket
+  const { events: tradeEvents, isConnected: tradeWsConnected } = useTradeStream();
+
+  // Track recent streaming activity for visual feedback
+  const [streamingActive, setStreamingActive] = useState(false);
+  useEffect(() => {
+    if (orderEvents.length > 0 || tradeEvents.length > 0) {
+      setStreamingActive(true);
+      const timer = setTimeout(() => setStreamingActive(false), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [orderEvents.length, tradeEvents.length]);
 
   // Use live price or fallback
   const midPrice = livePrice || 104.50;
@@ -181,6 +204,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
     return (
       <div
         key={`${side}-${index}`}
+        data-testid={`${side}-row`}
         className={`relative grid grid-cols-3 px-2 hover:bg-secondary/50 transition-colors cursor-pointer group ${
           isCompact ? 'text-xs py-0.5' : 'text-xs py-1'
         }`}
@@ -221,6 +245,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
       className={`h-full flex flex-col bg-card ${isCompact ? '' : 'border border-border rounded-lg'}`}
       role="region"
       aria-label="Order book and recent trades"
+      data-testid="order-book"
     >
       {/* Header with Tab Toggle */}
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-border shrink-0">
@@ -309,28 +334,40 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                   Bids: <span className="text-emerald-400/80">{bids.reduce((sum, b) => sum + b.orderCount, 0)}</span>
                 </span>
               </div>
-              <div className="flex items-center gap-1 text-muted-foreground">
-                {orderBookLoading ? (
-                  <>
-                    <Spinner size={10} className="animate-spin" />
-                    <span>Loading...</span>
-                  </>
-                ) : orderBookError ? (
-                  <>
-                    <CloudSlash size={10} className="text-rose-400/60" />
-                    <span className="text-rose-400/60">Offline</span>
-                  </>
-                ) : hasRealOrders ? (
-                  <>
-                    <Pulse size={10} className="text-emerald-400/60" />
-                    <span>Live</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock size={10} />
-                    <span>Demo</span>
-                  </>
-                )}
+              <div className="flex items-center gap-2 text-muted-foreground">
+                {/* WebSocket status indicator */}
+                <div className="flex items-center gap-1" title={wsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}>
+                  {wsConnected ? (
+                    <WifiHigh size={10} className={`text-emerald-400/60 ${streamingActive ? 'animate-pulse' : ''}`} />
+                  ) : (
+                    <WifiSlash size={10} className="text-amber-400/60" />
+                  )}
+                </div>
+                <span className="text-muted-foreground/40">|</span>
+                {/* Data source status */}
+                <div className="flex items-center gap-1">
+                  {orderBookLoading ? (
+                    <>
+                      <Spinner size={10} className="animate-spin" />
+                      <span>Loading...</span>
+                    </>
+                  ) : orderBookError ? (
+                    <>
+                      <CloudSlash size={10} className="text-rose-400/60" />
+                      <span className="text-rose-400/60">Offline</span>
+                    </>
+                  ) : hasRealOrders ? (
+                    <>
+                      <Pulse size={10} className="text-emerald-400/60" />
+                      <span>Live</span>
+                    </>
+                  ) : (
+                    <>
+                      <Lock size={10} />
+                      <span>Demo</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -369,7 +406,17 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
           <div className="border-t border-border bg-secondary/20 px-2 py-1.5 shrink-0">
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{recentTrades.length} recent trades</span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2">
+                {/* WebSocket status indicator */}
+                <div className="flex items-center gap-1" title={tradeWsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}>
+                  {tradeWsConnected ? (
+                    <WifiHigh size={10} className={`text-emerald-400/60 ${streamingActive ? 'animate-pulse' : ''}`} />
+                  ) : (
+                    <WifiSlash size={10} className="text-amber-400/60" />
+                  )}
+                </div>
+                <span className="text-muted-foreground/40">|</span>
+                <div className="flex items-center gap-1">
                 {hasRealTrades ? (
                   <>
                     <Pulse size={10} className="text-emerald-400/60" aria-hidden="true" />
@@ -386,6 +433,7 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                     <span>Demo</span>
                   </>
                 )}
+                </div>
               </div>
             </div>
           </div>

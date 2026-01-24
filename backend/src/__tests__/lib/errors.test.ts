@@ -244,11 +244,41 @@ describe('classifyError', () => {
     expect(error.code).toBe(ErrorCode.CONNECTION_RESET);
   });
 
-  it('classifies blockhash errors as BlockchainError', () => {
+  it('classifies ENOTFOUND as NetworkError', () => {
+    const error = classifyError(new Error('ENOTFOUND'));
+
+    expect(error).toBeInstanceOf(NetworkError);
+    expect(error.code).toBe(ErrorCode.DNS_LOOKUP_FAILED);
+  });
+
+  it('classifies DNS errors as NetworkError', () => {
+    const error = classifyError(new Error('DNS resolution failed'));
+
+    expect(error).toBeInstanceOf(NetworkError);
+    expect(error.code).toBe(ErrorCode.DNS_LOOKUP_FAILED);
+  });
+
+  it('classifies socket hang up as NetworkError', () => {
+    const error = classifyError(new Error('Socket hang up'));
+
+    expect(error).toBeInstanceOf(NetworkError);
+    expect(error.code).toBe(ErrorCode.SOCKET_HANG_UP);
+    expect(error.isRetryable).toBe(true);
+  });
+
+  it('classifies blockhash not found as BlockchainError', () => {
     const error = classifyError(new Error('Blockhash not found'));
 
     expect(error).toBeInstanceOf(BlockchainError);
     expect(error.code).toBe(ErrorCode.BLOCKHASH_NOT_FOUND);
+    expect(error.isRetryable).toBe(true);
+  });
+
+  it('classifies blockhash expired as BlockchainError', () => {
+    const error = classifyError(new Error('Transaction blockhash has expired'));
+
+    expect(error).toBeInstanceOf(BlockchainError);
+    expect(error.code).toBe(ErrorCode.BLOCKHASH_EXPIRED);
     expect(error.isRetryable).toBe(true);
   });
 
@@ -265,6 +295,27 @@ describe('classifyError', () => {
 
     expect(error).toBeInstanceOf(BlockchainError);
     expect(error.code).toBe(ErrorCode.PROGRAM_ERROR);
+  });
+
+  it('classifies account not found as BlockchainError', () => {
+    const error = classifyError(new Error('Account not found'));
+
+    expect(error).toBeInstanceOf(BlockchainError);
+    expect(error.code).toBe(ErrorCode.ACCOUNT_NOT_FOUND);
+  });
+
+  it('classifies invalid account owner as BlockchainError', () => {
+    const error = classifyError(new Error('Invalid account owner'));
+
+    expect(error).toBeInstanceOf(BlockchainError);
+    expect(error.code).toBe(ErrorCode.INVALID_ACCOUNT_OWNER);
+  });
+
+  it('classifies instruction error as BlockchainError', () => {
+    const error = classifyError(new Error('Instruction error in transaction'));
+
+    expect(error).toBeInstanceOf(BlockchainError);
+    expect(error.code).toBe(ErrorCode.INSTRUCTION_ERROR);
   });
 
   it('classifies rate limit errors', () => {

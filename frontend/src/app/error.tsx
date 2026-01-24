@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { ArrowCounterClockwise, Bug, Warning } from '@phosphor-icons/react';
+import { captureException } from '@/lib/sentry';
 
 /**
  * Global Error Boundary
@@ -20,11 +21,18 @@ export default function GlobalError({
     // Log error to console in development
     console.error('Global error caught:', error);
 
-    // In production, this would send to error tracking service (e.g., Sentry)
-    if (process.env.NODE_ENV === 'production') {
-      // TODO: Send to error tracking when PRD-008 (Monitoring) is implemented
-      // sendToErrorTracking(error);
-    }
+    // Send to Sentry error tracking (gracefully degrades if DSN not set)
+    captureException(error, {
+      tags: {
+        errorType: error.name,
+        boundary: 'global',
+      },
+      extra: {
+        digest: error.digest,
+        message: error.message,
+      },
+      level: 'error',
+    });
   }, [error]);
 
   const isNetworkError = error.message?.toLowerCase().includes('network') ||

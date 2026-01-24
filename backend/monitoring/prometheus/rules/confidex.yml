@@ -1,0 +1,293 @@
+groups:
+  # ============================================
+  # Crank Service Alerts
+  # ============================================
+  - name: confidex-crank
+    interval: 30s
+    rules:
+      # Critical: Crank wallet balance low
+      - alert: CrankWalletLowBalance
+        expr: confidex_wallet_balance_sol{wallet="crank"} < 0.5
+        for: 5m
+        labels:
+          severity: critical
+          component: crank
+        annotations:
+          summary: "Crank wallet balance critically low"
+          description: "Crank wallet balance is {{ $value | printf \"%.4f\" }} SOL. Transactions may fail."
+          runbook_url: "https://github.com/your-org/confidex/wiki/runbooks/crank-wallet-low"
+
+      # Warning: Crank wallet balance decreasing
+      - alert: CrankWalletBalanceDecreasing
+        expr: confidex_wallet_balance_sol{wallet="crank"} < 1.0
+        for: 10m
+        labels:
+          severity: warning
+          component: crank
+        annotations:
+          summary: "Crank wallet balance is low"
+          description: "Crank wallet balance is {{ $value | printf \"%.4f\" }} SOL. Consider topping up."
+
+      # Critical: Crank service stopped
+      - alert: CrankServiceDown
+        expr: confidex_crank_status == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: crank
+        annotations:
+          summary: "Crank service is stopped"
+          description: "Crank service has been stopped for more than 2 minutes. Orders will not be matched."
+
+      # Warning: Crank service paused (circuit breaker)
+      - alert: CrankCircuitBreakerTripped
+        expr: confidex_crank_status == -1
+        for: 1m
+        labels:
+          severity: warning
+          component: crank
+        annotations:
+          summary: "Crank circuit breaker tripped"
+          description: "Crank service is paused due to consecutive errors. It will auto-resume after pause duration."
+
+      # Warning: High consecutive errors
+      - alert: CrankHighErrorCount
+        expr: confidex_crank_consecutive_errors > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: crank
+        annotations:
+          summary: "Crank experiencing consecutive errors"
+          description: "{{ $value }} consecutive errors in crank service. Circuit breaker may trip soon."
+
+      # Warning: Settlement failures
+      - alert: SettlementFailureRate
+        expr: |
+          rate(confidex_crank_match_attempts_total{status="failed"}[5m])
+          / rate(confidex_crank_match_attempts_total[5m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: crank
+        annotations:
+          summary: "High settlement failure rate"
+          description: "Settlement failure rate is {{ $value | printf \"%.2f\" }}%. Check MPC and RPC connections."
+
+  # ============================================
+  # MPC Operation Alerts
+  # ============================================
+  - name: confidex-mpc
+    interval: 30s
+    rules:
+      # Warning: MPC operations timing out
+      - alert: MPCHighTimeoutRate
+        expr: |
+          rate(confidex_mpc_callbacks_total{status="timeout"}[10m])
+          / rate(confidex_mpc_callbacks_total[10m]) > 0.05
+        for: 15m
+        labels:
+          severity: warning
+          component: mpc
+        annotations:
+          summary: "MPC operations experiencing timeouts"
+          description: "MPC timeout rate is {{ $value | printf \"%.2f\" }}%. Arcium cluster may be congested."
+
+      # Warning: MPC operations failing
+      - alert: MPCHighFailureRate
+        expr: |
+          rate(confidex_mpc_operations_total{status="failed"}[10m])
+          / rate(confidex_mpc_operations_total[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: mpc
+        annotations:
+          summary: "High MPC operation failure rate"
+          description: "MPC failure rate is {{ $value | printf \"%.2f\" }}%."
+
+      # Warning: MPC latency high
+      - alert: MPCHighLatency
+        expr: histogram_quantile(0.95, rate(confidex_mpc_operation_duration_seconds_bucket[5m])) > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: mpc
+        annotations:
+          summary: "MPC operation latency is high"
+          description: "MPC p95 latency is {{ $value | printf \"%.1f\" }}s. Expected under 30s."
+
+  # ============================================
+  # RPC Connection Alerts
+  # ============================================
+  - name: confidex-rpc
+    interval: 30s
+    rules:
+      # Warning: RPC failover occurred
+      - alert: RPCFailover
+        expr: increase(confidex_rpc_failovers_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: rpc
+        annotations:
+          summary: "RPC failover occurred"
+          description: "RPC failover detected. Check primary RPC endpoint health."
+
+      # Critical: All RPC endpoints failing
+      - alert: RPCAllEndpointsFailing
+        expr: confidex_rpc_active_endpoint > 2
+        for: 2m
+        labels:
+          severity: critical
+          component: rpc
+        annotations:
+          summary: "Multiple RPC failovers - all endpoints may be failing"
+          description: "Active endpoint index is {{ $value }}. Primary and fallback endpoints may be unavailable."
+
+      # Warning: RPC latency high
+      - alert: RPCHighLatency
+        expr: histogram_quantile(0.95, rate(confidex_rpc_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: rpc
+        annotations:
+          summary: "RPC latency is high"
+          description: "RPC p95 latency is {{ $value | printf \"%.2f\" }}s. Consider switching providers."
+
+  # ============================================
+  # API & HTTP Alerts
+  # ============================================
+  - name: confidex-api
+    interval: 30s
+    rules:
+      # Critical: High error rate
+      - alert: APIHighErrorRate
+        expr: |
+          sum(rate(confidex_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(confidex_http_requests_total[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API error rate above 1%"
+          description: "API 5xx error rate is {{ $value | printf \"%.2f\" }}%."
+
+      # Warning: High API latency
+      - alert: APIHighLatency
+        expr: histogram_quantile(0.99, rate(confidex_http_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API p99 latency above 2s"
+          description: "API p99 latency is {{ $value | printf \"%.2f\" }}s."
+
+      # Warning: Rate limiting triggered
+      - alert: RateLimitingActive
+        expr: sum(rate(confidex_http_requests_total{status="429"}[5m])) > 1
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "Rate limiting is being triggered"
+          description: "{{ $value | printf \"%.1f\" }} requests/sec are being rate limited."
+
+  # ============================================
+  # Database Alerts
+  # ============================================
+  - name: confidex-database
+    interval: 30s
+    rules:
+      # Warning: High database latency
+      - alert: DatabaseHighLatency
+        expr: histogram_quantile(0.95, rate(confidex_db_operation_duration_seconds_bucket[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database operation latency is high"
+          description: "Database p95 latency is {{ $value | printf \"%.3f\" }}s."
+
+      # Warning: Database errors
+      - alert: DatabaseErrors
+        expr: rate(confidex_db_operations_total{status="error"}[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Database operations failing"
+          description: "Database error rate is {{ $value | printf \"%.2f\" }}/s."
+
+  # ============================================
+  # ZK Proof Alerts
+  # ============================================
+  - name: confidex-zk
+    interval: 30s
+    rules:
+      # Warning: ZK proof generation slow
+      - alert: ZKProofSlow
+        expr: histogram_quantile(0.95, rate(confidex_zk_proof_duration_seconds_bucket[5m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: zk
+        annotations:
+          summary: "ZK proof generation is slow"
+          description: "ZK proof p95 generation time is {{ $value | printf \"%.1f\" }}s. Expected under 5s."
+
+      # Warning: ZK proof failures
+      - alert: ZKProofFailures
+        expr: rate(confidex_zk_proofs_total{status="failed"}[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: zk
+        annotations:
+          summary: "ZK proof generation failing"
+          description: "ZK proof failure rate is {{ $value | printf \"%.2f\" }}/s."
+
+  # ============================================
+  # Infrastructure Alerts
+  # ============================================
+  - name: confidex-infrastructure
+    interval: 30s
+    rules:
+      # Critical: Service down
+      - alert: ConfidexBackendDown
+        expr: up{job="confidex-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Confidex backend is down"
+          description: "Confidex backend has been unreachable for more than 1 minute."
+
+      # Warning: High memory usage
+      - alert: HighMemoryUsage
+        expr: confidex_nodejs_heap_used_bytes / confidex_nodejs_heap_size_total_bytes > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage"
+          description: "Heap usage is {{ $value | printf \"%.0f\" }}% of total."
+
+      # Warning: Event loop lag
+      - alert: EventLoopLag
+        expr: confidex_nodejs_eventloop_lag_seconds > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "Node.js event loop lag detected"
+          description: "Event loop lag is {{ $value | printf \"%.3f\" }}s."

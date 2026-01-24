@@ -2197,6 +2197,107 @@ ENV NODE_ENV=production
 CMD ["node", "dist/index.js"]
 ```
 
+## Streaming Data Infrastructure
+
+**Status:** Complete (January 2026)
+**Documentation:** [STREAMING_IMPLEMENTATION.md](./implementation/STREAMING_IMPLEMENTATION.md)
+
+Real-time data streaming for frontend updates, price feeds, job queues, and analytics.
+
+### Architecture Overview
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Frontend       │     │  Backend        │     │  External       │
+│  (Socket.IO)    │◄───►│  (Express)      │◄───►│  Services       │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ useOrderStream  │     │ WebSocket Server│     │ Pyth Hermes     │
+│ usePriceStream  │     │ Event Broadcast │     │ Redis Pub/Sub   │
+│ useGlobalStats  │     │ BullMQ Queues   │     │ Jito Block Eng  │
+│ useLiquidation  │     │ TimescaleDB     │     │ TimescaleDB     │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+### Backend Components
+
+| Component | File | Purpose |
+|-----------|------|---------|
+| WebSocket Server | `backend/src/streaming/websocket-server.ts` | Socket.IO with Redis adapter |
+| Event Broadcaster | `backend/src/streaming/event-broadcaster.ts` | Privacy-enforced event emission |
+| Pyth Client | `backend/src/prices/pyth-hermes-client.ts` | Oracle price SSE streaming |
+| Price Cache | `backend/src/prices/price-cache.ts` | In-memory cache with staleness |
+| Liquidation Queue | `backend/src/queues/liquidation-queue.ts` | BullMQ job processor |
+| Jito Client | `backend/src/jito/jito-client.ts` | MEV-protected TX submission |
+| Analytics Client | `backend/src/analytics/timescale-client.ts` | TimescaleDB queries |
+| Analytics Routes | `backend/src/analytics/routes.ts` | REST API endpoints |
+
+### Frontend Hooks
+
+| Hook | File | Purpose |
+|------|------|---------|
+| `useWebSocket` | `frontend/src/hooks/streaming/use-websocket.tsx` | Core connection |
+| `useOrderStream` | `frontend/src/hooks/streaming/use-order-stream.ts` | Order events |
+| `useTradeStream` | `frontend/src/hooks/streaming/use-trade-stream.ts` | Trade aggregation |
+| `usePriceStream` | `frontend/src/hooks/streaming/use-price-stream.ts` | Pyth prices |
+| `useGlobalStats` | `frontend/src/hooks/streaming/use-global-stats.ts` | Exchange stats |
+
+### Privacy Model
+
+**CRITICAL:** Streaming data respects privacy - encrypted fields are NEVER exposed.
+
+| Data | Visibility | Fields |
+|------|------------|--------|
+| PUBLIC | Streamable | `orderId`, `maker`, `side`, `timestamp`, `pairPda` |
+| PRIVATE | Never exposed | `encrypted_amount`, `encrypted_price`, `encrypted_filled` |
+
+### Analytics REST Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/analytics/global` | GET | Exchange-wide statistics |
+| `/api/analytics/orders` | GET | Order activity metrics |
+| `/api/analytics/trades` | GET | Trade history (public fields) |
+| `/api/analytics/liquidations` | GET | Liquidation events |
+| `/api/analytics/markets` | GET | Per-market statistics |
+
+### Environment Variables
+
+```env
+# Streaming
+STREAMING_ENABLED=true
+WS_PATH=/ws
+REDIS_ENABLED=true
+REDIS_URL=redis://localhost:6379
+
+# Pyth Oracle
+PYTH_HERMES_URL=https://hermes.pyth.network
+PYTH_STALENESS_THRESHOLD_MS=30000
+SOL_USD_FEED_ID=ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
+
+# Jito MEV Protection (mainnet only)
+JITO_ENABLED=false
+JITO_BLOCK_ENGINE_URL=https://mainnet.block-engine.jito.wtf
+JITO_TIP_LAMPORTS=10000
+
+# TimescaleDB (optional)
+# TIMESCALE_URL=postgres://user:pass@host:5432/db
+```
+
+### Dependencies
+
+**Backend:**
+- `socket.io` - WebSocket server
+- `@socket.io/redis-adapter` - Horizontal scaling
+- `bullmq` - Job queue
+- `ioredis` - Redis client
+- `eventsource` - SSE client for Pyth
+- `pg` - TimescaleDB client
+
+**Frontend:**
+- `socket.io-client` - WebSocket client
+
+---
+
 ## Branding Guidelines
 
 See `/frontend/BRAND_GUIDELINES.md` for comprehensive design documentation.

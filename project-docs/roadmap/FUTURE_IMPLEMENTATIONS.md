@@ -1,6 +1,6 @@
 # Confidex - Future Implementations Roadmap
 
-**Last Updated:** January 21, 2026
+**Last Updated:** January 24, 2026
 **Status:** Post-Hackathon Planning
 
 This document tracks future implementations, SDK integrations, and improvements planned for Confidex after the Solana Privacy Hack 2026 hackathon.
@@ -22,6 +22,18 @@ The following features were implemented during the hackathon and are now live:
 | **MPC Test Suite** | ✅ Complete | 18 tests covering encryption, cluster, circuits |
 | **Error Handling Infrastructure** | ✅ Complete | 500+ lines, retry with classification |
 | **Timeout Handling** | ✅ Complete | Promise.race() wrapper for all network ops |
+
+## Recently Completed (Post-Hackathon - January 2026)
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **WebSocket Streaming** | ✅ Complete | Socket.IO + Redis adapter for horizontal scaling |
+| **Pyth Oracle Integration** | ✅ Complete | Hermes SSE streaming with staleness detection |
+| **BullMQ Job Queues** | ✅ Complete | Liquidation queue with retry/deduplication |
+| **Jito MEV Protection** | ✅ Complete | Bundle builder, block engine client |
+| **TimescaleDB Analytics** | ✅ Complete | Client, config, REST API routes |
+| **Frontend Streaming Hooks** | ✅ Complete | useWebSocket, useOrderStream, usePriceStream, etc. |
+| **Event Broadcasting** | ✅ Complete | Privacy-enforced event types (no encrypted fields) |
 
 ---
 
@@ -324,9 +336,22 @@ Current web app is mobile-responsive, but native app would provide better UX for
 ## 7. Analytics Dashboard
 
 **Priority:** P1
-**Status:** Planning complete, ready for implementation
+**Status:** ✅ Core Infrastructure Complete (January 2026)
 **Estimated Effort:** 2-3 weeks
 **Detailed Plan:** [ANALYTICS_DASHBOARD_PLAN.md](./ANALYTICS_DASHBOARD_PLAN.md)
+
+### Implementation Status
+
+| Component | Status | Files |
+|-----------|--------|-------|
+| TimescaleDB Client | ✅ Complete | `backend/src/analytics/timescale-client.ts` |
+| Analytics Config | ✅ Complete | `backend/src/analytics/config.ts` |
+| REST API Endpoints | ✅ Complete | `backend/src/analytics/routes.ts` |
+| WebSocket Server | ✅ Complete | `backend/src/streaming/websocket-server.ts` |
+| Event Broadcaster | ✅ Complete | `backend/src/streaming/event-broadcaster.ts` |
+| Frontend Hooks | ✅ Complete | `frontend/src/hooks/streaming/*.ts` |
+| Schema Migration | 🔲 Pending | SQL migration for hypertables |
+| Dashboard UI | 🔲 Pending | Frontend analytics page |
 
 ### Key Privacy Principle
 
@@ -342,32 +367,31 @@ Current web app is mobile-responsive, but native app would provide better UX for
 | Database | TimescaleDB | Time-series metrics, continuous aggregates |
 | Cache | Redis | Hot metrics, WebSocket pub/sub |
 | API | Express.js | REST endpoints for analytics |
-| Real-time | WebSocket | Live metric streaming |
+| Real-time | Socket.IO | Live metric streaming |
 
-### Implementation Phases
+### REST API Endpoints (Implemented)
 
-| Phase | Duration | Focus |
-|-------|----------|-------|
-| 1. Foundation | Week 1 | Global KPIs, pair/perp metrics, account polling |
-| 2. Real-time | Week 2 | Event indexing, WebSocket, activity charts |
-| 3. Perp Analytics | Week 2-3 | OI gauges, funding charts, liquidation feed |
-| 4. User Analytics | Week 3 | Portfolio view, client-side decryption |
+| Endpoint | Response |
+|----------|----------|
+| `GET /api/analytics/global` | Total orders, pairs, positions |
+| `GET /api/analytics/orders` | Order activity metrics |
+| `GET /api/analytics/trades` | Trade history (public fields only) |
+| `GET /api/analytics/liquidations` | Liquidation events |
+| `GET /api/analytics/markets` | Market-level statistics |
 
-### Dashboard Features
+### Frontend Hooks (Implemented)
 
-| Feature | Privacy | Description |
-|---------|---------|-------------|
-| Global KPIs | Public | Order count, pair count, position count |
-| Pair Metrics | Public | Open orders per pair, trade activity |
-| Perp Health | Public | Long/short OI, funding rates, liquidations |
-| User Portfolio | Private | Own positions (client-decrypted) |
+| Hook | File | Purpose |
+|------|------|---------|
+| `useWebSocket` | `use-websocket.tsx` | Core connection management |
+| `useOrderStream` | `use-order-stream.ts` | Real-time order events |
+| `useTradeStream` | `use-trade-stream.ts` | Trade event aggregation |
+| `usePriceStream` | `use-price-stream.ts` | Pyth oracle prices |
+| `useGlobalStats` | `use-global-stats.ts` | Exchange-wide metrics |
 
-### Tasks
+### Remaining Tasks
 
-- [ ] Set up TimescaleDB schema (hypertables, continuous aggregates)
-- [ ] Build indexer service (account polling, event parsing)
-- [ ] Implement REST API endpoints (`/api/analytics/*`)
-- [ ] Add WebSocket server for real-time updates
+- [ ] Create TimescaleDB schema migration (`migrations/001_analytics_timescale.sql`)
 - [ ] Create frontend dashboard page (`/analytics`)
 - [ ] Build `GlobalKPICards`, `PairOverview`, `PerpMarketHealth` components
 - [ ] Implement `OpenInterestGauge`, `FundingRateChart`, `LiquidationFeed`
@@ -483,9 +507,24 @@ Potential integration with Arcium for:
 ## 11. Liquidation Bot Infrastructure
 
 **Priority:** P1
-**Status:** Planning complete, ready for implementation
+**Status:** ✅ Core Infrastructure Complete (January 2026)
 **Estimated Effort:** 2 weeks
 **Detailed Plan:** [LIQUIDATION_BOT_PLAN.md](./LIQUIDATION_BOT_PLAN.md)
+
+### Implementation Status
+
+| Component | Status | Files |
+|-----------|--------|-------|
+| Pyth Hermes Client | ✅ Complete | `backend/src/prices/pyth-hermes-client.ts` |
+| Price Cache | ✅ Complete | `backend/src/prices/price-cache.ts` |
+| BullMQ Queue | ✅ Complete | `backend/src/queues/liquidation-queue.ts` |
+| Queue Manager | ✅ Complete | `backend/src/queues/queue-manager.ts` |
+| Jito Client | ✅ Complete | `backend/src/jito/jito-client.ts` |
+| Bundle Builder | ✅ Complete | `backend/src/jito/bundle-builder.ts` |
+| WebSocket Streaming | ✅ Complete | `backend/src/streaming/` |
+| Liquidation Checker | ✅ Enhanced | `backend/src/crank/liquidation-checker.ts` |
+| Prometheus Metrics | 🔲 Pending | Integration with existing metrics |
+| Admin Dashboard | 🔲 Pending | Frontend admin pages |
 
 ### Background
 
@@ -498,37 +537,41 @@ Perpetual positions have public liquidation thresholds (`liquidatable_below_pric
 | **PUBLIC** | `liquidatable_below_price`, `liquidatable_above_price`, `threshold_verified` | Keeper discovery |
 | **PRIVATE** | `encrypted_size`, `encrypted_collateral`, `encrypted_pnl` | MPC verification |
 
-### Components
+### Implemented Components
 
-| Component | Description |
-|-----------|-------------|
-| Price Monitor | Pyth Hermes SSE streaming |
-| Position Scanner | RPC polling with getProgramAccounts |
-| Liquidation Engine | Bull queue with retry/deduplication |
-| TX Executor | Jito bundle submission for MEV protection |
-| Metrics | Prometheus + admin dashboard |
+| Component | Description | File |
+|-----------|-------------|------|
+| Price Monitor | Pyth Hermes SSE streaming with staleness checks | `pyth-hermes-client.ts` |
+| Price Cache | In-memory cache with TTL and staleness detection | `price-cache.ts` |
+| Liquidation Queue | BullMQ with retry, deduplication, job persistence | `liquidation-queue.ts` |
+| TX Executor | Jito bundle submission for MEV protection | `jito-client.ts` |
+| Bundle Builder | Transaction construction with tip instructions | `bundle-builder.ts` |
 
-### Implementation Phases
+### Environment Variables Added
 
-| Phase | Days | Deliverables |
-|-------|------|--------------|
-| 1. Foundation | 1-3 | Position cache, Pyth streaming, basic detection |
-| 2. Liquidation Engine | 4-7 | Queue, TX builder, retry logic |
-| 3. MEV Protection | 8-10 | Jito bundles, dynamic fees, profitability checks |
-| 4. Monitoring | 11-14 | Prometheus, admin endpoints, alerts |
+```bash
+# Pyth Oracle
+PYTH_HERMES_URL=https://hermes.pyth.network
+PYTH_STALENESS_THRESHOLD_MS=30000
+SOL_USD_FEED_ID=ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d
 
-### Tasks
+# Jito MEV Protection
+JITO_ENABLED=false  # Disable for devnet
+JITO_BLOCK_ENGINE_URL=https://mainnet.block-engine.jito.wtf
+JITO_TIP_LAMPORTS=10000
 
-- [ ] Review and finalize [LIQUIDATION_BOT_PLAN.md](./LIQUIDATION_BOT_PLAN.md)
+# Job Queue
+REDIS_ENABLED=true
+REDIS_URL=redis://localhost:6379
+```
+
+### Remaining Tasks
+
 - [ ] Complete Pyth oracle integration in `perp_liquidate.rs` (mark_price TODO)
-- [ ] Create `backend/src/liquidation-bot/` directory structure
-- [ ] Implement Pyth Hermes price monitor
-- [ ] Build position scanner with caching
-- [ ] Implement Bull queue for liquidation jobs
-- [ ] Add Jito bundle submission
-- [ ] Set up Prometheus metrics
-- [ ] Build admin dashboard endpoints
-- [ ] Test with devnet positions
+- [ ] Integrate Prometheus metrics with liquidation events
+- [ ] Build admin dashboard endpoints for liquidation monitoring
+- [ ] Test with devnet positions in production-like environment
+- [ ] Enable Jito on mainnet deployment
 
 ---
 
@@ -600,8 +643,17 @@ Unified verifier program with circuit type discriminator (1 byte):
 Q1 2026 (Post-Hackathon)
 ├── C-SPL SDK release (waiting)
 ├── Helius Developer plan upgrade
-├── Basic analytics dashboard
-└── Liquidation bot infrastructure
+├── ✅ Streaming data infrastructure (COMPLETE - Jan 2026)
+│   ├── WebSocket server (Socket.IO + Redis)
+│   ├── Pyth Hermes price streaming
+│   ├── BullMQ job queues
+│   ├── Jito MEV protection client
+│   ├── TimescaleDB analytics client
+│   └── Frontend streaming hooks
+├── ✅ Analytics backend infrastructure (COMPLETE - Jan 2026)
+├── ✅ Liquidation bot core infrastructure (COMPLETE - Jan 2026)
+├── 🔲 Analytics dashboard UI (frontend)
+└── 🔲 Admin monitoring dashboard
 
 Q2 2026
 ├── Advanced order types

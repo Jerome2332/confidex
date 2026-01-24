@@ -32,6 +32,7 @@ import {
 } from '@solana/web3.js';
 import { CrankConfig } from './config.js';
 import { logger } from '../lib/logger.js';
+import { getAlertManager, AlertManager } from '../lib/alerts.js';
 import bs58 from 'bs58';
 
 const log = logger.position || console;
@@ -113,6 +114,9 @@ export class PositionVerifier {
   private failedPositions: Map<string, number> = new Map();
   private maxRetries: number = 3;
 
+  // Alert manager for critical failures
+  private alertManager: AlertManager;
+
   constructor(
     connection: Connection,
     crankKeypair: Keypair,
@@ -123,6 +127,7 @@ export class PositionVerifier {
     this.config = config;
     this.dexProgramId = new PublicKey(config.programs.confidexDex);
     this.mxeProgramId = new PublicKey(config.programs.arciumMxe);
+    this.alertManager = getAlertManager();
   }
 
   /**
@@ -195,8 +200,25 @@ export class PositionVerifier {
           // Success - remove from failed tracking
           this.failedPositions.delete(pdaStr);
         } catch (error) {
-          log.error?.({ error }, `Failed to trigger verification for ${pdaStr}`);
+          const errorMsg = error instanceof Error ? error.message.split('\n')[0].slice(0, 80) : String(error);
+          log.error?.({ error: errorMsg }, `Failed to trigger verification for ${pdaStr}`);
           this.failedPositions.set(pdaStr, retryCount + 1);
+
+          // Alert on verification failures (affects position safety)
+          const isMaxRetries = retryCount + 1 >= this.maxRetries;
+          if (isMaxRetries) {
+            await this.alertManager.error(
+              'Position Verification Failed Permanently',
+              `Position verification exceeded max retries: ${errorMsg}`,
+              {
+                position: pdaStr.slice(0, 16),
+                trader: position.trader.toBase58().slice(0, 16),
+                market: position.market.toBase58().slice(0, 16),
+                attempts: retryCount + 1,
+              },
+              `verification-failed-${pdaStr.slice(0, 16)}`
+            );
+          }
         } finally {
           this.processingPositions.delete(pdaStr);
         }

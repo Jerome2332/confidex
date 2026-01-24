@@ -1201,6 +1201,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           <input
             type="number"
             id="order-size"
+            data-testid="size-input"
             value={amount}
             onChange={(e) => {
               setAmount(e.target.value);
@@ -1267,6 +1268,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
             <input
               type="number"
               id="order-price"
+              data-testid="price-input"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               placeholder="0.00"
@@ -1368,6 +1370,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       <div className="px-3 py-3 shrink-0">
         <button
           onClick={handleButtonClick}
+          data-testid="submit-order-button"
           disabled={!connected || isSubmitting || isGenerating || !!insufficientBalanceError || hasZeroTotalBalance || isOpeningPosition}
           className={`w-full py-3 rounded font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
             tradingMode === 'perps'

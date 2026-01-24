@@ -1,9 +1,27 @@
 #!/usr/bin/env sh
 
 # Confidex Pre-commit Hook
-# Runs linting and type checking before allowing commits
+# Runs secret scanning, linting, and type checking before allowing commits
 
 echo "Running pre-commit checks..."
+
+# Secret scanning with gitleaks (prevents accidental secret commits)
+echo "Scanning for secrets..."
+if command -v gitleaks >/dev/null 2>&1; then
+    gitleaks protect --staged --verbose --redact
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "ERROR: Secret scan failed! Potential secrets detected in staged changes."
+        echo "Please remove secrets before committing."
+        echo ""
+        echo "If this is a false positive, add the pattern to .gitleaks.toml allowlist."
+        exit 1
+    fi
+    echo "Secret scan passed."
+else
+    echo "Warning: gitleaks not installed. Skipping secret scan."
+    echo "Install with: brew install gitleaks (macOS) or see https://github.com/gitleaks/gitleaks"
+fi
 
 # Run lint-staged for incremental linting
 npx lint-staged

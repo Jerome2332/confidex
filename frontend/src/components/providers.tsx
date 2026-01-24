@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ThemeProvider } from './theme-provider';
 import { Toaster } from 'sonner';
 import { RPC_ENDPOINT } from '@/lib/constants';
+import { WebSocketProvider } from '@/hooks/streaming';
 
 // Import wallet adapter styles
 import '@solana/wallet-adapter-react-ui/styles.css';
@@ -49,7 +50,9 @@ export const Providers: FC<ProvidersProps> = ({ children }) => {
         <ConnectionProvider endpoint={endpoint}>
           <WalletProvider wallets={wallets} autoConnect>
             <WalletModalProvider>
-              {children}
+              <WebSocketProvider>
+                {children}
+              </WebSocketProvider>
               <Toaster
                 position="bottom-right"
                 richColors

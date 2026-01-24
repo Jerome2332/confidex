@@ -255,3 +255,30 @@ export const LIGHT_SYSTEM_PROGRAM = new PublicKey(
 // Compressed accounts cost ~0.000005 SOL (400x cheaper)
 export const REGULAR_TOKEN_ACCOUNT_RENT_LAMPORTS = BigInt(2039280);
 export const COMPRESSED_ACCOUNT_COST_LAMPORTS = BigInt(5000);
+
+// =============================================================================
+// Streaming Infrastructure (WebSocket)
+// =============================================================================
+
+/**
+ * Backend API URL for REST endpoints and WebSocket connection
+ * WebSocket connects to this URL with /ws path
+ */
+export const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+/**
+ * WebSocket path (relative to API_URL)
+ */
+export const WS_PATH = '/ws';
+
+/**
+ * Whether streaming is enabled
+ * When false, the app uses polling-only mode
+ */
+export const STREAMING_ENABLED = process.env.NEXT_PUBLIC_STREAMING_ENABLED !== 'false';
+
+/**
+ * WebSocket reconnection settings
+ */
+export const WS_RECONNECT_ATTEMPTS = 5;
+export const WS_RECONNECT_DELAY_MS = 1000;

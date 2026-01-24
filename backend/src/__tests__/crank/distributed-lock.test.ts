@@ -215,4 +215,108 @@ describe('DistributedLockService', () => {
       expect(LOCK_NAMES.DB_MAINTENANCE).toBe('crank:db-maintenance');
     });
   });
+
+  describe('auto-extend timer', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('auto-extends lock at 50% of TTL', async () => {
+      const ttlSeconds = 10;
+      const lock = await lockService.acquire('auto-extend-lock', { ttlSeconds });
+      expect(lock).not.toBeNull();
+
+      // Get initial expiry time
+      const initialInfo = locksRepo.get('auto-extend-lock');
+      const initialExpiry = initialInfo!.expires_at;
+
+      // Advance timers by 50% of TTL (5 seconds = 5000ms)
+      vi.advanceTimersByTime(5000);
+
+      // The lock should have been auto-extended
+      const extendedInfo = locksRepo.get('auto-extend-lock');
+      expect(extendedInfo!.expires_at).toBeGreaterThanOrEqual(initialExpiry);
+
+      await lock!.release();
+    });
+
+    it('does not auto-extend when shutting down', async () => {
+      const ttlSeconds = 10;
+      const lock = await lockService.acquire('no-extend-shutdown', { ttlSeconds });
+      expect(lock).not.toBeNull();
+
+      // Shutdown the service
+      await lockService.shutdown();
+
+      // Get expiry time after shutdown
+      const infoAfterShutdown = locksRepo.get('no-extend-shutdown');
+
+      // Advance timers past 50% of TTL
+      vi.advanceTimersByTime(6000);
+
+      // The lock should have been released by shutdown, not extended
+      // (shutdown releases all locks)
+      expect(lockService.holdsLock('no-extend-shutdown')).toBe(false);
+    });
+  });
+
+  describe('heartbeat', () => {
+    it('heartbeat extends all held locks', async () => {
+      // Create a lock service with a short heartbeat interval
+      const heartbeatService = new DistributedLockService(locksRepo, {
+        instanceId: 'heartbeat-instance',
+        heartbeatIntervalMs: 100, // Very short for testing
+      });
+
+      try {
+        // Acquire some locks
+        await heartbeatService.acquire('heartbeat-lock-1', { ttlSeconds: 60 });
+        await heartbeatService.acquire('heartbeat-lock-2', { ttlSeconds: 60 });
+
+        const initialInfo1 = locksRepo.get('heartbeat-lock-1');
+        const initialInfo2 = locksRepo.get('heartbeat-lock-2');
+
+        // Wait for heartbeat to fire (wait a bit more than the interval)
+        await new Promise((resolve) => setTimeout(resolve, 150));
+
+        // Heartbeat should have extended the locks
+        const extendedInfo1 = locksRepo.get('heartbeat-lock-1');
+        const extendedInfo2 = locksRepo.get('heartbeat-lock-2');
+
+        // Locks should still be held
+        expect(heartbeatService.holdsLock('heartbeat-lock-1')).toBe(true);
+        expect(heartbeatService.holdsLock('heartbeat-lock-2')).toBe(true);
+
+        // Expiry times should be updated (60 seconds from heartbeat time)
+        expect(extendedInfo1!.expires_at).toBeGreaterThanOrEqual(initialInfo1!.expires_at);
+        expect(extendedInfo2!.expires_at).toBeGreaterThanOrEqual(initialInfo2!.expires_at);
+      } finally {
+        await heartbeatService.shutdown();
+      }
+    });
+
+    it('heartbeat respects isShuttingDown flag', async () => {
+      // Create a lock service with short heartbeat
+      const heartbeatService = new DistributedLockService(locksRepo, {
+        instanceId: 'shutdown-heartbeat-instance',
+        heartbeatIntervalMs: 100,
+      });
+
+      try {
+        await heartbeatService.acquire('shutdown-heartbeat-lock', { ttlSeconds: 60 });
+
+        // Shutdown immediately
+        await heartbeatService.shutdown();
+
+        // Lock should be released
+        expect(heartbeatService.holdsLock('shutdown-heartbeat-lock')).toBe(false);
+      } finally {
+        // Already shutdown
+      }
+    });
+  });
 });

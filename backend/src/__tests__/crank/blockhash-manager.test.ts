@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { Connection } from '@solana/web3.js';
-import { BlockhashManager } from '../../crank/blockhash-manager.js';
+import { BlockhashManager, createBlockhashManagerFromEnv } from '../../crank/blockhash-manager.js';
 
 // Mock Connection
 const mockConnection = {
@@ -220,5 +220,95 @@ describe('BlockhashManager', () => {
 
       vi.useRealTimers();
     });
+  });
+
+  describe('getBlockhashWithMaxAge', () => {
+    it('returns cached blockhash when within maxAge', async () => {
+      await manager.refresh();
+
+      // Request blockhash with generous maxAge - should use cached
+      const result = await manager.getBlockhashWithMaxAge(60_000);
+
+      expect(result.blockhash).toBe('ABC123blockhash');
+      // Should not have fetched again
+      expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes when cached blockhash is older than maxAge', async () => {
+      vi.useFakeTimers();
+
+      await manager.refresh();
+
+      // Advance time past the maxAge we'll request
+      await vi.advanceTimersByTimeAsync(5000);
+
+      // Update mock for fresh blockhash
+      (mockConnection.getLatestBlockhash as ReturnType<typeof vi.fn>).mockResolvedValue({
+        blockhash: 'FRESH_BLOCKHASH',
+        lastValidBlockHeight: 13000,
+      });
+
+      // Request blockhash with very short maxAge - should refresh
+      const result = await manager.getBlockhashWithMaxAge(1000);
+
+      expect(result.blockhash).toBe('FRESH_BLOCKHASH');
+      expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(2);
+
+      vi.useRealTimers();
+    });
+
+    it('refreshes when cache is empty', async () => {
+      const result = await manager.getBlockhashWithMaxAge(60_000);
+
+      expect(result.blockhash).toBe('ABC123blockhash');
+      expect(mockConnection.getLatestBlockhash).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe('createBlockhashManagerFromEnv', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env = { ...originalEnv };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it('creates BlockhashManager with default values when env vars not set', () => {
+    delete process.env.BLOCKHASH_REFRESH_INTERVAL_MS;
+    delete process.env.BLOCKHASH_MAX_AGE_MS;
+    delete process.env.BLOCKHASH_PREFETCH_COUNT;
+    delete process.env.BLOCKHASH_FETCH_TIMEOUT_MS;
+
+    const manager = createBlockhashManagerFromEnv(mockConnection);
+
+    expect(manager).toBeInstanceOf(BlockhashManager);
+    manager.stop();
+  });
+
+  it('parses environment variables correctly', () => {
+    process.env.BLOCKHASH_REFRESH_INTERVAL_MS = '15000';
+    process.env.BLOCKHASH_MAX_AGE_MS = '45000';
+    process.env.BLOCKHASH_PREFETCH_COUNT = '3';
+    process.env.BLOCKHASH_FETCH_TIMEOUT_MS = '3000';
+
+    const manager = createBlockhashManagerFromEnv(mockConnection);
+
+    expect(manager).toBeInstanceOf(BlockhashManager);
+    manager.stop();
+  });
+
+  it('uses defaults for invalid env values', () => {
+    process.env.BLOCKHASH_REFRESH_INTERVAL_MS = 'invalid';
+
+    const manager = createBlockhashManagerFromEnv(mockConnection);
+
+    // Should still create a valid manager (NaN becomes fallback or default)
+    expect(manager).toBeInstanceOf(BlockhashManager);
+    manager.stop();
   });
 });

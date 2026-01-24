@@ -16,6 +16,8 @@ import {
   GithubLogo,
   BookOpen,
   Lightning,
+  Pulse,
+  Coin,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
 
@@ -45,6 +47,18 @@ export default function LandingPage() {
       title: 'MEV Protection',
       description: 'Encrypted orders, hash-based IDs, and coarse timestamps prevent front-running and activity correlation.',
       tech: 'Dark Pool',
+    },
+    {
+      icon: Pulse,
+      title: 'Real-Time Streaming',
+      description: 'Instant order and trade updates via WebSocket. See market activity in real-time without revealing private data.',
+      tech: 'Socket.IO',
+    },
+    {
+      icon: Coin,
+      title: 'Rent-Free Storage',
+      description: 'ZK Compression eliminates Solana rent costs. Store accounts for 400x less than traditional token accounts.',
+      tech: 'Light Protocol',
     },
   ];
 
@@ -407,6 +421,7 @@ export default function LandingPage() {
               <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Noir ZK</span>
               <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Light Protocol</span>
               <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">ShadowWire</span>
+              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Socket.IO</span>
             </div>
           </div>
         </div>
