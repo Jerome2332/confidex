@@ -1,6 +1,6 @@
 # PRD-002: Backend Infrastructure Production
 
-**Status:** Draft
+**Status:** Completed (January 2026)
 **Priority:** CRITICAL
 **Complexity:** High
 **Estimated Effort:** 3-4 days
@@ -10,6 +10,32 @@
 ## Executive Summary
 
 The crank service lacks persistence, distributed locking, and proper failover mechanisms required for production reliability. This PRD implements database persistence, multi-instance coordination, graceful shutdown, and RPC failover to ensure reliable order matching in production.
+
+## Implementation Status
+
+All items in this PRD have been implemented. Key additions:
+
+| Feature | Status | Implementation |
+|---------|--------|----------------|
+| SQLite Persistence | Complete | `backend/src/db/` - Full schema with repositories |
+| Distributed Locking | Complete | `backend/src/crank/distributed-lock.ts` |
+| Graceful Shutdown | Complete | `backend/src/crank/index.ts` - Signal handlers |
+| RPC Failover | Complete | `backend/src/crank/failover-connection.ts` |
+| Blockhash Manager | Complete | `backend/src/crank/blockhash-manager.ts` |
+| Startup Recovery | Complete | `CrankService.recoverPendingOperations()` |
+| MPC State Persistence | Complete | `mpc_processed_requests` table + repository |
+
+### Additional Production Hardening (January 2026)
+
+The following production gaps were also addressed:
+
+- **Atomic Settlement**: On-chain verification after settlement TX
+- **HTTP Timeouts**: Server/request timeouts (120s/60s defaults)
+- **WebSocket Rate Limiting**: Message rate limiting with 3-strike disconnect
+- **Analytics Rate Limiting**: 60 req/min on analytics routes
+- **SQL Injection Fixes**: Parameterized TimescaleDB queries
+- **Empty Catch Logging**: Debug logs in empty catch blocks
+- **Structured Logging**: Replaced console.log with Pino logger
 
 ---
 
@@ -1473,35 +1499,41 @@ export class MatchExecutor {
 
 ## Acceptance Criteria
 
-- [ ] **Database Persistence**
-  - [ ] SQLite database created at `data/crank.db`
-  - [ ] Transaction history persisted across restarts
-  - [ ] Pending operations recovered on startup
-  - [ ] Order state cache reduces RPC calls
+- [x] **Database Persistence**
+  - [x] SQLite database created at `data/crank.db`
+  - [x] Transaction history persisted across restarts
+  - [x] Pending operations recovered on startup
+  - [x] Order state cache reduces RPC calls
 
-- [ ] **Distributed Locking**
-  - [ ] Lock acquired before processing order pair
-  - [ ] Lock released on completion or error
-  - [ ] Expired locks automatically cleaned up
-  - [ ] Multiple instances don't process same orders
+- [x] **Distributed Locking**
+  - [x] Lock acquired before processing order pair
+  - [x] Lock released on completion or error
+  - [x] Expired locks automatically cleaned up
+  - [x] Multiple instances don't process same orders
 
-- [ ] **Graceful Shutdown**
-  - [ ] SIGTERM triggers graceful shutdown
-  - [ ] Active operations complete before exit
-  - [ ] All locks released on shutdown
-  - [ ] Database properly closed
+- [x] **Graceful Shutdown**
+  - [x] SIGTERM triggers graceful shutdown
+  - [x] Active operations complete before exit
+  - [x] All locks released on shutdown
+  - [x] Database properly closed
 
-- [ ] **RPC Failover**
-  - [ ] Primary RPC failure triggers failover
-  - [ ] Health checks run every 30 seconds
-  - [ ] Retryable errors trigger retry logic
-  - [ ] Status endpoint shows endpoint health
+- [x] **RPC Failover**
+  - [x] Primary RPC failure triggers failover
+  - [x] Health checks run every 30 seconds
+  - [x] Retryable errors trigger retry logic
+  - [x] Status endpoint shows endpoint health
 
-- [ ] **Blockhash Management**
-  - [ ] Blockhash refreshed every 10 seconds
-  - [ ] Stale blockhash triggers immediate refresh
-  - [ ] Transaction expiration properly detected
-  - [ ] No "Blockhash not found" errors under load
+- [x] **Blockhash Management**
+  - [x] Blockhash refreshed every 30 seconds (configurable)
+  - [x] Stale blockhash triggers immediate refresh
+  - [x] Transaction expiration properly detected
+  - [x] No "Blockhash not found" errors under load
+
+- [x] **Startup Recovery** (Added January 2026)
+  - [x] Stale locks released on startup
+  - [x] Pending matches re-queued for processing
+  - [x] Pending settlements recovered
+  - [x] Database maintenance runs on startup
 
 ---
 

@@ -37,6 +37,14 @@ export {
   type CachedOrderStatus,
 } from './repositories/order-state-cache.js';
 
+export {
+  MpcProcessedRepository,
+  type MpcProcessedRequest,
+  type CreateMpcProcessedInput,
+  type MpcRequestType,
+  type MpcRequestStatus,
+} from './repositories/mpc-processed.js';
+
 /**
  * Database manager - provides access to all repositories
  */
@@ -45,12 +53,14 @@ export class DatabaseManager {
   public readonly pendingOps: PendingOperationsRepository;
   public readonly locks: DistributedLocksRepository;
   public readonly orderCache: OrderStateCacheRepository;
+  public readonly mpcProcessed: MpcProcessedRepository;
 
   constructor(private db: DatabaseClient) {
     this.transactions = new TransactionHistoryRepository(db);
     this.pendingOps = new PendingOperationsRepository(db);
     this.locks = new DistributedLocksRepository(db);
     this.orderCache = new OrderStateCacheRepository(db);
+    this.mpcProcessed = new MpcProcessedRepository(db);
   }
 
   /**
@@ -76,6 +86,7 @@ export class DatabaseManager {
     failedOpsDeleted: number;
     expiredLocksDeleted: number;
     staleOrdersDeleted: number;
+    mpcRecordsDeleted: number;
   } {
     return {
       transactionsDeleted: this.transactions.cleanup(30),
@@ -83,6 +94,7 @@ export class DatabaseManager {
       failedOpsDeleted: this.pendingOps.deleteFailed(30),
       expiredLocksDeleted: this.locks.cleanupExpired(),
       staleOrdersDeleted: this.orderCache.deleteFinalized(1),
+      mpcRecordsDeleted: this.mpcProcessed.deleteOldRecords(7),
     };
   }
 }
@@ -94,3 +106,4 @@ import { TransactionHistoryRepository } from './repositories/transaction-history
 import { PendingOperationsRepository } from './repositories/pending-operations.js';
 import { DistributedLocksRepository } from './repositories/distributed-locks.js';
 import { OrderStateCacheRepository } from './repositories/order-state-cache.js';
+import { MpcProcessedRepository } from './repositories/mpc-processed.js';

@@ -12,15 +12,19 @@
 
 import { Router, type Router as RouterType, Request, Response } from 'express';
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import { isProverAvailable, getProverStatus } from '../lib/prover.js';
+import { isProverAvailable, getProverStatus, validateProverConfiguration } from '../lib/prover.js';
 import { getEmptyTreeRoot } from '../lib/blacklist.js';
 import { logger } from '../lib/logger.js';
 import { walletBalance } from './metrics.js';
+import { rateLimiters } from '../middleware/rate-limit.js';
 import fs from 'fs';
 
 const log = logger.health;
 
 export const healthRouter: RouterType = Router();
+
+// Apply rate limiting to health endpoints (1000 req/min - permissive for monitoring)
+healthRouter.use(rateLimiters.health);
 
 // Subsystem check results
 interface SubsystemHealth {
@@ -281,10 +285,30 @@ async function checkWallet(): Promise<SubsystemHealth> {
  */
 function checkProver(): SubsystemHealth {
   const status = getProverStatus();
+  const validation = validateProverConfiguration();
+
+  // In production with strict mode, validation errors are critical
+  const isProduction = process.env.NODE_ENV === 'production';
+  let healthStatus: 'healthy' | 'degraded' | 'unhealthy' = 'healthy';
+  let message: string | undefined;
+
+  if (!validation.valid) {
+    // In production with validation errors, mark as unhealthy
+    healthStatus = isProduction ? 'unhealthy' : 'degraded';
+    message = validation.errors.join('; ');
+  } else if (!status.available) {
+    // ZK infrastructure not available
+    healthStatus = status.strictMode ? 'unhealthy' : 'degraded';
+    message = 'Running in simulated mode (sunspot/nargo not available)';
+  } else if (validation.warnings.length > 0) {
+    // Warnings but still functional
+    healthStatus = 'degraded';
+    message = validation.warnings.join('; ');
+  }
 
   return {
-    status: status.available ? 'healthy' : 'degraded',
-    message: status.available ? undefined : 'Running in simulated mode (sunspot/nargo not available)',
+    status: healthStatus,
+    message,
     details: {
       mode: status.available ? 'real' : 'simulated',
       strictMode: status.strictMode,
@@ -296,6 +320,8 @@ function checkProver(): SubsystemHealth {
       sunspotFound: status.sunspotFound,
       artifacts: status.artifacts,
       cache: status.cache,
+      validationErrors: validation.errors.length > 0 ? validation.errors : undefined,
+      validationWarnings: validation.warnings.length > 0 ? validation.warnings : undefined,
     },
   };
 }

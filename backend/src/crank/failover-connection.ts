@@ -8,6 +8,9 @@
 import { Connection, ConnectionConfig } from '@solana/web3.js';
 import { withTimeout, TimeoutError, DEFAULT_TIMEOUTS } from '../lib/timeout.js';
 import { classifyError, NetworkError, ErrorCode } from '../lib/errors.js';
+import { logger } from '../lib/logger.js';
+
+const log = logger.crank;
 
 export interface RpcEndpoint {
   url: string;
@@ -78,8 +81,10 @@ export class FailoverConnection {
     // Create initial connection
     this.connection = this.createConnection(this.endpoints[0].endpoint.url);
 
-    console.log(`[FailoverConnection] Initialized with ${this.endpoints.length} endpoints`);
-    console.log(`[FailoverConnection] Primary: ${this.endpoints[0].endpoint.url}`);
+    log.info(
+      { endpointCount: this.endpoints.length, primary: this.endpoints[0].endpoint.url.slice(0, 40) },
+      'FailoverConnection initialized'
+    );
   }
 
   /**
@@ -118,7 +123,7 @@ export class FailoverConnection {
       await this.performHealthChecks();
     }, this.config.healthCheckIntervalMs);
 
-    console.log(`[FailoverConnection] Health checks started (interval: ${this.config.healthCheckIntervalMs}ms)`);
+    log.info({ intervalMs: this.config.healthCheckIntervalMs }, 'FailoverConnection health checks started');
   }
 
   /**
@@ -128,7 +133,7 @@ export class FailoverConnection {
     if (this.healthCheckTimer) {
       clearInterval(this.healthCheckTimer);
       this.healthCheckTimer = null;
-      console.log('[FailoverConnection] Health checks stopped');
+      log.info('FailoverConnection health checks stopped');
     }
   }
 
@@ -152,10 +157,13 @@ export class FailoverConnection {
         state.latencyMs = latency;
         state.lastSuccess = Date.now();
         state.consecutiveFailures = 0;
-      } catch {
+      } catch (err) {
         state.isHealthy = false;
         state.lastFailure = Date.now();
         state.consecutiveFailures++;
+
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.debug({ error: errMsg, endpoint: state.endpoint.url.slice(0, 40), failures: state.consecutiveFailures }, 'RPC health check failed');
       }
     });
 
@@ -217,7 +225,10 @@ export class FailoverConnection {
         this.currentIndex = index;
         this.connection = this.createConnection(state.endpoint.url);
 
-        console.log(`[FailoverConnection] Switched from ${previousEndpoint} to ${state.endpoint.url} (reason: ${reason})`);
+        log.info(
+          { from: previousEndpoint.slice(0, 40), to: state.endpoint.url.slice(0, 40), reason },
+          'FailoverConnection switched endpoint'
+        );
 
         if (this.config.onEndpointChange) {
           this.config.onEndpointChange(previousEndpoint, state.endpoint.url, reason);
@@ -228,7 +239,7 @@ export class FailoverConnection {
     }
 
     // All endpoints unhealthy, reset to primary
-    console.warn('[FailoverConnection] All endpoints unhealthy, resetting to primary');
+    log.warn('FailoverConnection: All endpoints unhealthy, resetting to primary');
     this.currentIndex = 0;
     this.connection = this.createConnection(this.endpoints[0].endpoint.url);
 
@@ -268,7 +279,7 @@ export class FailoverConnection {
         const didFailover = await this.recordFailure(error);
 
         if (didFailover) {
-          console.log(`[FailoverConnection] Retrying after failover (attempt ${attempt + 1}/${maxRetries})`);
+          log.debug({ attempt: attempt + 1, maxRetries }, 'FailoverConnection retrying after failover');
         } else if (attempt < maxRetries - 1) {
           // Short delay before retry on same endpoint
           await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
@@ -309,7 +320,10 @@ export class FailoverConnection {
     this.currentIndex = index;
     this.connection = this.createConnection(url);
 
-    console.log(`[FailoverConnection] Manually switched from ${previousEndpoint} to ${url}`);
+    log.info(
+      { from: previousEndpoint.slice(0, 40), to: url.slice(0, 40) },
+      'FailoverConnection manually switched endpoint'
+    );
     return true;
   }
 

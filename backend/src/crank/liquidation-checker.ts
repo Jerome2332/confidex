@@ -25,8 +25,19 @@ import {
   TransactionInstruction,
   sendAndConfirmTransaction,
 } from '@solana/web3.js';
+import { getAssociatedTokenAddressSync } from '@solana/spl-token';
 import { CrankConfig } from './config.js';
 import { logger } from '../lib/logger.js';
+import { getAlertManager, AlertManager } from '../lib/alerts.js';
+import {
+  PythHermesClient,
+  loadPriceConfig,
+  parsePriceFeedsFromEnv,
+  PYTH_FEED_IDS,
+  type PriceData,
+  type PriceFeedConfig,
+} from '../prices/index.js';
+import { getEventBroadcaster } from '../index.js';
 
 const log = logger.liquidation || console;
 
@@ -87,6 +98,16 @@ export class LiquidationChecker {
   // Markets to check (can be configured)
   private marketsToCheck: PublicKey[] = [];
 
+  // Alert manager for critical failures
+  private alertManager: AlertManager;
+
+  // Pyth price streaming client
+  private pythClient: PythHermesClient | null = null;
+  private priceFeeds: PriceFeedConfig[] = [];
+
+  // Map market PDAs to their price feed IDs
+  private marketPriceFeeds: Map<string, string> = new Map();
+
   constructor(
     connection: Connection,
     crankKeypair: Keypair,
@@ -99,6 +120,7 @@ export class LiquidationChecker {
     this.mxeProgramId = new PublicKey(config.programs.arciumMxe);
     // More frequent checks for liquidations (every 10 seconds default)
     this.checkIntervalMs = Math.min(config.pollingIntervalMs, 10000);
+    this.alertManager = getAlertManager();
   }
 
   /**
@@ -123,6 +145,9 @@ export class LiquidationChecker {
     log.info?.('Starting liquidation checker service');
     this.isRunning = true;
 
+    // Initialize Pyth price streaming
+    await this.initializePythStreaming();
+
     // Initial check
     await this.runLiquidationCheck();
 
@@ -134,6 +159,113 @@ export class LiquidationChecker {
   }
 
   /**
+   * Initialize Pyth Hermes price streaming
+   */
+  private async initializePythStreaming(): Promise<void> {
+    const priceConfig = loadPriceConfig();
+
+    if (!priceConfig.enabled) {
+      log.info?.('Pyth price streaming disabled (PRICE_STREAMING_ENABLED=false)');
+      return;
+    }
+
+    try {
+      this.priceFeeds = parsePriceFeedsFromEnv();
+
+      // Default: SOL/USD for most markets
+      if (this.priceFeeds.length === 0) {
+        this.priceFeeds = [{ feedId: PYTH_FEED_IDS.SOL_USD, symbol: 'SOL/USD' }];
+      }
+
+      this.pythClient = new PythHermesClient(this.priceFeeds, priceConfig);
+
+      await this.pythClient.connect(
+        // Price update callback - trigger liquidation checks on significant moves
+        (feedId: string, price: PriceData) => {
+          this.onPriceUpdate(feedId, price);
+        },
+        // Connection status callback
+        (connected: boolean, error?: Error) => {
+          if (connected) {
+            log.info?.('Pyth Hermes connected for liquidation price monitoring');
+          } else {
+            log.warn?.({ error: error?.message }, 'Pyth Hermes disconnected');
+          }
+        }
+      );
+
+      log.info?.(
+        {
+          feeds: this.priceFeeds.map((f) => f.symbol),
+          feedCount: this.priceFeeds.length,
+        },
+        'Pyth price streaming initialized for liquidation checker'
+      );
+    } catch (error) {
+      log.error?.({ error }, 'Failed to initialize Pyth streaming, falling back to polling-only');
+      // Continue without Pyth - liquidation checks will still run on interval
+    }
+  }
+
+  /**
+   * Handle price updates from Pyth
+   * Triggers immediate liquidation check when price moves significantly
+   */
+  private onPriceUpdate(feedId: string, price: PriceData): void {
+    // Broadcast price update to WebSocket clients
+    const broadcaster = getEventBroadcaster();
+    if (broadcaster) {
+      const symbol = this.priceFeeds.find((f) => f.feedId === feedId)?.symbol ?? feedId;
+      broadcaster.priceUpdate({
+        feedId,
+        symbol,
+        price: price.price.toString(),
+        confidence: price.conf.toString(),
+        publishTime: price.publishTime,
+      });
+    }
+
+    // Find markets using this price feed and check for liquidations
+    for (const [marketKey, marketFeedId] of this.marketPriceFeeds.entries()) {
+      if (marketFeedId === feedId) {
+        // Debounce: only check if not already processing this market
+        const debounceKey = `price-${marketKey}`;
+        if (!this.processingBatches.has(debounceKey)) {
+          this.processingBatches.add(debounceKey);
+          this.checkMarketPositions(new PublicKey(marketKey))
+            .catch((err) => log.error?.({ error: err }, 'Price-triggered liquidation check failed'))
+            .finally(() => this.processingBatches.delete(debounceKey));
+        }
+      }
+    }
+  }
+
+  /**
+   * Set the price feed for a market
+   */
+  setMarketPriceFeed(marketPda: PublicKey, feedId: string): void {
+    this.marketPriceFeeds.set(marketPda.toBase58(), feedId);
+    log.info?.(`Market ${marketPda.toBase58().slice(0, 12)} using price feed ${feedId.slice(0, 12)}`);
+  }
+
+  /**
+   * Get current mark price for a market (from Pyth)
+   */
+  getMarkPrice(marketPda: PublicKey): bigint | null {
+    if (!this.pythClient) {
+      return null;
+    }
+
+    const feedId = this.marketPriceFeeds.get(marketPda.toBase58());
+    if (!feedId) {
+      // Default to SOL/USD
+      return this.pythClient.getPriceAsU64(PYTH_FEED_IDS.SOL_USD, 6);
+    }
+
+    return this.pythClient.getPriceAsU64(feedId, 6);
+  }
+
+  /**
    * Stop the liquidation checker
    */
   stop(): void {
@@ -141,6 +273,13 @@ export class LiquidationChecker {
       clearInterval(this.checkIntervalId);
       this.checkIntervalId = null;
     }
+
+    // Disconnect Pyth streaming
+    if (this.pythClient) {
+      this.pythClient.disconnect();
+      this.pythClient = null;
+    }
+
     this.isRunning = false;
     log.info?.('Liquidation checker service stopped');
   }
@@ -270,7 +409,20 @@ export class LiquidationChecker {
 
       log.info?.(`MPC batch liquidation check triggered, tx: ${mpcSig}`);
     } catch (error) {
-      log.error?.({ error }, 'Failed to process liquidation batch');
+      const errorMsg = error instanceof Error ? error.message.split('\n')[0].slice(0, 80) : String(error);
+      log.error?.({ error: errorMsg }, 'Failed to process liquidation batch');
+
+      // Alert on batch processing failures (critical for risk management)
+      await this.alertManager.error(
+        'Liquidation Batch Failed',
+        `Failed to process liquidation batch: ${errorMsg}`,
+        {
+          market: marketPda.toBase58().slice(0, 16),
+          positionCount: positions.length,
+          batchId: batchId.slice(0, 24),
+        },
+        `liquidation-batch-failed-${batchId.slice(0, 24)}`
+      );
     } finally {
       this.processingBatches.delete(batchId);
     }
@@ -419,7 +571,13 @@ export class LiquidationChecker {
     // - mark_price (8 bytes)
     // - position_count (1 byte)
     const requestId = this.generateRequestId();
-    const markPrice = BigInt(0); // Would get from oracle
+
+    // Get mark price from Pyth oracle
+    const markPrice = this.getMarkPrice(marketPda);
+    if (markPrice === null) {
+      throw new Error('Cannot get mark price from Pyth oracle - price unavailable or stale');
+    }
+    log.debug?.({ markPrice: markPrice.toString(), market: marketPda.toBase58().slice(0, 12) }, 'Using Pyth mark price for liquidation check');
 
     const data = Buffer.alloc(8 + 32 + 8 + 1);
     let offset = 0;
@@ -484,11 +642,15 @@ export class LiquidationChecker {
     isRunning: boolean;
     marketsMonitored: number;
     processingBatches: number;
+    pythConnected: boolean;
+    pythStats: ReturnType<PythHermesClient['getStats']> | null;
   } {
     return {
       isRunning: this.isRunning,
       marketsMonitored: this.marketsToCheck.length,
       processingBatches: this.processingBatches.size,
+      pythConnected: this.pythClient?.connected ?? false,
+      pythStats: this.pythClient?.getStats() ?? null,
     };
   }
 
@@ -527,8 +689,21 @@ export class LiquidationChecker {
         successCount++;
         log.info?.(`[Liquidation] Position liquidated successfully: ${position.pda.toBase58().slice(0, 12)}`);
       } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorMsg = error instanceof Error ? error.message.split('\n')[0].slice(0, 80) : String(error);
         log.error?.(`[Liquidation] Failed to liquidate position ${position.pda.toBase58().slice(0, 12)}: ${errorMsg}`);
+
+        // Alert on liquidation execution failures (critical for risk management)
+        await this.alertManager.error(
+          'Liquidation Execution Failed',
+          `Failed to execute liquidation: ${errorMsg}`,
+          {
+            position: position.pda.toBase58().slice(0, 16),
+            market: marketPda.toBase58().slice(0, 16),
+            side: position.side === PositionSide.Long ? 'Long' : 'Short',
+            leverage: position.leverage,
+          },
+          `liquidation-exec-failed-${position.pda.toBase58().slice(0, 16)}`
+        );
       }
     }
 
@@ -613,8 +788,10 @@ export class LiquidationChecker {
             status,
           });
         }
-      } catch {
-        // Skip unparseable positions
+      } catch (err) {
+        // Log and skip unparseable positions
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.debug({ error: errMsg }, 'Failed to parse position data, skipping');
       }
     }
 
@@ -703,8 +880,10 @@ export class LiquidationChecker {
         if (completed) {
           return pubkey;
         }
-      } catch {
-        // Skip unparseable
+      } catch (err) {
+        // Log and skip unparseable check results
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.debug({ error: errMsg }, 'Failed to parse liquidation check result, skipping');
       }
     }
 
@@ -785,24 +964,13 @@ export class LiquidationChecker {
 
   /**
    * Get liquidator's collateral token account (USDC ATA)
+   * Uses SPL Token SDK for correct ATA derivation
    */
-  private async getLiquidatorCollateralAccount(
-    _marketPda: PublicKey
-  ): Promise<PublicKey> {
-    // TODO: Derive actual USDC ATA for liquidator
-    // For now, use a placeholder that would need to be set up
+  private getLiquidatorCollateralAccount(_marketPda: PublicKey): PublicKey {
+    // Devnet dummy USDC mint from CLAUDE.md
     const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr');
 
-    // Derive ATA: [wallet, TOKEN_PROGRAM_ID, mint]
-    const [ata] = PublicKey.findProgramAddressSync(
-      [
-        this.crankKeypair.publicKey.toBuffer(),
-        new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA').toBuffer(),
-        USDC_MINT.toBuffer(),
-      ],
-      new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
-    );
-
-    return ata;
+    // Use SPL Token SDK for proper ATA derivation
+    return getAssociatedTokenAddressSync(USDC_MINT, this.crankKeypair.publicKey);
   }
 }

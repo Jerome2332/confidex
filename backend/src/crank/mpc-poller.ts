@@ -41,6 +41,8 @@ import { withRetry } from '../lib/retry.js';
 import { classifyError, MpcError, BlockchainError, isRetryable } from '../lib/errors.js';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../lib/timeout.js';
 import { logger } from '../lib/logger.js';
+import { getAlertManager, AlertManager } from '../lib/alerts.js';
+import { MpcProcessedRepository } from '../db/repositories/mpc-processed.js';
 import bs58 from 'bs58';
 
 const log = logger.mpc;
@@ -141,6 +143,7 @@ export class MpcPoller {
   private subscriptionId: number | null = null;
 
   // Track requests we've already processed to avoid duplicate callbacks
+  // These are backed by the database for persistence across restarts
   private processedRequests: Set<string> = new Set();
 
   // Track permanently failed requests to avoid infinite retry loops
@@ -149,10 +152,17 @@ export class MpcPoller {
   // Track events we've already processed (by signature + log index)
   private processedEvents: Set<string> = new Set();
 
+  // Alert manager for critical failure notifications
+  private alertManager: AlertManager;
+
+  // Database repository for persistence (optional - if not provided, uses in-memory only)
+  private mpcProcessedRepo: MpcProcessedRepository | null = null;
+
   constructor(
     connection: Connection,
     crankKeypair: Keypair,
-    config: CrankConfig
+    config: CrankConfig,
+    mpcProcessedRepo?: MpcProcessedRepository
   ) {
     this.connection = connection;
     this.crankKeypair = crankKeypair;
@@ -162,6 +172,118 @@ export class MpcPoller {
     this.mxeConfigPda = this.deriveMxeConfigPda();
     this.mxeAuthorityPda = this.deriveMxeAuthorityPda();
     this.exchangePda = this.deriveExchangePda();
+    this.alertManager = getAlertManager();
+    this.mpcProcessedRepo = mpcProcessedRepo ?? null;
+
+    // Load persisted state from database if available
+    this.loadPersistedState();
+  }
+
+  /**
+   * Load persisted processed/failed request state from database
+   */
+  private loadPersistedState(): void {
+    if (!this.mpcProcessedRepo) {
+      log.debug('No MPC persistence repository - using in-memory only');
+      return;
+    }
+
+    try {
+      // Load processed computation requests
+      const processedKeys = this.mpcProcessedRepo.getAllProcessedKeys('computation');
+      for (const key of processedKeys) {
+        this.processedRequests.add(key);
+      }
+
+      // Load failed computation requests
+      const failedKeys = this.mpcProcessedRepo.getAllFailedKeys('computation');
+      for (const key of failedKeys) {
+        this.failedRequests.add(key);
+      }
+
+      // Load processed events
+      const eventKeys = this.mpcProcessedRepo.getAllProcessedKeys('event');
+      for (const key of eventKeys) {
+        this.processedEvents.add(key);
+      }
+
+      log.info({
+        processedCount: processedKeys.length,
+        failedCount: failedKeys.length,
+        eventsCount: eventKeys.length,
+      }, 'Loaded persisted MPC state from database');
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.error({ error: errMsg }, 'Failed to load persisted MPC state');
+    }
+  }
+
+  /**
+   * Mark a computation request as processed (persists to DB if available)
+   */
+  private markRequestProcessed(requestKey: string, computationType?: string, txSignature?: string): void {
+    this.processedRequests.add(requestKey);
+
+    if (this.mpcProcessedRepo) {
+      try {
+        this.mpcProcessedRepo.markProcessed({
+          request_key: requestKey,
+          request_type: 'computation',
+          status: 'processed',
+          computation_type: computationType,
+          tx_signature: txSignature,
+        });
+      } catch (err) {
+        // Log but don't fail - in-memory set is the primary
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ error: errMsg, requestKey: requestKey.slice(0, 16) }, 'Failed to persist processed request');
+      }
+    }
+  }
+
+  /**
+   * Mark a computation request as permanently failed (persists to DB if available)
+   */
+  private markRequestFailed(requestKey: string, computationType?: string, errorMessage?: string): void {
+    this.failedRequests.add(requestKey);
+
+    if (this.mpcProcessedRepo) {
+      try {
+        this.mpcProcessedRepo.markProcessed({
+          request_key: requestKey,
+          request_type: 'computation',
+          status: 'failed',
+          computation_type: computationType,
+          error_message: errorMessage,
+        });
+      } catch (err) {
+        // Log but don't fail - in-memory set is the primary
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ error: errMsg, requestKey: requestKey.slice(0, 16) }, 'Failed to persist failed request');
+      }
+    }
+  }
+
+  /**
+   * Mark an event as processed (persists to DB if available)
+   */
+  private markEventProcessed(eventKey: string, txSignature?: string): void {
+    this.processedEvents.add(eventKey);
+
+    if (this.mpcProcessedRepo) {
+      try {
+        this.mpcProcessedRepo.markProcessed({
+          request_key: eventKey,
+          request_type: 'event',
+          status: 'processed',
+          tx_signature: txSignature,
+        });
+      } catch (err) {
+        // Log but don't fail - in-memory set is the primary
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.warn({ error: errMsg, eventKey: eventKey.slice(0, 16) }, 'Failed to persist processed event');
+      }
+    }
   }
 
   /**
@@ -289,7 +411,7 @@ export class MpcPoller {
           const request = await this.fetchComputationRequest(requestPda);
           if (!request) {
             // Account doesn't exist or couldn't be parsed, mark as failed to skip
-            this.failedRequests.add(requestKey);
+            this.markRequestFailed(requestKey, undefined, 'Account not found or parse error');
             continue;
           }
 
@@ -300,17 +422,17 @@ export class MpcPoller {
               pda: requestPda.toBase58().slice(0, 8),
             }, 'Processing MPC request');
             await this.processRequest(requestPda, request);
-            this.processedRequests.add(requestKey);
+            this.markRequestProcessed(requestKey, ComputationType[request.computationType]);
             processedThisPoll++;
           } else if (request.status === ComputationStatus.Completed || request.status === ComputationStatus.Failed || request.status === ComputationStatus.Expired) {
             // Already completed/failed/expired, mark as processed to skip future polls
-            this.processedRequests.add(requestKey);
+            this.markRequestProcessed(requestKey, ComputationType[request.computationType]);
           }
         } catch (err) {
           const errMsg = err instanceof Error ? err.message.split('\n')[0].slice(0, 80) : String(err);
           log.error({ idx: Number(i), error: errMsg }, 'Error processing MPC request');
           // Mark as failed to avoid retrying endlessly on parsing errors
-          this.failedRequests.add(requestKey);
+          this.markRequestFailed(requestKey, undefined, errMsg);
         }
       }
 
@@ -477,6 +599,19 @@ export class MpcPoller {
         } catch (mpcErr) {
           const errMsg = mpcErr instanceof Error ? mpcErr.message.split('\n')[0].slice(0, 80) : String(mpcErr);
           log.error({ error: errMsg }, 'Real MPC execution failed');
+
+          // Alert on MPC execution failures (critical for order matching)
+          await this.alertManager.error(
+            'MPC Execution Failed',
+            `Arcium MPC computation failed: ${errMsg}`,
+            {
+              requestPda: requestPda.toBase58(),
+              computationType: ComputationType[request.computationType],
+              cluster: this.config.mpc.clusterOffset,
+            },
+            'mpc-execution-failed'
+          );
+
           // NO FALLBACK TO DEMO MODE - propagate the error
           // Mark computation as failed - circuit breaker will handle retries
           result = new Uint8Array([0]);
@@ -657,7 +792,19 @@ export class MpcPoller {
     if (isPermanentFailure) {
       // Mark as permanently failed, don't retry
       log.warn({ request: requestKey.slice(0, 8) }, 'Marking request as permanently failed');
-      this.failedRequests.add(requestKey);
+      this.markRequestFailed(requestKey, undefined, classified.message.slice(0, 100));
+
+      // Alert on permanent callback failures
+      await this.alertManager.warning(
+        'MPC Callback Permanently Failed',
+        `ProcessCallback failed permanently: ${classified.message.slice(0, 60)}`,
+        {
+          requestKey: requestKey.slice(0, 16),
+          errorType: classified.name,
+          attempts: retryResult.attempts,
+        },
+        `callback-failed-${requestKey.slice(0, 16)}`
+      );
     } else {
       // Transient failure, allow retry on next poll
       this.processedRequests.delete(requestKey);
@@ -697,7 +844,7 @@ export class MpcPoller {
         const requestKey = requestPda.toBase58();
 
         if (!this.processedRequests.has(requestKey) && !this.failedRequests.has(requestKey)) {
-          this.failedRequests.add(requestKey);
+          this.markRequestFailed(requestKey, undefined, 'Manually skipped');
           skipped++;
         }
       }
@@ -787,10 +934,10 @@ export class MpcPoller {
 
           if (discriminator.equals(MXE_EVENT_DISCRIMINATORS.PRICE_COMPARE_RESULT)) {
             await this.handlePriceCompareResult(eventData, signature);
-            this.processedEvents.add(eventKey);
+            this.markEventProcessed(eventKey, signature);
           } else if (discriminator.equals(MXE_EVENT_DISCRIMINATORS.FILL_CALCULATION_RESULT)) {
             await this.handleFillCalculationResult(eventData, signature);
-            this.processedEvents.add(eventKey);
+            this.markEventProcessed(eventKey, signature);
           }
         } catch (err) {
           // Not a valid event, skip

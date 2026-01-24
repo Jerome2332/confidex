@@ -21,6 +21,9 @@ import {
 import { AnchorProvider, Wallet } from '@coral-xyz/anchor';
 import BN from 'bn.js';
 import { createHash } from 'crypto';
+import { logger } from '../lib/logger.js';
+
+const log = logger.mpc;
 
 // Arcium SDK imports
 import {
@@ -328,7 +331,9 @@ export class ArciumClient {
       }
 
       return new Uint8Array(accountInfo.data.slice(95, 127));
-    } catch {
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.debug({ error: errMsg, mxeAddress: this.mxeAddress.toBase58() }, 'Failed to fetch MXE public key');
       return null;
     }
   }

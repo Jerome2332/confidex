@@ -7,6 +7,9 @@
 
 import { Connection, Blockhash, BlockhashWithExpiryBlockHeight } from '@solana/web3.js';
 import { withTimeout, DEFAULT_TIMEOUTS } from '../lib/timeout.js';
+import { logger } from '../lib/logger.js';
+
+const log = logger.crank;
 
 export interface BlockhashManagerConfig {
   /** How often to refresh the blockhash (default: 30s = ~75 slots) */
@@ -55,17 +58,17 @@ export class BlockhashManager {
 
     // Fetch initial blockhash
     this.refresh().catch((error) => {
-      console.error('[BlockhashManager] Initial fetch failed:', error);
+      log.error({ error: error instanceof Error ? error.message : String(error) }, 'BlockhashManager initial fetch failed');
     });
 
     // Start refresh loop
     this.refreshTimer = setInterval(() => {
       this.refresh().catch((error) => {
-        console.error('[BlockhashManager] Refresh failed:', error);
+        log.error({ error: error instanceof Error ? error.message : String(error) }, 'BlockhashManager refresh failed');
       });
     }, this.config.refreshIntervalMs);
 
-    console.log(`[BlockhashManager] Started (refresh every ${this.config.refreshIntervalMs}ms)`);
+    log.info({ refreshIntervalMs: this.config.refreshIntervalMs }, 'BlockhashManager started');
   }
 
   /**
@@ -75,7 +78,7 @@ export class BlockhashManager {
     if (this.refreshTimer) {
       clearInterval(this.refreshTimer);
       this.refreshTimer = null;
-      console.log('[BlockhashManager] Stopped');
+      log.info('BlockhashManager stopped');
     }
   }
 
@@ -119,7 +122,11 @@ export class BlockhashManager {
       // Remove stale entries
       this.pruneCache();
 
-      console.log(`[BlockhashManager] Refreshed blockhash: ${result.blockhash.slice(0, 12)}... (slot: ${slot}, valid until height: ${result.lastValidBlockHeight})`);
+      log.debug({
+        blockhash: result.blockhash.slice(0, 12),
+        slot,
+        validUntilHeight: result.lastValidBlockHeight,
+      }, 'BlockhashManager refreshed blockhash');
     } finally {
       this.isRefreshing = false;
     }

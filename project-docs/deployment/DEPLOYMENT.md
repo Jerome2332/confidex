@@ -291,6 +291,25 @@ CRANK_MAX_CONCURRENT_MATCHES=5
 CRANK_MIN_SOL_BALANCE=0.1
 CRANK_ERROR_THRESHOLD=10
 CRANK_PAUSE_DURATION_MS=60000
+
+# RPC Failover (backup endpoints if primary fails)
+CRANK_RPC_FALLBACK_1=https://rpc.ankr.com/solana_devnet
+CRANK_RPC_FALLBACK_2=https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+
+# Blockhash Manager (pre-fetches blockhashes to avoid TX expiration)
+BLOCKHASH_REFRESH_INTERVAL_MS=30000
+BLOCKHASH_MAX_AGE_MS=60000
+
+# HTTP Timeouts
+SERVER_TIMEOUT_MS=120000
+KEEP_ALIVE_TIMEOUT_MS=65000
+REQUEST_TIMEOUT_MS=60000
+
+# ZK Proof Verification (IMPORTANT: strict mode is ON by default in production)
+STRICT_PROOFS=true  # Set to false only for devnet testing
+
+# Logging
+LOG_LEVEL=info  # debug, info, warn, error
 ```
 
 ### Render Deployment (Recommended for Production)
@@ -521,6 +540,10 @@ arcium mxe-info <MXE_PROGRAM_ID> -u devnet
 - [ ] Helius RPC configured (not public devnet)
 - [ ] SQLite database path writable (`CRANK_DB_PATH=./data/crank.db`)
 - [ ] PM2 or systemd configured for auto-restart
+- [ ] RPC failover endpoints configured (`CRANK_RPC_FALLBACK_1`, `CRANK_RPC_FALLBACK_2`)
+- [ ] BlockhashManager enabled (automatic - pre-fetches blockhashes every 30s)
+- [ ] `STRICT_PROOFS=true` for production (rejects simulated proofs)
+- [ ] HTTP timeouts configured for long-running requests
 
 ### MPC Configuration
 
@@ -541,8 +564,26 @@ arcium mxe-info <MXE_PROGRAM_ID> -u devnet
 ### Monitoring
 
 - [ ] Crank status endpoint: `GET /admin/crank/status`
+- [ ] Prometheus metrics endpoint: `GET /metrics`
+- [ ] RPC health endpoint: `GET /admin/crank/rpc-health`
 - [ ] Wallet balance alerts configured
 - [ ] Error logging to Sentry/similar
+- [ ] Structured JSON logging enabled (Pino)
+
+### Reliability Features (January 2026)
+
+The crank service now includes several production reliability features:
+
+| Feature | Description |
+|---------|-------------|
+| **RPC Failover** | Automatic failover to backup RPC endpoints with health checks every 30s |
+| **BlockhashManager** | Pre-fetches and caches blockhashes to prevent TX expiration under load |
+| **Startup Recovery** | Recovers pending matches/settlements from database after crash/restart |
+| **Atomic Settlement** | Verifies settlement on-chain before marking complete |
+| **WebSocket Rate Limiting** | Message rate limiting with 3-strike disconnect policy |
+| **MPC State Persistence** | Persists processed MPC requests to prevent duplicate processing |
+| **Distributed Locking** | Prevents multiple instances from processing same orders |
+| **Graceful Shutdown** | Waits for active operations before stopping |
 
 ### Success Criteria
 

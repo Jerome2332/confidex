@@ -23,6 +23,7 @@ import Database from 'better-sqlite3';
 import { CrankConfig } from './config.js';
 import { OrderStatus, Side } from './types.js';
 import { logger } from '../lib/logger.js';
+import { getAlertManager, AlertManager } from '../lib/alerts.js';
 import { mkdirSync, existsSync } from 'fs';
 import { dirname } from 'path';
 
@@ -103,6 +104,9 @@ export class SettlementExecutor {
   private readonly CLEANUP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
   private readonly RECORD_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+  // Alert manager for critical failures
+  private alertManager: AlertManager;
+
   constructor(
     connection: Connection,
     crankKeypair: Keypair,
@@ -122,6 +126,7 @@ export class SettlementExecutor {
 
     this.db = new Database(dbPath);
     this.initDatabase();
+    this.alertManager = getAlertManager();
     log.info({ dbPath }, 'Settlement database initialized');
   }
 
@@ -391,14 +396,29 @@ export class SettlementExecutor {
           }, 'Attempting settlement');
 
           try {
-            await this.settleOrders(buy.pda, sell.pda, buy.order, sell.order);
+            // Settlement is atomic: only mark as settled after on-chain verification
+            const signature = await this.settleOrders(buy.pda, sell.pda, buy.order, sell.order);
+            // Only mark settled if settleOrders returns successfully (includes on-chain verification)
             this.markSettled(settlementKey, buy.pda.toBase58(), sell.pda.toBase58());
             this.failedSettlements.delete(settlementKey); // Clear any previous failure
+            log.debug({ signature: signature.slice(0, 12), settlementKey: settlementKey.slice(0, 20) }, 'Settlement recorded in database');
           } catch (err) {
             // Extract just the essential error info
             const errorMsg = this.extractErrorSummary(err);
             log.error({ error: errorMsg }, 'Settlement failed (retry in 60s)');
             this.failedSettlements.set(settlementKey, Date.now()); // Add cooldown
+
+            // Alert on settlement failures (critical for order completion)
+            await this.alertManager.error(
+              'Settlement Failed',
+              `Order settlement failed: ${errorMsg}`,
+              {
+                buyOrder: buy.pda.toBase58().slice(0, 16),
+                sellOrder: sell.pda.toBase58().slice(0, 16),
+                matchRequest: buy.order.pendingMatchRequest.toBase58().slice(0, 16),
+              },
+              `settlement-failed-${settlementKey.slice(0, 32)}`
+            );
           } finally {
             this.releaseLock(settlementKey);
           }
@@ -524,6 +544,7 @@ export class SettlementExecutor {
    * Execute settle_order instruction
    *
    * @param settlementMethod - Settlement method (defaults to ShadowWire for privacy)
+   * @returns Transaction signature if successful
    */
   private async settleOrders(
     buyPda: PublicKey,
@@ -531,12 +552,12 @@ export class SettlementExecutor {
     buyOrder: ParsedOrder,
     sellOrder: ParsedOrder,
     settlementMethod: SettlementMethod = SettlementMethod.ShadowWire
-  ): Promise<void> {
+  ): Promise<string> {
     // Get trading pair mints
     const mints = await this.getPairMints(buyOrder.pair);
     if (!mints) {
       log.error('Could not fetch trading pair mints');
-      return;
+      throw new Error('Could not fetch trading pair mints');
     }
 
     const { baseMint, quoteMint } = mints;
@@ -552,7 +573,7 @@ export class SettlementExecutor {
     const feeRecipient = await this.getFeeRecipient();
     if (!feeRecipient) {
       log.error('Could not fetch fee recipient from exchange');
-      return;
+      throw new Error('Could not fetch fee recipient from exchange');
     }
     const feeRecipientBalance = this.deriveUserBalancePda(feeRecipient, quoteMint);
 
@@ -602,11 +623,83 @@ export class SettlementExecutor {
         [this.crankKeypair],
         { commitment: 'confirmed' }
       );
-      log.info({ signature: signature.slice(0, 12) }, '✓ Settlement successful');
+
+      // Verify settlement succeeded by checking on-chain order status
+      // This makes the settlement atomic - we only return success if verified
+      const verified = await this.verifySettlementOnChain(buyPda, sellPda);
+      if (!verified) {
+        log.warn({ signature: signature.slice(0, 12) }, 'Settlement TX confirmed but on-chain verification failed');
+        throw new Error('Settlement verification failed - orders not in expected state');
+      }
+
+      log.info({ signature: signature.slice(0, 12) }, '✓ Settlement successful and verified');
+      return signature;
     } catch (err: unknown) {
       const errorMsg = this.extractErrorSummary(err);
       log.error({ error: errorMsg }, '✗ Settlement TX failed');
+
+      // Alert specifically on InsufficientBalance errors (common production issue)
+      if (errorMsg.includes('InsufficientBalance')) {
+        await this.alertManager.warning(
+          'Settlement Insufficient Balance',
+          `User has insufficient balance for settlement: ${errorMsg}`,
+          {
+            buyOrder: buyPda.toBase58().slice(0, 16),
+            sellOrder: sellPda.toBase58().slice(0, 16),
+            buyer: buyOrder.maker.toBase58().slice(0, 16),
+            seller: sellOrder.maker.toBase58().slice(0, 16),
+          },
+          `insufficient-balance-${buyPda.toBase58().slice(0, 16)}`
+        );
+      }
+
       throw err;
+    }
+  }
+
+  /**
+   * Verify settlement succeeded by checking on-chain order status
+   * Orders should be closed (account doesn't exist) or status should be Filled/Cancelled
+   */
+  private async verifySettlementOnChain(buyPda: PublicKey, sellPda: PublicKey): Promise<boolean> {
+    try {
+      // Small delay to ensure state is propagated
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const [buyAccount, sellAccount] = await Promise.all([
+        this.connection.getAccountInfo(buyPda),
+        this.connection.getAccountInfo(sellPda),
+      ]);
+
+      // If accounts are closed, settlement succeeded
+      if (!buyAccount && !sellAccount) {
+        return true;
+      }
+
+      // If accounts exist, check their status
+      // Settlement should have set them to Inactive (filled/cancelled) or closed them
+      if (buyAccount) {
+        const buyOrderStatus = this.parseOrder(buyAccount.data);
+        // Inactive = filled or cancelled (terminal state)
+        if (buyOrderStatus.status !== OrderStatus.Inactive) {
+          log.warn({ buyStatus: buyOrderStatus.status }, 'Buy order not in terminal state after settlement');
+          return false;
+        }
+      }
+
+      if (sellAccount) {
+        const sellOrderStatus = this.parseOrder(sellAccount.data);
+        if (sellOrderStatus.status !== OrderStatus.Inactive) {
+          log.warn({ sellStatus: sellOrderStatus.status }, 'Sell order not in terminal state after settlement');
+          return false;
+        }
+      }
+
+      return true;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.error({ error: errMsg }, 'Error verifying settlement on-chain');
+      return false;
     }
   }
 

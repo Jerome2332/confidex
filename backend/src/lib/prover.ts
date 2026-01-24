@@ -5,12 +5,26 @@ import { join, dirname } from 'path';
 import { randomBytes, createHash } from 'crypto';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { logger } from './logger.js';
 
 const execAsync = promisify(exec);
+const log = logger.prover;
 
 // Strict proof mode - when enabled, rejects simulated proofs and requires real ZK infrastructure
 // Set STRICT_PROOFS=true in production to ensure no fake proofs are accepted
-const STRICT_PROOF_MODE = process.env.STRICT_PROOFS === 'true';
+const STRICT_PROOFS_ENV = process.env.STRICT_PROOFS;
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// In production, STRICT_PROOFS must be explicitly set to 'true' or 'false'
+// If not set in production, we default to strict mode (fail-safe)
+const STRICT_PROOF_MODE = IS_PRODUCTION
+  ? STRICT_PROOFS_ENV !== 'false' // In production: strict unless explicitly disabled
+  : STRICT_PROOFS_ENV === 'true'; // In development: not strict unless explicitly enabled
+
+// Warn if production mode without explicit STRICT_PROOFS setting
+if (IS_PRODUCTION && STRICT_PROOFS_ENV === undefined) {
+  log.warn('STRICT_PROOFS not set in production - defaulting to strict mode. Set STRICT_PROOFS=true explicitly for clarity.');
+}
 
 // ES module compatible __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -178,13 +192,13 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
   // Check cache first
   const cached = proofCache.get(inputs.address, inputs.blacklistRoot);
   if (cached) {
-    console.log(`[prover] Cache hit for ${inputs.address.slice(0, 8)}... (${Date.now() - startTime}ms)`);
+    log.debug({ address: inputs.address.slice(0, 8), durationMs: Date.now() - startTime }, 'Cache hit');
     return cached;
   }
 
-  console.log(`[prover] Cache miss for ${inputs.address.slice(0, 8)}..., generating proof`);
-  console.log(`[prover] Using sunspot binary: ${SUNSPOT_BIN}`);
-  console.log(`[prover] Using circuit directory: ${CIRCUIT_DIR}`);
+  log.debug({ address: inputs.address.slice(0, 8) }, 'Cache miss, generating proof');
+  log.debug({ sunspotBin: SUNSPOT_BIN }, 'Using sunspot binary');
+  log.debug({ circuitDir: CIRCUIT_DIR }, 'Using circuit directory');
 
   const tempId = randomBytes(8).toString('hex');
   const tempDir = join(CIRCUIT_DIR, 'temp', tempId);
@@ -214,21 +228,21 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
     if (!existsSync(circuitPk)) missingArtifacts.push('eligibility.pk');
 
     if (missingArtifacts.length > 0) {
-      console.warn(`[prover] Missing circuit artifacts: ${missingArtifacts.join(', ')}`);
+      log.warn({ missing: missingArtifacts }, 'Missing circuit artifacts');
       if (STRICT_PROOF_MODE) {
         throw new Error(`Circuit artifacts not found: ${missingArtifacts.join(', ')} - strict proof mode enabled. Run: cd circuits/eligibility && nargo build && sunspot compile && sunspot setup`);
       }
-      console.warn('[prover] Using simulated proof (DEV ONLY)');
+      log.warn('Using simulated proof (DEV ONLY)');
       return generateSimulatedProof(inputs);
     }
 
     // Check if sunspot is available
     if (!existsSync(SUNSPOT_BIN)) {
-      console.warn(`[prover] Sunspot not found at ${SUNSPOT_BIN}`);
+      log.warn({ sunspotBin: SUNSPOT_BIN }, 'Sunspot not found');
       if (STRICT_PROOF_MODE) {
         throw new Error(`Sunspot not found at ${SUNSPOT_BIN} - strict proof mode enabled. Install Sunspot: https://github.com/Sunspot-Labs/sunspot`);
       }
-      console.warn('[prover] Using simulated proof (DEV ONLY)');
+      log.warn('Using simulated proof (DEV ONLY)');
       return generateSimulatedProof(inputs);
     }
 
@@ -236,7 +250,7 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
     // This generates the witness file
     const witnessPath = join(tempDir, 'eligibility.gz');
 
-    console.log(`[prover] Step 1: Running nargo execute...`);
+    log.debug('Step 1: Running nargo execute');
     const nargoStart = Date.now();
 
     try {
@@ -276,7 +290,7 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
       }
     }
 
-    console.log(`[prover] nargo execute completed (${Date.now() - nargoStart}ms)`);
+    log.debug({ durationMs: Date.now() - nargoStart }, 'nargo execute completed');
 
     // Step 2: Run sunspot prove
     const proofPath = join(tempDir, 'eligibility.proof');
@@ -286,7 +300,7 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
       await copyFile(join(CIRCUIT_DIR, 'target', 'eligibility.gz'), witnessPath);
     }
 
-    console.log(`[prover] Step 2: Running sunspot prove...`);
+    log.debug('Step 2: Running sunspot prove');
     const sunspotStart = Date.now();
 
     await execAsync(
@@ -297,7 +311,7 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
       }
     );
 
-    console.log(`[prover] sunspot prove completed (${Date.now() - sunspotStart}ms)`);
+    log.debug({ durationMs: Date.now() - sunspotStart }, 'sunspot prove completed');
 
     // Read the generated proof
     const proofFile = existsSync(proofPath)
@@ -308,7 +322,7 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
 
     // Verify proof is exactly the expected size (324 bytes)
     if (rawProof.length !== PROOF_SIZE) {
-      console.error(`[prover] Unexpected proof size: ${rawProof.length} bytes (expected ${PROOF_SIZE})`);
+      log.error({ actual: rawProof.length, expected: PROOF_SIZE }, 'Unexpected proof size');
       throw new Error(`Invalid proof size: ${rawProof.length} bytes`);
     }
 
@@ -316,15 +330,15 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
     proofCache.set(inputs.address, inputs.blacklistRoot, rawProof);
 
     const totalDuration = Date.now() - startTime;
-    console.log(`[prover] Generated real Groth16 proof: ${rawProof.length} bytes (total: ${totalDuration}ms)`);
+    log.info({ proofSize: rawProof.length, durationMs: totalDuration }, 'Generated real Groth16 proof');
     return rawProof;
 
   } catch (error) {
-    console.error('[prover] Proof generation failed:', error);
+    log.error({ error: error instanceof Error ? error.message : String(error) }, 'Proof generation failed');
     if (STRICT_PROOF_MODE) {
       throw new Error(`Proof generation failed - strict proof mode enabled: ${error instanceof Error ? error.message : String(error)}`);
     }
-    console.warn('[prover] Falling back to simulated proof (DEV ONLY)');
+    log.warn('Falling back to simulated proof (DEV ONLY)');
     return generateSimulatedProof(inputs);
   } finally {
     // Cleanup temp directory
@@ -503,6 +517,67 @@ export function getProverStatus(): ProverStatus {
       vk: existsSync(join(CIRCUIT_DIR, 'target', 'eligibility.vk')),
     },
     cache: proofCache.stats(),
+  };
+}
+
+/**
+ * Validate prover configuration for production readiness
+ * Call this at startup to ensure ZK infrastructure is properly configured
+ *
+ * @throws Error if production but not properly configured
+ */
+export function validateProverConfiguration(): {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+} {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (IS_PRODUCTION) {
+    // In production, strict mode should be enabled
+    if (!STRICT_PROOF_MODE) {
+      errors.push('STRICT_PROOFS=false in production - simulated proofs will be accepted!');
+    }
+
+    // Check if real ZK infrastructure is available
+    if (!existsSync(SUNSPOT_BIN)) {
+      if (STRICT_PROOF_MODE) {
+        errors.push(`Sunspot binary not found at ${SUNSPOT_BIN}`);
+      } else {
+        warnings.push(`Sunspot binary not found - will use simulated proofs`);
+      }
+    }
+
+    // Check circuit artifacts
+    const circuitJson = join(CIRCUIT_DIR, 'target', 'eligibility.json');
+    const circuitCcs = join(CIRCUIT_DIR, 'target', 'eligibility.ccs');
+    const circuitPk = join(CIRCUIT_DIR, 'target', 'eligibility.pk');
+
+    const missingArtifacts: string[] = [];
+    if (!existsSync(circuitJson)) missingArtifacts.push('eligibility.json');
+    if (!existsSync(circuitCcs)) missingArtifacts.push('eligibility.ccs');
+    if (!existsSync(circuitPk)) missingArtifacts.push('eligibility.pk');
+
+    if (missingArtifacts.length > 0) {
+      const msg = `Missing circuit artifacts: ${missingArtifacts.join(', ')}`;
+      if (STRICT_PROOF_MODE) {
+        errors.push(msg);
+      } else {
+        warnings.push(msg);
+      }
+    }
+  } else {
+    // Development mode warnings
+    if (!STRICT_PROOF_MODE) {
+      warnings.push('Running in development mode without STRICT_PROOFS - simulated proofs allowed');
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings,
   };
 }
 

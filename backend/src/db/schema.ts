@@ -62,6 +62,18 @@ CREATE TABLE IF NOT EXISTS order_state_cache (
   updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
 );
 
+-- MPC processed requests tracking (for duplicate prevention after restart)
+CREATE TABLE IF NOT EXISTS mpc_processed_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  request_key TEXT UNIQUE NOT NULL,
+  request_type TEXT NOT NULL CHECK (request_type IN ('computation', 'event')),
+  status TEXT NOT NULL CHECK (status IN ('processed', 'failed')),
+  computation_type TEXT,
+  tx_signature TEXT,
+  error_message TEXT,
+  created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_tx_history_status ON transaction_history(status);
 CREATE INDEX IF NOT EXISTS idx_tx_history_type ON transaction_history(tx_type);
@@ -72,6 +84,8 @@ CREATE INDEX IF NOT EXISTS idx_locks_name ON distributed_locks(lock_name);
 CREATE INDEX IF NOT EXISTS idx_locks_expires ON distributed_locks(expires_at);
 CREATE INDEX IF NOT EXISTS idx_order_cache_pair ON order_state_cache(trading_pair_pda, status);
 CREATE INDEX IF NOT EXISTS idx_order_cache_owner ON order_state_cache(owner);
+CREATE INDEX IF NOT EXISTS idx_mpc_processed_key ON mpc_processed_requests(request_key);
+CREATE INDEX IF NOT EXISTS idx_mpc_processed_created ON mpc_processed_requests(created_at);
 `;
 
 /**

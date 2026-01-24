@@ -23,6 +23,19 @@ import { DatabaseClient } from '../db/client.js';
 import { DatabaseManager } from '../db/index.js';
 import { DistributedLockService, LOCK_NAMES } from './distributed-lock.js';
 import { logger } from '../lib/logger.js';
+// RPC reliability components
+import { FailoverConnection, createFailoverConnectionFromEnv } from './failover-connection.js';
+import { BlockhashManager, createBlockhashManagerFromEnv } from './blockhash-manager.js';
+// Prometheus metrics
+import {
+  crankMatchAttemptsTotal,
+  crankMatchDuration,
+  crankOpenOrders,
+  crankPendingMatches,
+  crankConsecutiveErrors,
+  crankStatus,
+  walletBalance,
+} from '../routes/metrics.js';
 // V6 Async MPC services
 import { PositionVerifier } from './position-verifier.js';
 import { MarginProcessor } from './margin-processor.js';
@@ -72,9 +85,20 @@ export class CrankService {
   private isShuttingDown: boolean = false;
   private activeOperations: Set<Promise<unknown>> = new Set();
 
+  // RPC reliability components
+  private failoverConnection: FailoverConnection | null = null;
+  private blockhashManager: BlockhashManager | null = null;
+
   constructor(config?: CrankConfig) {
     this.config = config || loadCrankConfig();
-    this.connection = new Connection(this.config.rpcUrl, 'confirmed');
+
+    // Initialize FailoverConnection for RPC reliability
+    this.failoverConnection = createFailoverConnectionFromEnv();
+    this.connection = this.failoverConnection.getConnection();
+
+    // Initialize BlockhashManager for blockhash caching
+    this.blockhashManager = createBlockhashManagerFromEnv(this.connection);
+
     this.wallet = new CrankWallet(
       this.connection,
       this.config.walletPath,
@@ -146,6 +170,135 @@ export class CrankService {
     // Initialize distributed lock service
     this.lockService = new DistributedLockService(this.db.locks);
     log.info({ instanceId: this.lockService.getInstanceId() }, 'Lock service initialized');
+  }
+
+  /**
+   * Recover pending operations from a previous crash/restart
+   * This should be called after persistence is initialized but before normal polling starts
+   */
+  private async recoverPendingOperations(): Promise<void> {
+    if (!this.db) {
+      log.warn('Database not initialized, skipping recovery');
+      return;
+    }
+
+    log.info('Starting pending operations recovery');
+
+    try {
+      // Release any stale locks from previous instance
+      const staleLockTimeout = 300; // 5 minutes
+      const releasedLocks = this.db.pendingOps.releaseStaleLocks(staleLockTimeout);
+      if (releasedLocks > 0) {
+        log.info({ releasedLocks, timeoutSeconds: staleLockTimeout }, 'Released stale operation locks');
+      }
+
+      // Get counts before recovery
+      const statusCounts = this.db.pendingOps.getCountByStatus();
+      log.info({
+        pending: statusCounts.pending,
+        inProgress: statusCounts.in_progress,
+        completed: statusCounts.completed,
+        failed: statusCounts.failed,
+      }, 'Pending operations status before recovery');
+
+      // Find pending match operations
+      const pendingMatches = this.db.pendingOps.findReadyToProcess('match', 100);
+      if (pendingMatches.length > 0) {
+        log.info({ count: pendingMatches.length }, 'Found pending match operations to recover');
+
+        for (const op of pendingMatches) {
+          try {
+            // Parse the payload
+            const payload = JSON.parse(op.payload);
+            log.debug({
+              operationId: op.id,
+              buyOrderPda: payload.buyOrderPda?.slice(0, 8),
+              sellOrderPda: payload.sellOrderPda?.slice(0, 8),
+            }, 'Recovering match operation');
+
+            // Mark as in progress (will be picked up by normal polling if orders still valid)
+            // We don't re-execute immediately - let the normal poll cycle handle it
+            // This prevents duplicate execution attempts
+            this.db.pendingOps.markInProgress(op.id, this.lockService?.getInstanceId() || 'recovery');
+
+            // Note: The actual re-matching will happen in the next poll cycle
+            // if the orders are still valid and matchable
+          } catch (parseError) {
+            log.error({
+              operationId: op.id,
+              error: parseError instanceof Error ? parseError.message : String(parseError),
+            }, 'Failed to parse pending match operation');
+            this.db.pendingOps.markFailed(op.id, 'Invalid payload during recovery');
+          }
+        }
+      }
+
+      // Find pending settlement operations
+      const pendingSettlements = this.db.pendingOps.findReadyToProcess('settlement', 100);
+      if (pendingSettlements.length > 0) {
+        log.info({ count: pendingSettlements.length }, 'Found pending settlement operations to recover');
+
+        for (const op of pendingSettlements) {
+          try {
+            const payload = JSON.parse(op.payload);
+            log.debug({
+              operationId: op.id,
+              matchId: payload.matchId?.slice(0, 8),
+            }, 'Recovering settlement operation');
+
+            // Mark as in progress - settlement executor will pick these up
+            this.db.pendingOps.markInProgress(op.id, this.lockService?.getInstanceId() || 'recovery');
+          } catch (parseError) {
+            log.error({
+              operationId: op.id,
+              error: parseError instanceof Error ? parseError.message : String(parseError),
+            }, 'Failed to parse pending settlement operation');
+            this.db.pendingOps.markFailed(op.id, 'Invalid payload during recovery');
+          }
+        }
+      }
+
+      // Find pending MPC callback operations
+      const pendingCallbacks = this.db.pendingOps.findReadyToProcess('mpc_callback', 100);
+      if (pendingCallbacks.length > 0) {
+        log.info({ count: pendingCallbacks.length }, 'Found pending MPC callback operations to recover');
+
+        for (const op of pendingCallbacks) {
+          try {
+            // MPC callbacks are handled by the MPC poller - mark for reprocessing
+            this.db.pendingOps.markInProgress(op.id, this.lockService?.getInstanceId() || 'recovery');
+          } catch (err) {
+            log.error({
+              operationId: op.id,
+              error: err instanceof Error ? err.message : String(err),
+            }, 'Failed to recover MPC callback operation');
+            this.db.pendingOps.markFailed(op.id, 'Recovery failed');
+          }
+        }
+      }
+
+      // Run maintenance to clean up old completed/failed operations
+      const maintenance = this.db.runMaintenance();
+      log.info({
+        transactionsDeleted: maintenance.transactionsDeleted,
+        completedOpsDeleted: maintenance.completedOpsDeleted,
+        failedOpsDeleted: maintenance.failedOpsDeleted,
+        expiredLocksDeleted: maintenance.expiredLocksDeleted,
+        staleOrdersDeleted: maintenance.staleOrdersDeleted,
+        mpcRecordsDeleted: maintenance.mpcRecordsDeleted,
+      }, 'Database maintenance completed');
+
+      log.info({
+        matchesRecovered: pendingMatches.length,
+        settlementsRecovered: pendingSettlements.length,
+        callbacksRecovered: pendingCallbacks.length,
+      }, 'Pending operations recovery completed');
+    } catch (error) {
+      log.error({
+        error: error instanceof Error ? error.message : String(error),
+      }, 'Error during pending operations recovery');
+      // Don't throw - allow service to start even if recovery partially fails
+    }
   }
 
   /**
@@ -275,6 +428,19 @@ export class CrankService {
         log.warn({ warning }, 'Configuration warning');
       }
 
+      // Recover any pending operations from previous crash/restart
+      await this.recoverPendingOperations();
+
+      // Start RPC reliability components
+      if (this.failoverConnection) {
+        this.failoverConnection.startHealthChecks();
+        log.info('RPC failover health checks started');
+      }
+      if (this.blockhashManager) {
+        this.blockhashManager.start();
+        log.info('Blockhash manager started');
+      }
+
       // Load wallet
       await this.wallet.load();
       await this.wallet.logBalanceStatus();
@@ -291,7 +457,8 @@ export class CrankService {
         this.mpcPoller = new MpcPoller(
           this.connection,
           this.wallet.getKeypair(),
-          this.config
+          this.config,
+          this.db?.mpcProcessed // Pass database repository for persistence
         );
         this.mpcPoller.start();
         log.info('MPC result poller started');
@@ -358,6 +525,9 @@ export class CrankService {
       this.status = 'running';
       this.metrics.status = 'running';
       this.metrics.startedAt = Date.now();
+
+      // Record Prometheus metric for crank status (1 = running)
+      crankStatus.set(1);
 
       log.info({
         pollingIntervalMs: this.config.pollingIntervalMs,
@@ -426,9 +596,22 @@ export class CrankService {
       this.fundingSettlementProcessor = null;
     }
 
+    // Stop RPC reliability components
+    if (this.blockhashManager) {
+      this.blockhashManager.stop();
+      log.info('Blockhash manager stopped');
+    }
+    if (this.failoverConnection) {
+      this.failoverConnection.stopHealthChecks();
+      log.info('RPC failover health checks stopped');
+    }
+
     this.status = 'stopped';
     this.metrics.status = 'stopped';
     this.stateManager.clearAllLocks();
+
+    // Record Prometheus metric for crank status (0 = stopped)
+    crankStatus.set(0);
 
     log.info('Crank service stopped');
   }
@@ -452,6 +635,9 @@ export class CrankService {
     this.status = 'paused';
     this.metrics.status = 'paused';
 
+    // Record Prometheus metric for crank status (-1 = paused)
+    crankStatus.set(-1);
+
     log.info('Crank service paused');
   }
 
@@ -469,6 +655,10 @@ export class CrankService {
     this.metrics.status = 'running';
     this.consecutiveErrors = 0;
     this.circuitBreakerActive = false;
+
+    // Record Prometheus metrics
+    crankStatus.set(1); // 1 = running
+    crankConsecutiveErrors.set(0);
 
     this.schedulePoll();
 
@@ -506,6 +696,11 @@ export class CrankService {
       // Fetch open orders
       const orders = await this.orderMonitor.fetchAllOpenOrders();
       this.metrics.openOrderCount = orders.length;
+
+      // Record Prometheus metrics for open orders
+      const orderCounts = this.orderMonitor.getOrderCounts(orders);
+      crankOpenOrders.set({ side: 'buy' }, orderCounts.buy);
+      crankOpenOrders.set({ side: 'sell' }, orderCounts.sell);
 
       if (orders.length === 0) {
         log.debug('No open orders found');
@@ -567,15 +762,22 @@ export class CrankService {
         try {
           this.metrics.totalMatchAttempts++;
 
-          // Track operation for graceful shutdown
+          // Track operation for graceful shutdown and measure duration
+          const matchStartTime = Date.now();
           const matchOperation = this.matchExecutor!.executeMatch(candidate);
           const result = await this.trackOperation(matchOperation);
+          const matchDurationSec = (Date.now() - matchStartTime) / 1000;
+
+          // Record Prometheus metrics
+          crankMatchDuration.observe({ type: 'spot' }, matchDurationSec);
 
           if (result.success) {
             this.metrics.successfulMatches++;
+            crankMatchAttemptsTotal.inc({ status: 'success' });
             log.info({ signature: result.signature }, 'Match executed successfully');
           } else {
             this.metrics.failedMatches++;
+            crankMatchAttemptsTotal.inc({ status: 'failed' });
             log.warn({ error: result.error }, 'Match failed');
           }
 
@@ -591,6 +793,7 @@ export class CrankService {
 
       // Update pending matches count
       this.metrics.pendingMatches = this.stateManager.getPendingMatchCount();
+      crankPendingMatches.set(this.metrics.pendingMatches);
     } catch (error) {
       log.error({ error }, 'Poll error');
       this.incrementConsecutiveErrors(error);
@@ -611,6 +814,9 @@ export class CrankService {
   private incrementConsecutiveErrors(error?: unknown): void {
     this.consecutiveErrors++;
     this.metrics.consecutiveErrors = this.consecutiveErrors;
+
+    // Record Prometheus metric
+    crankConsecutiveErrors.set(this.consecutiveErrors);
 
     if (this.consecutiveErrors >= this.config.circuitBreaker.errorThreshold) {
       log.warn({ consecutiveErrors: this.consecutiveErrors }, 'Circuit breaker triggered');
@@ -661,6 +867,8 @@ export class CrankService {
     if (this.status === 'running' || this.status === 'paused') {
       try {
         this.metrics.walletBalance = await this.wallet.getBalance();
+        // Record Prometheus metric for wallet balance
+        walletBalance.set({ wallet: 'crank' }, this.metrics.walletBalance);
       } catch {
         // Ignore balance fetch errors
       }
@@ -702,6 +910,35 @@ export class CrankService {
     }
     return this.mpcPoller.skipAllPending();
   }
+
+  /**
+   * Get RPC health status including failover endpoints
+   */
+  getRpcHealth(): {
+    endpoints: Array<{
+      url: string;
+      isHealthy: boolean;
+      isCurrent: boolean;
+      consecutiveFailures: number;
+      latencyMs: number | null;
+    }>;
+    blockhash: {
+      cacheSize: number;
+      oldestAge: number | null;
+      newestAge: number | null;
+      currentSlot: number;
+      isRefreshing: boolean;
+    };
+  } | null {
+    if (!this.failoverConnection || !this.blockhashManager) {
+      return null;
+    }
+
+    return {
+      endpoints: this.failoverConnection.getEndpointStatus(),
+      blockhash: this.blockhashManager.getStats(),
+    };
+  }
 }
 
 // Export utilities
@@ -721,4 +958,7 @@ export { LiquidationChecker } from './liquidation-checker.js';
 export { ClosePositionProcessor } from './close-position-processor.js';
 // V7 Funding settlement processor
 export { FundingSettlementProcessor } from './funding-settlement-processor.js';
+// RPC reliability components
+export { FailoverConnection, createFailoverConnectionFromEnv } from './failover-connection.js';
+export { BlockhashManager, createBlockhashManagerFromEnv } from './blockhash-manager.js';
 export * from './types.js';
