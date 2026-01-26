@@ -126,10 +126,38 @@ export function usePositions(): UsePositionsReturn {
       // Filter to only open positions for the main positions array
       const openPositions = storePositions.filter(p => p.status === 'open');
 
-      log.debug('Open positions:', { count: openPositions.length });
+      log.debug('Open positions from chain:', { count: openPositions.length });
 
-      // Update store
-      setPositions(openPositions);
+      // Get current positions in store (to preserve recent local additions)
+      const currentPositions = usePerpetualStore.getState().positions;
+
+      // Build a set of on-chain position IDs
+      const onChainIds = new Set(openPositions.map(p => p.id));
+
+      // Keep local positions that:
+      // 1. Are not yet on-chain (recently added, might be confirming)
+      // 2. Were created within the last 60 seconds (to avoid keeping stale data)
+      const recentThreshold = Date.now() - 60000; // 60 seconds
+      const recentLocalPositions = currentPositions.filter(p => {
+        const isNotOnChain = !onChainIds.has(p.id);
+        const isRecent = p.createdAt.getTime() > recentThreshold;
+        return isNotOnChain && isRecent;
+      });
+
+      if (recentLocalPositions.length > 0) {
+        log.debug('Preserving recent local positions not yet on-chain:', {
+          count: recentLocalPositions.length,
+          ids: recentLocalPositions.map(p => p.id.slice(0, 8) + '...'),
+        });
+      }
+
+      // Merge: on-chain positions take precedence, then recent local ones
+      const mergedPositions = [...openPositions, ...recentLocalPositions];
+
+      log.debug('Total positions after merge:', { count: mergedPositions.length });
+
+      // Update store with merged positions
+      setPositions(mergedPositions);
 
       // Log details for debugging
       for (const pos of openPositions) {

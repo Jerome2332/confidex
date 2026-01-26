@@ -435,6 +435,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       const displayLiqPrice = estimateLiquidationPrice(positionSide, solPrice, leverage, maintenanceMarginBps);
 
       let txSignature: string | null = null;
+      let positionPdaStr: string | null = null;
 
       if (perpMarketReady) {
         // Real on-chain position opening
@@ -451,7 +452,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         const quoteMint = new PublicKey(tradingPair.quoteMint);
 
         // Build the open_position transaction (V3: two-instruction pattern - eligibility verified separately)
-        const transaction = await buildOpenPositionTransaction({
+        // Returns both transaction and the derived position PDA for store sync
+        const { transaction, positionPda } = await buildOpenPositionTransaction({
           connection,
           trader: publicKey,
           underlyingMint: NATIVE_MINT, // SOL for SOL-PERP
@@ -463,6 +465,9 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           positionNonce,
           collateralAmount: collateralMicros,  // Plaintext USDC for SPL transfer (C-SPL fallback)
         });
+
+        log.debug('Position PDA derived', { positionPda: positionPda.toString() });
+        positionPdaStr = positionPda.toString();
 
         // Add compute budget for MPC verification
         transaction.add(
@@ -535,6 +540,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           }
 
           log.info('Position opened on-chain', { signature: txSignature });
+          console.log('[Position] Transaction confirmed:', txSignature);
+          console.log('[Position] Position PDA:', positionPdaStr);
         } catch (txError) {
           // Log detailed error information
           const errorMessage = txError instanceof Error ? txError.message : String(txError);
@@ -570,10 +577,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       const encryptedCollateralPlaceholder = new Uint8Array(64);
       new DataView(encryptedCollateralPlaceholder.buffer).setBigUint64(0, collateralMicros, true);
 
-      const positionId = `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Use on-chain PDA when transaction succeeded, fallback to local ID for demo mode
+      const positionId = positionPdaStr || `pos_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const newPosition = {
         id: positionId,
-        positionId: positionId, // V2: Hash-based ID as hex string
+        positionId: positionId, // Use same ID - for on-chain positions this is the PDA
         market: SOL_PERP_MARKET_PDA, // Use actual market PDA
         marketSymbol: 'SOL-PERP',
         trader: publicKey,
@@ -624,34 +632,32 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       // Auto-switch to Positions tab so user can see their new position
       setBottomTab('positions');
 
-      if (notifications) {
-        const statusText = txSignature ? '' : perpMarketReady ? ' (local)' : ' (demo)';
-        toast.success(
-          `${leverage}x ${positionSide.toUpperCase()} position opened${statusText}`,
-          {
-            id: 'position-open',
-            duration: 5000,
-            description: txSignature ? (
-              <div className="flex flex-col gap-1">
-                <span>Size: {amount} SOL @ ${solPrice.toFixed(2)}</span>
-                <span>Est. Liq: ${displayLiqPrice.toFixed(2)}</span>
-                <a
-                  href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline text-primary hover:text-primary/80"
-                >
-                  View on Explorer
-                </a>
-              </div>
-            ) : (
-              `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${displayLiqPrice.toFixed(2)}`
-            ),
-          }
-        );
-      } else {
-        toast.dismiss('position-open');
-      }
+      // Always show success toast for position opens - this is an important user action
+      // The notifications setting controls less critical notifications, not transaction confirmations
+      const statusText = txSignature ? '' : perpMarketReady ? ' (local)' : ' (demo)';
+      toast.success(
+        `${leverage}x ${positionSide.toUpperCase()} position opened${statusText}`,
+        {
+          id: 'position-open',
+          duration: 5000,
+          description: txSignature ? (
+            <div className="flex flex-col gap-1">
+              <span>Size: {amount} SOL @ ${solPrice.toFixed(2)}</span>
+              <span>Est. Liq: ${displayLiqPrice.toFixed(2)}</span>
+              <a
+                href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline text-primary hover:text-primary/80"
+              >
+                View on Explorer
+              </a>
+            </div>
+          ) : (
+            `Size: ${amount} SOL @ $${solPrice.toFixed(2)} | Liq: $${displayLiqPrice.toFixed(2)}`
+          ),
+        }
+      );
 
       // Reset form
       setAmount('');

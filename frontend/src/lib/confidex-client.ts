@@ -1281,7 +1281,7 @@ export async function fetchPerpMarketData(
  */
 export async function buildOpenPositionTransaction(
   params: OpenPositionParams
-): Promise<Transaction> {
+): Promise<{ transaction: Transaction; positionPda: PublicKey }> {
   const {
     connection,
     trader,
@@ -1434,7 +1434,7 @@ export async function buildOpenPositionTransaction(
 
   log.debug('Open position transaction built (V3)', { accounts: 12 });
 
-  return transaction;
+  return { transaction, positionPda };
 }
 
 export interface AutoWrapAndPlaceOrderParams {
