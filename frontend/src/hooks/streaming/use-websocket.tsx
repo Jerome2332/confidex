@@ -6,7 +6,7 @@
 
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import type {
   ConnectionState,
@@ -56,7 +56,20 @@ function getWebSocketUrl(): string {
  * ```
  */
 export function useWebSocket(options: UseWebSocketOptions = {}) {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  // Memoize options to prevent infinite re-renders
+  const opts = useMemo(
+    () => ({
+      ...DEFAULT_OPTIONS,
+      ...options,
+    }),
+    [options.autoConnect, options.maxReconnectAttempts, options.reconnectDelayMs]
+  );
+
+  // Store onStatusChange in a ref to avoid dependency issues
+  const onStatusChangeRef = useRef(options.onStatusChange);
+  useEffect(() => {
+    onStatusChangeRef.current = options.onStatusChange;
+  }, [options.onStatusChange]);
 
   const [connectionState, setConnectionState] = useState<ConnectionState>({
     status: 'disconnected',
@@ -67,22 +80,30 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const subscriptionsRef = useRef<Set<string>>(new Set());
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Update status with callback
-  const updateStatus = useCallback(
-    (status: ConnectionStatus, error?: string) => {
-      setConnectionState((prev) => ({
-        ...prev,
-        status,
-        error,
-        lastConnected: status === 'connected' ? new Date() : prev.lastConnected,
-        reconnectAttempts: status === 'connected' ? 0 : prev.reconnectAttempts,
-      }));
-      opts.onStatusChange(status);
-    },
-    [opts]
-  );
+  // Store options in refs to break circular dependencies
+  const maxReconnectAttemptsRef = useRef(opts.maxReconnectAttempts);
+  const reconnectDelayMsRef = useRef(opts.reconnectDelayMs);
+  useEffect(() => {
+    maxReconnectAttemptsRef.current = opts.maxReconnectAttempts;
+    reconnectDelayMsRef.current = opts.reconnectDelayMs;
+  }, [opts.maxReconnectAttempts, opts.reconnectDelayMs]);
 
-  // Connect to WebSocket server
+  // Update status with callback - stable, no dependencies
+  const updateStatus = useCallback((status: ConnectionStatus, error?: string) => {
+    setConnectionState((prev) => ({
+      ...prev,
+      status,
+      error,
+      lastConnected: status === 'connected' ? new Date() : prev.lastConnected,
+      reconnectAttempts: status === 'connected' ? 0 : prev.reconnectAttempts,
+    }));
+    onStatusChangeRef.current?.(status);
+  }, []);
+
+  // Use a ref to hold attemptReconnect to break circular dependency
+  const attemptReconnectRef = useRef<() => void>(() => {});
+
+  // Connect to WebSocket server - stable reference using refs
   const connect = useCallback(() => {
     if (socketRef.current?.connected) return;
 
@@ -114,28 +135,28 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         return;
       }
 
-      attemptReconnect();
+      attemptReconnectRef.current();
     });
 
     socket.on('connect_error', (error) => {
       updateStatus('error', error.message);
-      attemptReconnect();
+      attemptReconnectRef.current();
     });
 
     socketRef.current = socket;
   }, [updateStatus]);
 
-  // Attempt reconnection with exponential backoff
+  // Attempt reconnection with exponential backoff - uses refs to avoid circular deps
   const attemptReconnect = useCallback(() => {
     setConnectionState((prev) => {
       const attempts = prev.reconnectAttempts + 1;
 
-      if (attempts > opts.maxReconnectAttempts) {
+      if (attempts > maxReconnectAttemptsRef.current) {
         return { ...prev, status: 'error', error: 'Max reconnection attempts reached' };
       }
 
       // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-      const delay = opts.reconnectDelayMs * Math.pow(2, attempts - 1);
+      const delay = reconnectDelayMsRef.current * Math.pow(2, attempts - 1);
 
       reconnectTimeoutRef.current = setTimeout(() => {
         connect();
@@ -143,7 +164,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
       return { ...prev, reconnectAttempts: attempts };
     });
-  }, [connect, opts.maxReconnectAttempts, opts.reconnectDelayMs]);
+  }, [connect]);
+
+  // Keep the ref updated
+  useEffect(() => {
+    attemptReconnectRef.current = attemptReconnect;
+  }, [attemptReconnect]);
 
   // Disconnect from WebSocket server
   const disconnect = useCallback(() => {
@@ -196,16 +222,27 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     };
   }, []);
 
-  // Auto-connect on mount
+  // Store connect/disconnect in refs for stable effect
+  const connectRef = useRef(connect);
+  const disconnectRef = useRef(disconnect);
   useEffect(() => {
-    if (opts.autoConnect) {
-      connect();
+    connectRef.current = connect;
+    disconnectRef.current = disconnect;
+  }, [connect, disconnect]);
+
+  // Capture autoConnect at mount time to prevent re-runs
+  const autoConnectRef = useRef(opts.autoConnect);
+
+  // Auto-connect on mount - runs exactly once
+  useEffect(() => {
+    if (autoConnectRef.current) {
+      connectRef.current();
     }
 
     return () => {
-      disconnect();
+      disconnectRef.current();
     };
-  }, [opts.autoConnect, connect, disconnect]);
+  }, []);
 
   return {
     // Connection state

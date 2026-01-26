@@ -72,10 +72,10 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
         throw new Error('Order not found');
       }
 
-      // Check if we have the on-chain order ID
-      if (order.onChainOrderId === undefined) {
-        // Fallback for orders placed before we tracked onChainOrderId
-        log.warn('Order missing onChainOrderId, using local removal only', { orderId });
+      // Check if we have the order nonce for PDA derivation
+      if (order.orderNonce === undefined) {
+        // Fallback for orders placed before we tracked orderNonce
+        log.warn('Order missing orderNonce, using local removal only', { orderId });
         removeOrder(orderId);
         if (notifications) {
           toast.success('Order removed from local state');
@@ -93,15 +93,19 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
 
       log.info('Cancelling order on-chain', {
         orderId,
-        onChainOrderId: order.onChainOrderId.toString(),
+        orderNonce: order.orderNonce?.toString(),
         pair: order.pair,
       });
+
+      if (!order.orderNonce) {
+        throw new Error('Order nonce not available - cannot cancel order');
+      }
 
       // Build the cancel transaction
       const transaction = await buildCancelOrderTransaction({
         connection,
         maker: publicKey,
-        orderId: order.onChainOrderId,
+        orderId: order.orderNonce,
         baseMint,
         quoteMint,
       });

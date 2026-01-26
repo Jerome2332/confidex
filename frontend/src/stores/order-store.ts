@@ -8,7 +8,7 @@ export type ProofStatus = 'idle' | 'generating' | 'ready' | 'failed';
 
 export interface Order {
   id: string;
-  onChainOrderId?: bigint; // The on-chain order ID from exchange.order_count
+  orderNonce?: bigint; // The order nonce (from order_count) used to derive the order PDA - needed for cancel
   maker: PublicKey;
   pair: string;
   baseMint?: string; // Base token mint address

@@ -67,14 +67,26 @@ const ORDER_PLACED_EVENT_DISCRIMINATOR = 'OrderPlaced';
 
 /**
  * Parse OrderPlaced event from transaction logs
- * Returns the order_id if found, null otherwise
+ * Returns the order_id as a hex string if found, null otherwise
+ *
+ * The Rust program outputs: "Order placed: [byte1, byte2, ...] (side: Buy/Sell)"
+ * where the order_id is a 16-byte array in debug format
  */
-export function parseOrderPlacedEvent(logs: string[]): bigint | null {
-  // Look for the order placed log message: "Order placed: <id> (side: ...)"
+export function parseOrderPlacedEvent(logs: string[]): string | null {
   for (const logLine of logs) {
-    const match = logLine.match(/Order placed: (\d+)/);
+    // Match the Rust debug format: "Order placed: [0, 1, 2, ...] (side: ...)"
+    const match = logLine.match(/Order placed: \[([^\]]+)\]/);
     if (match) {
-      return BigInt(match[1]);
+      try {
+        // Parse the comma-separated byte values
+        const bytes = match[1].split(',').map((b) => parseInt(b.trim(), 10));
+        if (bytes.length === 16 && bytes.every((b) => !isNaN(b) && b >= 0 && b <= 255)) {
+          // Convert to hex string for display/storage
+          return bytes.map((b) => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch {
+        // Continue searching if parsing fails
+      }
     }
   }
   return null;
@@ -291,11 +303,20 @@ export async function isPairInitialized(
 }
 
 /**
+ * Result from building a place order transaction
+ */
+export interface PlaceOrderResult {
+  transaction: Transaction;
+  /** The order nonce (from order_count) used to derive the order PDA - needed for cancel operations */
+  orderNonce: bigint;
+}
+
+/**
  * Build place_order transaction
  */
 export async function buildPlaceOrderTransaction(
   params: PlaceOrderParams
-): Promise<Transaction> {
+): Promise<PlaceOrderResult> {
   const {
     connection,
     maker,
@@ -378,7 +399,7 @@ export async function buildPlaceOrderTransaction(
 
   log.debug('Transaction built successfully');
 
-  return transaction;
+  return { transaction, orderNonce: orderCount };
 }
 
 /**
@@ -1410,7 +1431,7 @@ export interface AutoWrapAndPlaceOrderParams {
  */
 export async function buildAutoWrapAndPlaceOrderTransaction(
   params: AutoWrapAndPlaceOrderParams
-): Promise<Transaction> {
+): Promise<PlaceOrderResult> {
   const {
     connection,
     maker,
@@ -1516,7 +1537,7 @@ export async function buildAutoWrapAndPlaceOrderTransaction(
   const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
   console.log('  Estimated size:', serialized.length, 'bytes (max 1232)');
 
-  return transaction;
+  return { transaction, orderNonce: orderCount };
 }
 
 // ============================================

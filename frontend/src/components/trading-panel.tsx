@@ -22,7 +22,6 @@ import {
   isExchangeInitialized,
   isPairInitialized,
   isPerpMarketInitialized,
-  parseOrderPlacedEvent,
   Side as ProgramSide,
   OrderType as ProgramOrderType,
   PositionSide as ProgramPositionSide,
@@ -743,6 +742,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       });
 
       let transaction;
+      let orderNonce: bigint;
 
       if (shouldWrap) {
         toast.info('Wrapping tokens & placing order...', { id: 'tx-build' });
@@ -752,7 +752,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
         console.log('[Trading] Building auto-wrap transaction for', side === 'sell' ? 'SOL' : 'USDC');
 
-        transaction = await buildAutoWrapAndPlaceOrderTransaction({
+        const result = await buildAutoWrapAndPlaceOrderTransaction({
           connection,
           maker: publicKey,
           baseMint,
@@ -766,10 +766,12 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           wrapTokenMint,
           wrapAmount: currentWrapReqs.wrapNeeded,
         });
+        transaction = result.transaction;
+        orderNonce = result.orderNonce;
       } else {
         toast.info('Building transaction...', { id: 'tx-build' });
         console.log('[Trading] Building place-order-only transaction (no wrap needed)');
-        transaction = await buildPlaceOrderTransaction({
+        const result = await buildPlaceOrderTransaction({
           connection,
           maker: publicKey,
           baseMint,
@@ -781,7 +783,11 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           eligibilityProof: proofResult.proof,
           ephemeralPubkey,
         });
+        transaction = result.transaction;
+        orderNonce = result.orderNonce;
       }
+
+      console.log('[Trading] Order nonce for PDA:', orderNonce.toString());
 
       // Add compute budget instructions for ZK proof verification
       // Groth16 verification requires ~500K compute units
@@ -844,25 +850,12 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       // Order placed - now waiting for MPC matching
       setOrderStep('mpc-queued');
 
-      // Fetch transaction to get logs and parse the on-chain order ID
-      let onChainOrderId: bigint | undefined;
-      try {
-        const txDetails = await connection.getTransaction(signature, {
-          commitment: 'confirmed',
-          maxSupportedTransactionVersion: 0,
-        });
-        if (txDetails?.meta?.logMessages) {
-          onChainOrderId = parseOrderPlacedEvent(txDetails.meta.logMessages) ?? undefined;
-          log.info('Parsed on-chain order ID', { onChainOrderId: onChainOrderId?.toString() });
-        }
-      } catch (parseError) {
-        log.warn('Could not parse order ID from logs', { error: parseError });
-      }
+      log.info('Order placed successfully', { orderNonce: orderNonce.toString() });
 
       const orderId = Date.now();
       addOrder({
         id: orderId.toString(),
-        onChainOrderId, // The actual on-chain order ID for cancel operations
+        orderNonce, // The nonce used to derive the order PDA - needed for cancel operations
         maker: publicKey,
         pair: 'SOL/USDC',
         baseMint: baseMint.toString(),

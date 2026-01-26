@@ -333,7 +333,7 @@ export class ArciumClient {
       return new Uint8Array(accountInfo.data.slice(95, 127));
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      log.debug({ error: errMsg, mxeAddress: this.mxeAddress.toBase58() }, 'Failed to fetch MXE public key');
+      log.debug({ error: errMsg, mxeProgramId: this.mxeProgramId.toBase58() }, 'Failed to fetch MXE public key');
       return null;
     }
   }
