@@ -122,7 +122,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     const socket = io(wsUrl, {
       path: '/ws',
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'], // Server only accepts websocket, not polling
       reconnection: false, // We handle reconnection manually
       timeout: 10000,
       secure: isSecure,
