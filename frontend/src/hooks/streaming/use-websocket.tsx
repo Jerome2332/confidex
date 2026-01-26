@@ -135,10 +135,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     const socket = io(wsUrl, {
       path: '/ws',
-      transports: ['websocket'], // Server only accepts websocket, not polling
+      // Use polling first for Render.com compatibility (no sticky sessions)
+      // Socket.IO will upgrade to websocket after handshake
+      transports: ['polling', 'websocket'],
       reconnection: false, // We handle reconnection manually
       timeout: 10000,
       secure: isSecure,
+      // Render may need longer timeouts for cold starts
+      upgrade: true,
+      rememberUpgrade: true,
     });
 
     socket.on('connect', () => {

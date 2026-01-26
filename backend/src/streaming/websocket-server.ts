@@ -57,8 +57,9 @@ export class WebSocketServer {
         methods: ['GET', 'POST'],
         credentials: true,
       },
-      // Disable HTTP long-polling, WebSocket only for better performance
-      transports: ['websocket'],
+      // Enable both polling and websocket for Render.com compatibility
+      // Render lacks sticky sessions, so Socket.IO needs polling for initial handshake
+      transports: ['polling', 'websocket'],
     });
   }
 
