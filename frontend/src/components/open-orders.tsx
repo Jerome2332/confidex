@@ -142,11 +142,33 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
             err: simulation.value.err,
             logs: simulation.value.logs,
           });
-          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.join('\n')}`);
+
+          // Check for OrderNotOpen error (6007) - order already cancelled/filled
+          const logsStr = simulation.value.logs?.join('\n') || '';
+          if (logsStr.includes('OrderNotOpen') || logsStr.includes('6007')) {
+            log.info('Order already closed on-chain, removing from local state', { orderId });
+            removeOrder(orderId);
+            if (notifications) {
+              toast.info('Order already closed');
+            }
+            return;
+          }
+
+          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\nLogs: ${logsStr}`);
         }
         log.debug('Simulation succeeded', { logs: simulation.value.logs });
       } catch (simError) {
-        log.error('Simulation error', { error: simError instanceof Error ? simError.message : String(simError) });
+        // Re-check for OrderNotOpen in case it's in the error message
+        const errMsg = simError instanceof Error ? simError.message : String(simError);
+        if (errMsg.includes('OrderNotOpen') || errMsg.includes('6007')) {
+          log.info('Order already closed on-chain, removing from local state', { orderId });
+          removeOrder(orderId);
+          if (notifications) {
+            toast.info('Order already closed');
+          }
+          return;
+        }
+        log.error('Simulation error', { error: errMsg });
         throw simError;
       }
 

@@ -336,7 +336,11 @@ export function useUserOrders(refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS) {
             if (storeOrder.orderNonce !== undefined) {
               // Check if the order exists at all (might be filled/cancelled)
               const onChainOrder = parsedOrders.find(o => o.pubkey.toBase58() === storeOrder.id);
-              if (onChainOrder && onChainOrder.status !== OnChainOrderStatus.Active) {
+              // Remove if order exists on-chain but is no longer Active/Matching
+              const isInactiveOnChain = onChainOrder &&
+                onChainOrder.status !== OnChainOrderStatus.Active &&
+                onChainOrder.status !== OnChainOrderStatus.Matching;
+              if (isInactiveOnChain) {
                 removeOrder(storeOrder.id);
                 syncedOrdersRef.current.delete(storeOrder.id);
                 log.debug('Removed completed order from store', {
