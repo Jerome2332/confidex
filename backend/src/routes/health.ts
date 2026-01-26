@@ -17,6 +17,7 @@ import { getEmptyTreeRoot } from '../lib/blacklist.js';
 import { logger } from '../lib/logger.js';
 import { walletBalance } from './metrics.js';
 import { rateLimiters } from '../middleware/rate-limit.js';
+import { getWebSocketStats } from '../index.js';
 import fs from 'fs';
 
 const log = logger.health;
@@ -434,4 +435,32 @@ healthRouter.get('/detailed', async (_req: Request, res: Response) => {
       error: error instanceof Error ? error.message : 'Health check failed',
     });
   }
+});
+
+/**
+ * GET /health/ws
+ *
+ * WebSocket server health check - useful for debugging connectivity
+ */
+healthRouter.get('/ws', (_req: Request, res: Response) => {
+  const wsStats = getWebSocketStats();
+  const wsPath = process.env.WS_PATH || '/ws';
+  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+  const frontendUrl = process.env.FRONTEND_URL;
+
+  res.json({
+    status: wsStats ? 'enabled' : 'disabled',
+    timestamp: new Date().toISOString(),
+    config: {
+      path: wsPath,
+      allowedOrigins,
+      frontendUrl,
+      streamingEnabled: process.env.STREAMING_ENABLED === 'true',
+    },
+    stats: wsStats,
+    debug: {
+      message: 'If connections are failing, check that the frontend NEXT_PUBLIC_API_URL matches this server URL',
+      expectedOrigins: allowedOrigins,
+    },
+  });
 });
