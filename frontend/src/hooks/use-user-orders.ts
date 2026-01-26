@@ -329,27 +329,35 @@ export function useUserOrders(refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS) {
 
         // Remove orders from store that are no longer active on-chain
         const activeOrderIds = new Set(activeOrders.map(o => o.pubkey.toBase58()));
+        const allOnChainOrderIds = new Set(parsedOrders.map(o => o.pubkey.toBase58()));
+
         for (const storeOrder of openOrders) {
-          if (!activeOrderIds.has(storeOrder.id)) {
-            // Order is in store but not active on-chain - might be filled/cancelled
-            // Only remove if we're sure it came from on-chain (has orderNonce)
-            if (storeOrder.orderNonce !== undefined) {
-              // Check if the order exists at all (might be filled/cancelled)
-              const onChainOrder = parsedOrders.find(o => o.pubkey.toBase58() === storeOrder.id);
-              // Remove if order exists on-chain but is no longer Active/Matching
-              const isInactiveOnChain = onChainOrder &&
-                onChainOrder.status !== OnChainOrderStatus.Active &&
-                onChainOrder.status !== OnChainOrderStatus.Matching;
-              if (isInactiveOnChain) {
-                removeOrder(storeOrder.id);
-                syncedOrdersRef.current.delete(storeOrder.id);
-                log.debug('Removed completed order from store', {
-                  orderId: storeOrder.id,
-                  status: OnChainOrderStatus[onChainOrder.status],
-                });
-              }
-            }
+          const orderId = storeOrder.id;
+
+          // Skip if order is still active
+          if (activeOrderIds.has(orderId)) {
+            continue;
           }
+
+          // Check what happened to this order
+          const onChainOrder = parsedOrders.find(o => o.pubkey.toBase58() === orderId);
+
+          if (onChainOrder) {
+            // Order exists on-chain but is no longer Active/Matching - it's completed
+            log.info('Removing completed order from store', {
+              orderId,
+              status: OnChainOrderStatus[onChainOrder.status],
+            });
+            removeOrder(orderId);
+            syncedOrdersRef.current.delete(orderId);
+          } else if (storeOrder.orderNonce !== undefined) {
+            // Order has nonce but doesn't exist on-chain at all - might be closed account
+            // Only remove if we have the nonce (meaning it was a real on-chain order)
+            log.info('Removing order from store - not found on-chain', { orderId });
+            removeOrder(orderId);
+            syncedOrdersRef.current.delete(orderId);
+          }
+          // Orders without orderNonce are local-only (optimistic UI) - keep them
         }
       }
     } catch (err) {
