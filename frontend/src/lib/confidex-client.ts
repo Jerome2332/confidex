@@ -583,8 +583,12 @@ export async function fetchTradingPair(
       return null;
     }
 
-    const pair = parseTradingPair(accountInfo.data);
-    log.debug('[ConfidexClient] Fetched trading pair:', { toString: pairPda.toString() });
+    // Ensure data is a proper Buffer (web3.js may return Buffer or Uint8Array)
+    const dataBuffer = Buffer.from(accountInfo.data);
+    const pair = parseTradingPair(dataBuffer);
+    console.log('[fetchTradingPair] Fetched pair PDA:', pairPda.toString());
+    console.log('[fetchTradingPair] Parsed baseMint:', pair.baseMint.toString());
+    console.log('[fetchTradingPair] Parsed quoteMint:', pair.quoteMint.toString());
     return pair;
   } catch (error) {
     log.error('Error fetching trading pair', { error: error instanceof Error ? error.message : String(error) });
@@ -596,11 +600,27 @@ export async function fetchTradingPair(
  * Get the correct vault address for a token mint in a trading pair
  */
 export function getVaultForMint(pair: TradingPair, mint: PublicKey): PublicKey | null {
-  if (mint.equals(pair.baseMint)) {
+  // Console.log for production debugging
+  console.log('[getVaultForMint] Checking mint:', mint.toString());
+  console.log('[getVaultForMint] Pair baseMint:', pair.baseMint.toString());
+  console.log('[getVaultForMint] Pair quoteMint:', pair.quoteMint.toString());
+
+  const baseMatch = mint.equals(pair.baseMint);
+  const quoteMatch = mint.equals(pair.quoteMint);
+  console.log('[getVaultForMint] baseMatch:', baseMatch, 'quoteMatch:', quoteMatch);
+
+  if (baseMatch) {
+    console.log('[getVaultForMint] Matched baseMint, returning cBaseVault');
     return pair.cBaseVault;
-  } else if (mint.equals(pair.quoteMint)) {
+  } else if (quoteMatch) {
+    console.log('[getVaultForMint] Matched quoteMint, returning cQuoteVault');
     return pair.cQuoteVault;
   }
+  console.error('[getVaultForMint] No match found!', {
+    mint: mint.toString(),
+    baseMint: pair.baseMint.toString(),
+    quoteMint: pair.quoteMint.toString(),
+  });
   return null;
 }
 
@@ -628,8 +648,12 @@ export async function buildWrapInstructions(
   const { connection, user, baseMint, quoteMint, tokenMint, amount } = params;
 
   log.debug('Building wrap instructions...');
-  log.debug('  Token mint:', { toString: tokenMint.toString() });
-  log.debug('  Amount:', { toString: amount.toString() });
+  console.log('[WrapInstructions] Building with params:', {
+    baseMint: baseMint.toString(),
+    quoteMint: quoteMint.toString(),
+    tokenMint: tokenMint.toString(),
+    amount: amount.toString(),
+  });
 
   // Fetch trading pair to get vault addresses
   const pair = await fetchTradingPair(connection, baseMint, quoteMint);
@@ -637,9 +661,19 @@ export async function buildWrapInstructions(
     throw new Error('Trading pair not found');
   }
 
+  console.log('[WrapInstructions] Fetched on-chain pair:', {
+    baseMint: pair.baseMint.toString(),
+    quoteMint: pair.quoteMint.toString(),
+  });
+
   // Get the correct vault for this token
   const vault = getVaultForMint(pair, tokenMint);
   if (!vault) {
+    console.error('[WrapInstructions] Token mint mismatch!', {
+      tokenMint: tokenMint.toString(),
+      pairBaseMint: pair.baseMint.toString(),
+      pairQuoteMint: pair.quoteMint.toString(),
+    });
     throw new Error('Token mint is not part of this trading pair');
   }
 

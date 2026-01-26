@@ -750,7 +750,13 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           ? NATIVE_MINT
           : new PublicKey(TRADING_PAIRS[0].quoteMint);
 
-        console.log('[Trading] Building auto-wrap transaction for', side === 'sell' ? 'SOL' : 'USDC');
+        console.log('[Trading] Building auto-wrap transaction:', {
+          side: side === 'sell' ? 'sell (SOL)' : 'buy (USDC)',
+          wrapTokenMint: wrapTokenMint.toString(),
+          baseMint: baseMint.toString(),
+          quoteMint: quoteMint.toString(),
+          TRADING_PAIRS_quoteMint: TRADING_PAIRS[0].quoteMint,
+        });
 
         const result = await buildAutoWrapAndPlaceOrderTransaction({
           connection,
