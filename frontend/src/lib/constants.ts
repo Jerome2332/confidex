@@ -1,10 +1,14 @@
 import { PublicKey } from '@solana/web3.js';
 
 // Program IDs (devnet)
-export const CONFIDEX_PROGRAM_ID = new PublicKey(
-  process.env.NEXT_PUBLIC_PROGRAM_ID ||
-    '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB'
-);
+const rawProgramId = process.env.NEXT_PUBLIC_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB';
+export const CONFIDEX_PROGRAM_ID = new PublicKey(rawProgramId);
+
+// Debug: Log the Program ID being used (helps diagnose env var issues)
+if (typeof window !== 'undefined') {
+  console.log('[Constants] CONFIDEX_PROGRAM_ID:', rawProgramId);
+  console.log('[Constants] NEXT_PUBLIC_PROGRAM_ID env:', process.env.NEXT_PUBLIC_PROGRAM_ID);
+}
 
 export const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||

@@ -129,10 +129,12 @@ export function derivePairPda(
   baseMint: PublicKey,
   quoteMint: PublicKey
 ): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
+  const [pda, bump] = PublicKey.findProgramAddressSync(
     [PAIR_SEED, baseMint.toBuffer(), quoteMint.toBuffer()],
     CONFIDEX_PROGRAM_ID
   );
+  console.log('[derivePairPda] Derived PDA:', pda.toString(), 'using program:', CONFIDEX_PROGRAM_ID.toString());
+  return [pda, bump];
 }
 
 /**
