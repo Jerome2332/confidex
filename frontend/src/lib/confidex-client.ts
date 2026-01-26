@@ -1975,6 +1975,8 @@ export async function buildCancelOrderTransaction(
   log.debug('Building cancel order transaction', {
     maker: maker.toBase58(),
     orderId: orderId.toString(),
+    baseMint: baseMint.toBase58(),
+    quoteMint: quoteMint.toBase58(),
   });
 
   // Derive PDAs
@@ -1982,18 +1984,33 @@ export async function buildCancelOrderTransaction(
   const [pairPda] = derivePairPda(baseMint, quoteMint);
   const [orderPda] = deriveOrderPda(maker, orderId);
 
+  // User balance PDAs - required for refund on cancel
+  const [userBaseBalancePda] = deriveUserBalancePda(maker, baseMint);
+  const [userQuoteBalancePda] = deriveUserBalancePda(maker, quoteMint);
+
   log.debug('Cancel order PDAs', {
     exchange: exchangePda.toBase58(),
     pair: pairPda.toBase58(),
     order: orderPda.toBase58(),
+    userBaseBalance: userBaseBalancePda.toBase58(),
+    userQuoteBalance: userQuoteBalancePda.toBase58(),
   });
 
-  // Build cancel instruction (no additional data needed beyond discriminator)
+  // Build cancel instruction
+  // Account order must match CancelOrder struct in cancel_order.rs:
+  // 1. exchange (read)
+  // 2. pair (write)
+  // 3. order (write)
+  // 4. user_base_balance (write) - for sell order refunds
+  // 5. user_quote_balance (write) - for buy order refunds
+  // 6. maker (signer)
   const instruction = new TransactionInstruction({
     keys: [
       { pubkey: exchangePda, isSigner: false, isWritable: false },
       { pubkey: pairPda, isSigner: false, isWritable: true },
       { pubkey: orderPda, isSigner: false, isWritable: true },
+      { pubkey: userBaseBalancePda, isSigner: false, isWritable: true },
+      { pubkey: userQuoteBalancePda, isSigner: false, isWritable: true },
       { pubkey: maker, isSigner: true, isWritable: false },
     ],
     programId: CONFIDEX_PROGRAM_ID,

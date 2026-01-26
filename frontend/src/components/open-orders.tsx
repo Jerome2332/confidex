@@ -110,6 +110,14 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
         throw new Error('Order nonce not available - cannot cancel order');
       }
 
+      log.debug('Building cancel transaction', {
+        orderId: order.id,
+        orderNonce: order.orderNonce.toString(),
+        maker: publicKey.toBase58(),
+        baseMint: baseMint.toBase58(),
+        quoteMint: quoteMint.toBase58(),
+      });
+
       // Build the cancel transaction
       const transaction = await buildCancelOrderTransaction({
         connection,
@@ -118,6 +126,23 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
         baseMint,
         quoteMint,
       });
+
+      // Simulate first to get better error messages
+      log.debug('Simulating cancel transaction...');
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        if (simulation.value.err) {
+          log.error('Transaction simulation failed', {
+            err: simulation.value.err,
+            logs: simulation.value.logs,
+          });
+          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.join('\n')}`);
+        }
+        log.debug('Simulation succeeded', { logs: simulation.value.logs });
+      } catch (simError) {
+        log.error('Simulation error', { error: simError instanceof Error ? simError.message : String(simError) });
+        throw simError;
+      }
 
       // Send and confirm the transaction
       const signature = await sendTransaction(transaction, connection);
