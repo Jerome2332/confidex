@@ -4,10 +4,11 @@ import { FC, useState } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useConnection } from '@solana/wallet-adapter-react';
 import { PublicKey } from '@solana/web3.js';
-import { Lock, X, SpinnerGap } from '@phosphor-icons/react';
+import { Lock, X, SpinnerGap, ArrowsClockwise } from '@phosphor-icons/react';
 import { toast } from 'sonner';
 import { useOrderStore } from '@/stores/order-store';
 import { useSettingsStore } from '@/stores/settings-store';
+import { useUserOrders } from '@/hooks/use-user-orders';
 import { buildCancelOrderTransaction } from '@/lib/confidex-client';
 import { TRADING_PAIRS } from '@/lib/constants';
 import { createLogger } from '@/lib/logger';
@@ -43,6 +44,14 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const { openOrders, removeOrder } = useOrderStore();
   const { notifications } = useSettingsStore();
+
+  // Fetch orders from on-chain (syncs with order store)
+  const {
+    isLoading: isLoadingOnChain,
+    error: onChainError,
+    refresh: refreshOnChain,
+    lastUpdate,
+  } = useUserOrders();
 
   // Convert store orders to display format
   const orders: OpenOrder[] = openOrders.map(order => ({
@@ -157,10 +166,37 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
   if (isTable) {
     return (
       <div className="p-4">
-        {/* MPC Status Banner */}
-        <MpcStatus variant="compact" className="mb-3" />
+        {/* Header with refresh */}
+        <div className="flex items-center justify-between mb-3">
+          <MpcStatus variant="compact" />
+          <div className="flex items-center gap-2">
+            {lastUpdate && (
+              <span className="text-[10px] text-muted-foreground">
+                Updated {lastUpdate.toLocaleTimeString()}
+              </span>
+            )}
+            <button
+              onClick={refreshOnChain}
+              disabled={isLoadingOnChain}
+              className="p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              title="Refresh orders"
+            >
+              <ArrowsClockwise size={14} className={isLoadingOnChain ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
 
-        {orders.length === 0 ? (
+        {onChainError && (
+          <div className="mb-2 text-xs text-amber-400/80 bg-amber-500/10 px-2 py-1 rounded">
+            {onChainError}
+          </div>
+        )}
+
+        {isLoadingOnChain && orders.length === 0 ? (
+          <div className="flex items-center justify-center py-8">
+            <SpinnerGap size={24} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : orders.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
             No open orders
           </p>
@@ -238,7 +274,17 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
   return (
     <div className="bg-card border border-border rounded-lg p-4">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Open Orders</h3>
+        <h3 className="font-semibold flex items-center gap-2">
+          Open Orders
+          <button
+            onClick={refreshOnChain}
+            disabled={isLoadingOnChain}
+            className="p-1 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            title="Refresh orders"
+          >
+            <ArrowsClockwise size={12} className={isLoadingOnChain ? 'animate-spin' : ''} />
+          </button>
+        </h3>
         <span className="text-xs text-muted-foreground">
           {orders.length} active
         </span>
@@ -247,7 +293,17 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
       {/* MPC Status Banner */}
       <MpcStatus variant="compact" className="mb-3" />
 
-      {orders.length === 0 ? (
+      {onChainError && (
+        <div className="mb-2 text-xs text-amber-400/80 bg-amber-500/10 px-2 py-1 rounded">
+          {onChainError}
+        </div>
+      )}
+
+      {isLoadingOnChain && orders.length === 0 ? (
+        <div className="flex items-center justify-center py-8">
+          <SpinnerGap size={24} className="animate-spin text-muted-foreground" />
+        </div>
+      ) : orders.length === 0 ? (
         <p className="text-sm text-muted-foreground text-center py-8">
           No open orders
         </p>
