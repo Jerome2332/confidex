@@ -122,8 +122,40 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   // Use a ref to hold attemptReconnect to break circular dependency
   const attemptReconnectRef = useRef<() => void>(() => {});
 
+  // Pre-warm the backend before WebSocket connection (helps with Render cold starts)
+  const prewarmBackend = useCallback(async (wsUrl: string): Promise<boolean> => {
+    const healthUrl = `${wsUrl}/health`;
+    const maxAttempts = 5;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        console.log(`[WebSocket] Pre-warming backend (attempt ${i + 1}/${maxAttempts})...`);
+        const response = await fetch(healthUrl, {
+          method: 'GET',
+          credentials: 'include',
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (response.ok) {
+          console.log('[WebSocket] Backend is warm and ready');
+          return true;
+        }
+      } catch (error) {
+        console.log(`[WebSocket] Pre-warm attempt ${i + 1} failed:`, error instanceof Error ? error.message : 'Unknown error');
+      }
+
+      // Wait before retrying (Render needs time to spin up)
+      if (i < maxAttempts - 1) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    }
+
+    console.log('[WebSocket] Backend pre-warm failed, proceeding with connection anyway');
+    return false;
+  }, []);
+
   // Connect to WebSocket server - stable reference using refs
-  const connect = useCallback(() => {
+  const connect = useCallback(async () => {
     if (socketRef.current?.connected) return;
 
     updateStatus('connecting');
@@ -132,6 +164,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     const isSecure = wsUrl.startsWith('https:');
 
     console.log('[WebSocket] Connecting to:', wsUrl, 'path: /ws', 'secure:', isSecure);
+
+    // Pre-warm the backend to handle Render cold starts
+    await prewarmBackend(wsUrl);
 
     const socket = io(wsUrl, {
       path: '/ws',
