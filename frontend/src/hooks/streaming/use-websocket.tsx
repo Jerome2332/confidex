@@ -36,12 +36,23 @@ function getWebSocketUrl(): string {
 
   // Socket.IO will automatically use wss:// for https:// URLs
   // But we need to ensure we're using https in production
+  let finalUrl = apiUrl;
   if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
     // If we're on HTTPS, ensure the API URL also uses HTTPS
-    return apiUrl.replace(/^http:/, 'https:');
+    finalUrl = apiUrl.replace(/^http:/, 'https:');
   }
 
-  return apiUrl;
+  // Debug logging for production troubleshooting
+  if (typeof window !== 'undefined') {
+    console.log('[WebSocket] Config:', {
+      NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+      apiUrl,
+      finalUrl,
+      protocol: window.location.protocol,
+    });
+  }
+
+  return finalUrl;
 }
 
 // =============================================================================
@@ -119,6 +130,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     const wsUrl = getWebSocketUrl();
     const isSecure = wsUrl.startsWith('https:');
+
+    console.log('[WebSocket] Connecting to:', wsUrl, 'path: /ws', 'secure:', isSecure);
 
     const socket = io(wsUrl, {
       path: '/ws',
