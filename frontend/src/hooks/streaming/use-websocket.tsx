@@ -33,6 +33,14 @@ const DEFAULT_OPTIONS: Required<UseWebSocketOptions> = {
 function getWebSocketUrl(): string {
   // In production, use the same host as the API
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+
+  // Socket.IO will automatically use wss:// for https:// URLs
+  // But we need to ensure we're using https in production
+  if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
+    // If we're on HTTPS, ensure the API URL also uses HTTPS
+    return apiUrl.replace(/^http:/, 'https:');
+  }
+
   return apiUrl;
 }
 
@@ -109,11 +117,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
 
     updateStatus('connecting');
 
-    const socket = io(getWebSocketUrl(), {
+    const wsUrl = getWebSocketUrl();
+    const isSecure = wsUrl.startsWith('https:');
+
+    const socket = io(wsUrl, {
       path: '/ws',
       transports: ['websocket', 'polling'],
       reconnection: false, // We handle reconnection manually
       timeout: 10000,
+      secure: isSecure,
     });
 
     socket.on('connect', () => {
