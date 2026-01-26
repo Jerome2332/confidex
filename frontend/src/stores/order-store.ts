@@ -22,6 +22,7 @@ export interface Order {
   createdAt: Date;
   filledPercent: number;
   slippage?: string; // Slippage tolerance for this order
+  isLegacyBroken?: boolean; // Legacy orders that would overflow on cancel
 }
 
 export interface OrderInput {

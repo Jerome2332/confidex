@@ -12,6 +12,12 @@ const log = createLogger('use-user-orders');
 // V5 order account size (366 bytes) - see CLAUDE.md for format
 const ORDER_ACCOUNT_SIZE_V5 = 366;
 
+// Maximum reasonable value for order amounts (used to detect legacy broken orders)
+// Any order with encrypted_amount first 8 bytes > this is likely legacy V2 encrypted garbage
+// 1 billion tokens with 9 decimals = 1e18, well under u64::MAX (1.8e19)
+// We use 10^15 as threshold - any legitimate order should be way below this
+const MAX_REASONABLE_AMOUNT = BigInt('1000000000000000'); // 10^15
+
 // Rate limiting configuration
 const MIN_FETCH_INTERVAL_MS = 10000; // Minimum 10 seconds between fetches
 const DEFAULT_REFRESH_INTERVAL_MS = 15000; // Default 15 second polling
@@ -53,6 +59,29 @@ export interface OnChainOrder {
   orderId: Uint8Array;
   orderNonce: bigint;
   isMatching: boolean;
+  // Flag for legacy orders that would cause overflow on cancel
+  isLegacyBroken: boolean;
+}
+
+/**
+ * Check if an order is a "legacy broken" order that would cause overflow on cancel.
+ * Legacy orders have V2 encrypted data (random bytes) in the encrypted_amount field.
+ * When the on-chain program reads the first 8 bytes as u64, it gets garbage values
+ * that overflow when added to the user's balance.
+ *
+ * We detect this by checking if the first 8 bytes of encrypted_amount, when read
+ * as little-endian u64, exceeds any reasonable order amount.
+ */
+function isLegacyBrokenOrder(encryptedAmount: Uint8Array): boolean {
+  if (encryptedAmount.length < 8) return true;
+
+  // Read first 8 bytes as little-endian u64
+  const view = new DataView(encryptedAmount.buffer, encryptedAmount.byteOffset, 8);
+  const amountAsU64 = view.getBigUint64(0, true);
+
+  // If the "amount" is unreasonably large, this is a legacy broken order
+  // Legitimate orders should have amounts well below 10^15
+  return amountAsU64 > MAX_REASONABLE_AMOUNT;
 }
 
 /**
@@ -105,6 +134,16 @@ function parseV5Order(pubkey: PublicKey, data: Uint8Array): OnChainOrder | null 
 
   const isMatching = data[332] === 1;
 
+  // Check if this is a legacy broken order
+  const isLegacyBroken = isLegacyBrokenOrder(encryptedAmount);
+
+  if (isLegacyBroken) {
+    log.warn('Detected legacy broken order (would overflow on cancel)', {
+      pubkey: pubkey.toBase58(),
+      orderNonce: orderNonce.toString(),
+    });
+  }
+
   return {
     pubkey,
     maker,
@@ -119,6 +158,7 @@ function parseV5Order(pubkey: PublicKey, data: Uint8Array): OnChainOrder | null 
     orderId,
     orderNonce,
     isMatching,
+    isLegacyBroken,
   };
 }
 
@@ -176,6 +216,7 @@ function toStoreOrder(order: OnChainOrder): Order {
     status: mapOnChainStatus(order.status, order.isMatching),
     createdAt: new Date(Number(order.createdAtHour) * 3600 * 1000), // Convert hours to ms
     filledPercent: 0, // Can't determine without MPC decryption
+    isLegacyBroken: order.isLegacyBroken,
   };
 }
 

@@ -26,6 +26,19 @@ const USDC_MINT = new PublicKey(TRADING_PAIRS[0].quoteMint);
 // Version 2: Full Arcium encryption (when C-SPL ready)
 export const ENCRYPTION_VERSION = 1;
 
+// Maximum reasonable balance value (used to detect legacy broken accounts)
+// Any balance with first 8 bytes > this when read as u64 is likely garbage from V2 encryption
+// 1 trillion tokens with 9 decimals = 1e21, but we use 10^15 as a safe threshold
+const MAX_REASONABLE_BALANCE = BigInt('1000000000000000'); // 10^15
+
+/**
+ * Check if a balance value is likely garbage from V2 encrypted data
+ * rather than a valid plaintext balance
+ */
+function isLegacyBrokenBalance(balance: bigint): boolean {
+  return balance > MAX_REASONABLE_BALANCE;
+}
+
 export interface EncryptedBalanceState {
   // Raw encrypted balances (64 bytes each)
   solEncrypted: Uint8Array;
@@ -262,11 +275,20 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
         fetchUserBalance(connection, publicKey, USDC_MINT),
       ]);
 
-      // Check if C-SPL accounts exist AND have non-zero balances
+      // Check if C-SPL accounts exist AND have valid (non-garbage) balances
       const hasCsplAccounts = solResult.account !== null || usdcResult.account !== null;
       const csplSolBalance = solResult.balance;
       const csplUsdcBalance = usdcResult.balance;
-      const hasCsplBalances = csplSolBalance > BigInt(0) || csplUsdcBalance > BigInt(0);
+
+      // Check if balances are reasonable (not V2 encrypted garbage)
+      const solIsLegacyBroken = isLegacyBrokenBalance(csplSolBalance);
+      const usdcIsLegacyBroken = isLegacyBrokenBalance(csplUsdcBalance);
+      const hasLegacyBrokenBalances = solIsLegacyBroken || usdcIsLegacyBroken;
+
+      // Only consider non-zero if also not garbage
+      const hasValidCsplBalances =
+        (csplSolBalance > BigInt(0) && !solIsLegacyBroken) ||
+        (csplUsdcBalance > BigInt(0) && !usdcIsLegacyBroken);
 
       console.log('[Balance] C-SPL check:', {
         accountsExist: hasCsplAccounts,
@@ -274,7 +296,9 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
         usdcAccount: !!usdcResult.account,
         csplSolBalance: csplSolBalance.toString(),
         csplUsdcBalance: csplUsdcBalance.toString(),
-        hasNonZeroBalance: hasCsplBalances
+        solIsLegacyBroken,
+        usdcIsLegacyBroken,
+        hasValidBalance: hasValidCsplBalances
       });
 
       let solDecrypted: bigint;
@@ -282,9 +306,9 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
       let solEncrypted: Uint8Array;
       let usdcEncrypted: Uint8Array;
 
-      // Only use C-SPL if accounts have non-zero balances
-      // Otherwise fall back to native wallet balances for devnet testing
-      if (hasCsplAccounts && hasCsplBalances) {
+      // Only use C-SPL if accounts have valid (non-garbage) balances
+      // Legacy broken accounts have V2 encrypted data that reads as huge garbage values
+      if (hasCsplAccounts && hasValidCsplBalances && !hasLegacyBrokenBalances) {
         // Use C-SPL encrypted balances
         solEncrypted = solResult.account?.encryptedBalance || new Uint8Array(64);
         usdcEncrypted = usdcResult.account?.encryptedBalance || new Uint8Array(64);
@@ -296,8 +320,12 @@ export function useEncryptedBalance(): UseEncryptedBalanceReturn {
         ]);
         console.log('[Balance] Using C-SPL encrypted balances');
       } else {
-        // Fall back to native wallet balances (devnet testing mode)
-        console.log('[Balance] Falling back to native wallet balances (C-SPL empty or not initialized)...');
+        // Fall back to native wallet balances (devnet testing mode or legacy broken accounts)
+        if (hasLegacyBrokenBalances) {
+          console.log('[Balance] Detected legacy broken balance accounts (V2 encrypted garbage), using native wallet...');
+        } else {
+          console.log('[Balance] Falling back to native wallet balances (C-SPL empty or not initialized)...');
+        }
         const nativeBalances = await fetchNativeBalances();
         console.log('[Balance] Native balances fetched:', { sol: nativeBalances.sol.toString(), usdc: nativeBalances.usdc.toString() });
         solDecrypted = nativeBalances.sol;
