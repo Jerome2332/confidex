@@ -64,7 +64,7 @@ describe('ArciumClient', () => {
   let client: ArciumClient;
   let mockConnection: Connection;
   let payer: Keypair;
-  const mxeProgramId = new PublicKey('DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM');
+  const mxeProgramId = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
   const clusterOffset = 456;
 
   beforeEach(() => {

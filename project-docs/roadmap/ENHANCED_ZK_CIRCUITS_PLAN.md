@@ -179,7 +179,7 @@ Flow:
 - ZK verifies commitment bounds, MPC operates on ciphertext
 
 **✅ Arcium MPC Integration Complete (January 2026):**
-- MXE program deployed: `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM`
+- MXE program deployed: `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi`
 - MXE callback CPIs to DEX `finalize_match` with `invoke_signed`
 - `verify_output()` called before CPI for cryptographic verification
 - All sync fallbacks removed (no plaintext extraction from ciphertext)

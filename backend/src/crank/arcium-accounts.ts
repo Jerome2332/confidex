@@ -74,7 +74,7 @@ export const DEFAULT_CLUSTER_OFFSET = 456;
 export const DEFAULT_MXE_PROGRAM_ID = new PublicKey(
   process.env.FULL_MXE_PROGRAM_ID ||
     process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-    'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'
+    '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
 );
 
 /**

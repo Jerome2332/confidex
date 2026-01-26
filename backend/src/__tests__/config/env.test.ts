@@ -26,7 +26,7 @@ describe('Environment Configuration', () => {
     it('logs success message when all required vars are present in development', () => {
       process.env.NODE_ENV = 'development';
       process.env.CONFIDEX_PROGRAM_ID = '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB';
-      process.env.MXE_PROGRAM_ID = 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS';
+      process.env.MXE_PROGRAM_ID = '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi';
 
       validateEnv();
 
@@ -47,7 +47,7 @@ describe('Environment Configuration', () => {
     it('warns about insecure API key in development', () => {
       process.env.NODE_ENV = 'development';
       process.env.CONFIDEX_PROGRAM_ID = '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB';
-      process.env.MXE_PROGRAM_ID = 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS';
+      process.env.MXE_PROGRAM_ID = '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi';
       process.env.ADMIN_API_KEY = 'dev-admin-key-DO-NOT-USE-IN-PRODUCTION';
 
       validateEnv();
@@ -58,7 +58,7 @@ describe('Environment Configuration', () => {
     it('defaults to development mode when NODE_ENV is not set', () => {
       delete process.env.NODE_ENV;
       process.env.CONFIDEX_PROGRAM_ID = '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB';
-      process.env.MXE_PROGRAM_ID = 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS';
+      process.env.MXE_PROGRAM_ID = '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi';
 
       validateEnv();
 

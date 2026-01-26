@@ -15,7 +15,7 @@ Confidex uses Arcium's MPC infrastructure to enable **true encrypted order match
 | Program | Program ID | Network |
 |---------|-----------|---------|
 | **confidex_dex** | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Devnet |
-| **confidex_mxe** | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` | Devnet |
+| **confidex_mxe** | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | Devnet |
 | **Arcium Core** | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` | Devnet |
 
 **MXE X25519 Public Key:** `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b`
@@ -454,7 +454,7 @@ cd frontend && npx tsx test-mpc-integration.ts
 Configuration:
   RPC URL: https://api.devnet.solana.com
   DEX Program: 63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-  MXE Program: HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+  MXE Program: 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
   X25519 Key: 46589a2f72e04b04...
 
 --- Test 1: MXE Account Status ---

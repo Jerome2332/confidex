@@ -158,7 +158,7 @@ describe('PositionVerifier', () => {
     mockConfig = {
       programs: {
         confidexDex: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-        arciumMxe: 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
+        arciumMxe: '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
       },
       pollingIntervalMs: 1000,
     } as unknown as CrankConfig;

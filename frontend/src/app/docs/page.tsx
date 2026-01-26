@@ -411,11 +411,11 @@ fn main(
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <div>
                   <div className="text-white/50 mb-1">MXE Program ID</div>
-                  <code className="text-xs font-mono text-emerald-400">DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM</code>
+                  <code className="text-xs font-mono text-emerald-400">4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi</code>
                 </div>
                 <div>
                   <div className="text-white/50 mb-1">X25519 Public Key</div>
-                  <code className="text-xs font-mono text-emerald-400 break-all">14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960</code>
+                  <code className="text-xs font-mono text-emerald-400 break-all">113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c</code>
                 </div>
                 <div>
                   <div className="text-white/50 mb-1">Cluster</div>
@@ -944,7 +944,7 @@ curl http://localhost:3001/admin/crank/status`}</CodeBlock>
               <div className="divide-y divide-white/5">
                 {[
                   { name: 'Confidex DEX', id: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB', desc: 'Core DEX logic, order management' },
-                  { name: 'Arcium MXE', id: 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM', desc: 'MXE wrapper for MPC operations' },
+                  { name: 'Arcium MXE', id: '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi', desc: 'MXE wrapper for MPC operations' },
                   { name: 'Eligibility Verifier', id: '9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W', desc: 'Groth16 proof verification' },
                   { name: 'Arcium Core', id: 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ', desc: 'Official Arcium program' },
                 ].map((program) => (

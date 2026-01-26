@@ -35,7 +35,7 @@ paths = [
 regexes = [
   # Solana Program IDs (these are public addresses, not secrets)
   '''63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB''',  # confidex_dex
-  '''HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS''',  # confidex_mxe
+  '''4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi''',  # confidex_mxe
   '''9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W''',  # eligibility_verifier
   '''Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ''',  # Arcium Core
   '''Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr''',  # Dummy USDC mint

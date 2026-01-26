@@ -8,7 +8,7 @@ skip-lint = false
 
 [programs.devnet]
 confidex_dex = "63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB"
-arcium_mxe = "DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM"
+arcium_mxe = "4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi"
 
 [registry]
 url = "https://api.apr.dev"

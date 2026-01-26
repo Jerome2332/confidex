@@ -50,7 +50,7 @@ vi.mock('../../crank/arcium-accounts.js', () => ({
   }),
   arciumAccountsToRemainingAccounts: vi.fn().mockReturnValue([]),
   DEFAULT_CLUSTER_OFFSET: 456,
-  DEFAULT_MXE_PROGRAM_ID: new PublicKey('HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'),
+  DEFAULT_MXE_PROGRAM_ID: new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'),
 }));
 
 vi.mock('@arcium-hq/client', () => ({
@@ -71,7 +71,7 @@ function createMockConfig(): CrankConfig {
     pollingIntervalMs: 5000,
     programs: {
       confidexDex: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-      arciumMxe: 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
+      arciumMxe: '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
     },
     rpc: {
       primary: 'https://api.devnet.solana.com',

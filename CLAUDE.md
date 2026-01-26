@@ -65,7 +65,7 @@ cd backend && pnpm dev
 | Program | Address |
 |---------|---------|
 | confidex_dex | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` |
-| confidex_mxe | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` |
+| confidex_mxe | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` |
 | eligibility_verifier | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` |
 | Arcium Core | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` |
 
@@ -110,8 +110,8 @@ Layer 4: SETTLEMENT    - ShadowWire (Bulletproof hidden amounts)
 ```bash
 # Required
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
-NEXT_PUBLIC_MXE_X25519_PUBKEY=46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b
+NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
+NEXT_PUBLIC_MXE_X25519_PUBKEY=113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
 HELIUS_API_KEY=your-key
 
 # Light Protocol (ZK Compression)

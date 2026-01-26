@@ -12,7 +12,7 @@ if (typeof window !== 'undefined') {
 
 export const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-    'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'
+    '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
 );
 
 // ZK Eligibility Verifier (deployed via Sunspot)

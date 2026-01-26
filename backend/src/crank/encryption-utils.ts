@@ -104,48 +104,32 @@ export function buildComparePricesInput(
 }
 
 /**
- * Check if an encrypted blob is V2 format
+ * Validate that a blob is V2 format
  *
- * V1 (legacy): First 8 bytes are plaintext (typically non-zero, interpretable as u64)
- * V2: First 16 bytes are random nonce (high entropy)
+ * V2 is the ONLY supported format - V1 (plaintext prefix) has been removed.
+ * This function throws if the blob is not valid V2 format.
  *
- * This is a heuristic check - not 100% reliable.
+ * @throws Error if blob is not valid V2 format
  */
-export function isV2Format(blob: Uint8Array): boolean {
+export function validateV2Format(blob: Uint8Array): void {
   if (blob.length !== 64) {
-    return false;
+    throw new Error(`Invalid blob length: expected 64 bytes (V2 format), got ${blob.length}`);
   }
 
-  // V1 format has plaintext in first 8 bytes
-  // V2 format has nonce in first 16 bytes
-  // Check if bytes 8-15 look like high entropy (part of nonce)
-  // rather than zeros (padding after 8-byte plaintext)
+  // V2 format should have high entropy nonce in bytes 8-15
+  // If all zeros, it's likely an uninitialized or V1 format blob
   const bytes8to15 = blob.slice(8, 16);
-  const hasHighEntropy = bytes8to15.some((b) => b !== 0);
+  const isLikelyUninitialized = bytes8to15.every((b) => b === 0);
 
-  return hasHighEntropy;
+  if (isLikelyUninitialized) {
+    throw new Error('Invalid V2 blob: nonce region appears uninitialized (all zeros). V1 format is no longer supported.');
+  }
 }
 
 /**
- * Extract plaintext from V1 format (legacy - for backwards compatibility)
+ * Debug helper: print V2 blob structure
  *
- * V1 Format: [plaintext (8) | nonce (8) | ciphertext (32) | ephemeral_pubkey (16)]
- */
-export function extractPlaintextFromV1(blob: Uint8Array): bigint {
-  if (blob.length !== 64) {
-    throw new Error(`Invalid blob length: expected 64, got ${blob.length}`);
-  }
-
-  // Read little-endian u64 from first 8 bytes
-  let result = BigInt(0);
-  for (let i = 7; i >= 0; i--) {
-    result = (result << BigInt(8)) | BigInt(blob[i]);
-  }
-  return result;
-}
-
-/**
- * Debug helper: print blob structure
+ * Only supports V2 format. V1 format has been removed.
  */
 export function debugPrintBlob(blob: Uint8Array, label: string = 'blob'): void {
   const toHex = (arr: Uint8Array) =>
@@ -154,16 +138,18 @@ export function debugPrintBlob(blob: Uint8Array, label: string = 'blob'): void {
       .join('');
 
   console.log(`[${label}] Length: ${blob.length}`);
-  console.log(`  Bytes 0-7:   ${toHex(blob.slice(0, 8))}`);
-  console.log(`  Bytes 8-15:  ${toHex(blob.slice(8, 16))}`);
-  console.log(`  Bytes 16-47: ${toHex(blob.slice(16, 48))}`);
-  console.log(`  Bytes 48-63: ${toHex(blob.slice(48, 64))}`);
+  console.log(`  Bytes 0-15 (nonce):   ${toHex(blob.slice(0, 16))}`);
+  console.log(`  Bytes 16-47 (cipher): ${toHex(blob.slice(16, 48))}`);
+  console.log(`  Bytes 48-63 (ephem):  ${toHex(blob.slice(48, 64))}`);
 
-  if (isV2Format(blob)) {
-    const inputs = extractFromV2Blob(blob);
-    console.log(`  V2 nonce: ${inputs.nonce}`);
-  } else {
-    const plaintext = extractPlaintextFromV1(blob);
-    console.log(`  V1 plaintext: ${plaintext}`);
+  if (blob.length === 64) {
+    try {
+      // Validate format first (throws if V1-like)
+      validateV2Format(blob);
+      const inputs = extractFromV2Blob(blob);
+      console.log(`  V2 nonce: ${inputs.nonce}`);
+    } catch (e) {
+      console.log(`  Error: ${e instanceof Error ? e.message : e}`);
+    }
   }
 }

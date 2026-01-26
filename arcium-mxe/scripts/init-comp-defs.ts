@@ -27,17 +27,17 @@ import { createHash } from 'crypto';
 
 // Configuration
 const MXE_PROGRAM_ID = new PublicKey(
-  process.env.MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'
+  process.env.MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
 );
 const RPC_URL =
   process.env.RPC_URL ||
   'https://api.devnet.solana.com';
 const ARCIUM_PROGRAM_ID = new PublicKey(ARCIUM_ADDR);
 
-// Keypair path
+// Keypair path - must match MXE authority (id.json is 3At42GGyP1aQuTmtr1YuDBzmwfnS2br6W5cLrdWGLVbm)
 const KEYPAIR_PATH =
   process.env.KEYPAIR_PATH ||
-  path.join(process.env.HOME || '~', '.config', 'solana', 'devnet.json');
+  path.join(process.env.HOME || '~', '.config', 'solana', 'id.json');
 
 // All circuits to initialize
 const CIRCUITS = [
@@ -51,6 +51,13 @@ const CIRCUITS = [
   'add_encrypted',
   'sub_encrypted',
   'mul_encrypted',
+  // Phase 2+ circuits
+  'check_balance',
+  'check_order_balance',
+  'decrypt_for_settlement',
+  'calculate_refund',
+  'batch_compare_prices',
+  'batch_calculate_fill',
 ];
 
 // Anchor discriminator for each init function

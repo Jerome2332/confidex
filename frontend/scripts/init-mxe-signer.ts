@@ -36,7 +36,7 @@ import {
 } from '@arcium-hq/client';
 
 // Constants
-const MXE_PROGRAM_ID = new PublicKey('HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS');
+const MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const CLUSTER_OFFSET = 456;
 const SIGN_PDA_SEED = Buffer.from('ArciumSignerAccount');
 

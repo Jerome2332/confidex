@@ -48,7 +48,7 @@ jobs:
         env:
           # Production environment variables for build
           NEXT_PUBLIC_PROGRAM_ID: ${{ vars.NEXT_PUBLIC_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB' }}
-          NEXT_PUBLIC_MXE_PROGRAM_ID: ${{ vars.NEXT_PUBLIC_MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM' }}
+          NEXT_PUBLIC_MXE_PROGRAM_ID: ${{ vars.NEXT_PUBLIC_MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi' }}
           NEXT_PUBLIC_ARCIUM_ENABLED: "true"
           NEXT_PUBLIC_NETWORK: "devnet"
 

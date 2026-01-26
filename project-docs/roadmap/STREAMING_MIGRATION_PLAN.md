@@ -25,7 +25,7 @@ Based on conversation with **Steve CleanBrook** (Triton BD Lead):
 
 1. **Dual Subscription Architecture**: Steve recommends subscribing to each program individually for cleaner separation and easier debugging. We will maintain two Fumarole streams:
    - DEX stream: `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` (orders, pairs, balances)
-   - MXE stream: `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` (computation requests/callbacks)
+   - MXE stream: `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` (computation requests/callbacks)
 
 2. **No Webhook Assumption**: Fumarole provides data streaming only. Transaction submission must go through separate RPC connection (Helius or Triton RPC). Current crank architecture is correct.
 
@@ -187,12 +187,12 @@ const dexSubscribeRequest = {
 const mxeSubscribeRequest = {
   accounts: {
     computations: {
-      owner: ["HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS"],
+      owner: ["4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi"],
     }
   },
   transactions: {
     mxe_txs: {
-      accountInclude: ["HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS"],
+      accountInclude: ["4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi"],
     }
   },
   commitment: "confirmed"

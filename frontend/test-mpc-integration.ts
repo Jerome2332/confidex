@@ -31,7 +31,7 @@ import * as path from 'path';
 // Configuration
 const RPC_URL = process.env.RPC_URL || 'https://api.devnet.solana.com';
 const DEX_PROGRAM_ID = new PublicKey('63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB');
-const MXE_PROGRAM_ID = new PublicKey('DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM');
+const MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const MXE_X25519_PUBKEY = '14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960';
 
 // Test results

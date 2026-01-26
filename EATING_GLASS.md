@@ -760,7 +760,7 @@ function calculateDelay(attempt: number): number {
 After deploying the MXE program, we waited for keygen to complete. And waited. And waited.
 
 ```bash
-$ arcium mxe-info DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+$ arcium mxe-info 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 MXE Status: PENDING_KEYGEN
 X25519 Public Key: 0x0000000000000000000000000000000000000000000000000000000000000000
 ```
@@ -795,13 +795,13 @@ arcium deploy \
   --rpc-url https://devnet.helius-rpc.com/?api-key=<key>
 
 # If keygen gets stuck:
-arcium requeue-mxe-keygen DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM \
+arcium requeue-mxe-keygen 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi \
   --cluster-offset 456 \
   --keypair-path ~/.config/solana/devnet.json \
   --rpc-url <url>
 
 # Verify keygen complete:
-arcium mxe-info DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+arcium mxe-info 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 # X25519 Public Key: 14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
 ```
 
@@ -815,7 +815,7 @@ arcium mxe-info DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
 - MXE deployment status in CLAUDE.md
 - Final working config:
   ```env
-  NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+  NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
   NEXT_PUBLIC_MXE_X25519_PUBKEY=14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
   NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
   ```

@@ -53,7 +53,7 @@ pub struct ExchangeState {
     pub arcium_program_id: Pubkey,
 
     /// MXE program ID (production MXE deployed via `arcium deploy`)
-    /// Default: DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+    /// Default: 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
     pub mxe_program_id: Pubkey,
 
     /// ZK verifier program ID (Sunspot eligibility verifier)

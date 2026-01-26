@@ -29,14 +29,14 @@ pub const ARCIUM_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
 ]);
 
 /// Arcium MXE Program ID (production MXE deployed via `arcium deploy`)
-/// Base58: HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
-/// Deployed to devnet cluster 456 (v0.6.3) with keygen complete (2025-01-22).
+/// Base58: 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
+/// Deployed to devnet cluster 456 (v0.6.3) with keygen complete (2026-01-22).
 /// This is the production MXE with full Arcium MPC support.
 pub const ARCIUM_MXE_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    0xfa, 0x53, 0x76, 0xaf, 0xaa, 0xed, 0xce, 0xd4,
-    0xa7, 0x75, 0xc5, 0x68, 0x17, 0x0f, 0x7d, 0xe2,
-    0x79, 0x8e, 0xfa, 0xa5, 0x70, 0x71, 0xc2, 0xb8,
-    0x2f, 0xb9, 0xa1, 0x1b, 0x19, 0x43, 0x4e, 0x61,
+    0x38, 0xc6, 0xd6, 0xff, 0xdd, 0xb3, 0xe9, 0xf0,
+    0x63, 0x27, 0xdb, 0xa9, 0x19, 0x2c, 0x03, 0x2a,
+    0x00, 0x63, 0x03, 0x1c, 0xab, 0x8b, 0xfa, 0x8e,
+    0x61, 0xe4, 0x32, 0x76, 0x1f, 0x95, 0x79, 0xa7,
 ]);
 
 /// Default cluster offset for devnet
@@ -1068,7 +1068,7 @@ mod tests {
     fn verify_arcium_mxe_program_id() {
         assert_eq!(
             ARCIUM_MXE_PROGRAM_ID.to_string(),
-            "DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM",
+            "4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi",
             "ARCIUM_MXE_PROGRAM_ID bytes do not match expected Base58"
         );
     }

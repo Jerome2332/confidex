@@ -4,8 +4,7 @@ import {
   writeU128LE,
   extractFromV2Blob,
   buildComparePricesInput,
-  isV2Format,
-  extractPlaintextFromV1,
+  validateV2Format,
   debugPrintBlob,
   ArciumInputs,
 } from '../../crank/encryption-utils.js';
@@ -309,29 +308,37 @@ describe('encryption-utils', () => {
     });
   });
 
-  describe('isV2Format', () => {
-    it('returns false for wrong length', () => {
-      expect(isV2Format(new Uint8Array(32))).toBe(false);
-      expect(isV2Format(new Uint8Array(128))).toBe(false);
-      expect(isV2Format(new Uint8Array(0))).toBe(false);
+  describe('validateV2Format', () => {
+    it('throws for wrong length', () => {
+      expect(() => validateV2Format(new Uint8Array(32))).toThrow(
+        'Invalid blob length: expected 64 bytes'
+      );
+      expect(() => validateV2Format(new Uint8Array(128))).toThrow(
+        'Invalid blob length: expected 64 bytes'
+      );
+      expect(() => validateV2Format(new Uint8Array(0))).toThrow(
+        'Invalid blob length: expected 64 bytes'
+      );
     });
 
-    it('returns false for V1 format (zeros in bytes 8-15)', () => {
-      // V1 format: first 8 bytes are plaintext, bytes 8-15 are zero padding
+    it('throws for V1-like format (zeros in bytes 8-15)', () => {
+      // V1-like format: bytes 8-15 are all zeros (looks like padding after plaintext)
       const v1Blob = new Uint8Array(64);
-      // Set plaintext in first 8 bytes
+      // Set data in first 8 bytes
       v1Blob[0] = 0x42;
       v1Blob[1] = 0x01;
-      // Bytes 8-15 are zeros (V1 characteristic)
+      // Bytes 8-15 are zeros (uninitialized nonce region)
       // Rest has some data (ciphertext)
       for (let i = 16; i < 64; i++) {
         v1Blob[i] = i;
       }
 
-      expect(isV2Format(v1Blob)).toBe(false);
+      expect(() => validateV2Format(v1Blob)).toThrow(
+        'V1 format is no longer supported'
+      );
     });
 
-    it('returns true for V2 format (high entropy in bytes 8-15)', () => {
+    it('does not throw for valid V2 format (high entropy in bytes 8-15)', () => {
       // V2 format: bytes 0-15 are nonce (high entropy)
       const v2Blob = new Uint8Array(64);
       for (let i = 0; i < 16; i++) {
@@ -344,82 +351,28 @@ describe('encryption-utils', () => {
         v2Blob[i] = Math.floor(Math.random() * 256);
       }
 
-      expect(isV2Format(v2Blob)).toBe(true);
+      expect(() => validateV2Format(v2Blob)).not.toThrow();
     });
 
-    it('detects V2 format with single non-zero byte in 8-15', () => {
+    it('accepts V2 format with single non-zero byte in 8-15', () => {
       const blob = new Uint8Array(64).fill(0);
       // Set just one non-zero byte in range 8-15
       blob[12] = 0x01;
 
-      expect(isV2Format(blob)).toBe(true);
+      expect(() => validateV2Format(blob)).not.toThrow();
     });
 
-    it('detects V1 format with all zeros in 8-15', () => {
+    it('rejects blob with all zeros in nonce region (bytes 8-15)', () => {
       const blob = new Uint8Array(64).fill(0);
-      // First 8 bytes can have data (plaintext)
+      // First 8 bytes can have data
       blob[0] = 0x42;
-      // Bytes 8-15 are zeros (V1 padding)
+      // Bytes 8-15 are zeros (uninitialized)
       // Bytes 16+ can have data
       blob[20] = 0xff;
 
-      expect(isV2Format(blob)).toBe(false);
-    });
-  });
-
-  describe('extractPlaintextFromV1', () => {
-    it('throws on invalid blob length', () => {
-      expect(() => extractPlaintextFromV1(new Uint8Array(32))).toThrow(
-        'Invalid blob length: expected 64, got 32'
+      expect(() => validateV2Format(blob)).toThrow(
+        'V1 format is no longer supported'
       );
-    });
-
-    it('extracts zero plaintext', () => {
-      const blob = new Uint8Array(64).fill(0);
-      expect(extractPlaintextFromV1(blob)).toBe(BigInt(0));
-    });
-
-    it('extracts small plaintext value', () => {
-      const blob = new Uint8Array(64).fill(0);
-      blob[0] = 42; // Little-endian: LSB first
-
-      expect(extractPlaintextFromV1(blob)).toBe(BigInt(42));
-    });
-
-    it('extracts large plaintext value', () => {
-      const blob = new Uint8Array(64).fill(0);
-      // Set max u64 in first 8 bytes
-      for (let i = 0; i < 8; i++) {
-        blob[i] = 0xff;
-      }
-
-      const expected = (BigInt(1) << BigInt(64)) - BigInt(1);
-      expect(extractPlaintextFromV1(blob)).toBe(expected);
-    });
-
-    it('extracts known value', () => {
-      const blob = new Uint8Array(64).fill(0);
-      // 0x123456789ABCDEF0 in little-endian
-      blob[0] = 0xf0;
-      blob[1] = 0xde;
-      blob[2] = 0xbc;
-      blob[3] = 0x9a;
-      blob[4] = 0x78;
-      blob[5] = 0x56;
-      blob[6] = 0x34;
-      blob[7] = 0x12;
-
-      expect(extractPlaintextFromV1(blob)).toBe(BigInt('0x123456789ABCDEF0'));
-    });
-
-    it('ignores bytes after first 8', () => {
-      const blob = new Uint8Array(64).fill(0xff);
-      blob[0] = 1;
-      for (let i = 1; i < 8; i++) {
-        blob[i] = 0;
-      }
-
-      expect(extractPlaintextFromV1(blob)).toBe(BigInt(1));
     });
   });
 
@@ -449,14 +402,15 @@ describe('encryption-utils', () => {
     it('prints byte sections', () => {
       const blob = new Uint8Array(64).fill(0);
       blob[0] = 0xab;
+      blob[10] = 0xff; // Make it valid V2 format
 
       debugPrintBlob(blob);
 
-      // Should print multiple sections
-      expect(consoleSpy).toHaveBeenCalledTimes(6); // Length + 4 sections + V1/V2 info
+      // Should print multiple sections: Length + 3 byte sections + V2 nonce
+      expect(consoleSpy).toHaveBeenCalledTimes(5);
     });
 
-    it('prints V2 nonce for V2 format', () => {
+    it('prints V2 nonce for valid V2 format', () => {
       const blob = new Uint8Array(64);
       // Make it V2 format (non-zero in bytes 8-15)
       blob[10] = 0xff;
@@ -468,27 +422,29 @@ describe('encryption-utils', () => {
       expect(calls.some((c) => c.includes('V2 nonce'))).toBe(true);
     });
 
-    it('prints V1 plaintext for V1 format', () => {
+    it('prints error for invalid format', () => {
       const blob = new Uint8Array(64);
-      // Make it V1 format (zeros in bytes 8-15)
+      // Make it look like V1 (zeros in bytes 8-15)
       blob[0] = 42;
 
       debugPrintBlob(blob);
 
-      // Should include V1 plaintext line
-      const calls = consoleSpy.mock.calls.map((c) => c[0]);
-      expect(calls.some((c) => c.includes('V1 plaintext'))).toBe(true);
+      // Should include error message since V1 is no longer supported
+      const calls = consoleSpy.mock.calls.map((c) => String(c));
+      // Error is logged with the exception
+      expect(calls.some((c) => c.includes('Error') || c.includes('V1'))).toBe(true);
     });
 
     it('converts bytes to hex correctly', () => {
       const blob = new Uint8Array(64).fill(0);
       blob[0] = 0x0f; // Should be '0f' with padding
+      blob[10] = 0xff; // Make it valid V2
 
       debugPrintBlob(blob);
 
       // Check that hex is formatted with padding
       const calls = consoleSpy.mock.calls.map((c) => c[0]);
-      const bytesLine = calls.find((c) => c.includes('Bytes 0-7'));
+      const bytesLine = calls.find((c) => c.includes('nonce'));
       expect(bytesLine).toContain('0f');
     });
   });

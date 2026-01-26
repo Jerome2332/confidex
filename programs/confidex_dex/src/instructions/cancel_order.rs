@@ -62,6 +62,19 @@ pub struct CancelOrder<'info> {
     pub maker: Signer<'info>,
 }
 
+/// Cancel order handler
+///
+/// # DEPRECATED REFUND CALCULATION
+///
+/// This handler uses deprecated plaintext methods to calculate refunds.
+/// In the future, this will be replaced with MPC-based refund calculation
+/// via `cancel_order_callback` (Phase 3.3).
+///
+/// The MPC flow would be:
+/// 1. Queue `calculate_refund` MPC with encrypted_amount and encrypted_filled
+/// 2. MPC callback calls `cancel_order_callback` with decrypted refund_amount
+/// 3. DEX updates balances without reading plaintext
+#[allow(deprecated)]
 pub fn handler(ctx: Context<CancelOrder>) -> Result<()> {
     let pair = &mut ctx.accounts.pair;
     let order = &mut ctx.accounts.order;
@@ -70,9 +83,8 @@ pub fn handler(ctx: Context<CancelOrder>) -> Result<()> {
     let clock = Clock::get()?;
 
     // ==========================================================================
-    // HACKATHON REFUND (Interim until C-SPL SDK available)
-    // Uses plaintext values from first 8 bytes of encrypted fields
-    // In production: Replace with C-SPL confidential_transfer CPI
+    // DEPRECATED: HACKATHON REFUND
+    // Uses plaintext values - will be replaced with MPC-based refund (Phase 3.3)
     // ==========================================================================
 
     // Get remaining (unfilled) amount to refund

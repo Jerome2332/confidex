@@ -103,15 +103,15 @@ export function loadCrankConfig(): CrankConfig {
 
     programs: {
       confidexDex: process.env.CONFIDEX_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-      // Production MXE deployed via `arcium deploy` with keygen complete
-      arciumMxe: process.env.MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
+      // Production MXE deployed via `arcium deploy` with keygen complete (Jan 22, 2026)
+      arciumMxe: process.env.MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
     },
 
     mpc: {
       // Default to true for production - disable explicitly with CRANK_USE_REAL_MPC=false
       useRealMpc: process.env.CRANK_USE_REAL_MPC !== 'false',
-      // Full Arcium MXE deployed via `arcium deploy`
-      fullMxeProgramId: process.env.FULL_MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
+      // Full Arcium MXE deployed via `arcium deploy` (Jan 22, 2026)
+      fullMxeProgramId: process.env.FULL_MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
       // Devnet cluster offset (456 for v0.6.3, 789 for backup)
       clusterOffset: parseInt(process.env.ARCIUM_CLUSTER_OFFSET || '456', 10),
       // MPC timeout (2 minutes default)

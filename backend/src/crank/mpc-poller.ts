@@ -43,6 +43,7 @@ import { withTimeout, DEFAULT_TIMEOUTS } from '../lib/timeout.js';
 import { logger } from '../lib/logger.js';
 import { getAlertManager, AlertManager } from '../lib/alerts.js';
 import { MpcProcessedRepository } from '../db/repositories/mpc-processed.js';
+import { ArciumClient, createArciumClient } from './arcium-client.js';
 import bs58 from 'bs58';
 
 const log = logger.mpc;
@@ -158,11 +159,15 @@ export class MpcPoller {
   // Database repository for persistence (optional - if not provided, uses in-memory only)
   private mpcProcessedRepo: MpcProcessedRepository | null = null;
 
+  // Arcium MPC client for queuing computations (e.g., calculate_fill after price match)
+  private arciumClient: ArciumClient;
+
   constructor(
     connection: Connection,
     crankKeypair: Keypair,
     config: CrankConfig,
-    mpcProcessedRepo?: MpcProcessedRepository
+    mpcProcessedRepo?: MpcProcessedRepository,
+    arciumClient?: ArciumClient
   ) {
     this.connection = connection;
     this.crankKeypair = crankKeypair;
@@ -174,6 +179,9 @@ export class MpcPoller {
     this.exchangePda = this.deriveExchangePda();
     this.alertManager = getAlertManager();
     this.mpcProcessedRepo = mpcProcessedRepo ?? null;
+
+    // Create or use provided ArciumClient for MPC operations
+    this.arciumClient = arciumClient ?? createArciumClient(connection, crankKeypair);
 
     // Load persisted state from database if available
     this.loadPersistedState();
@@ -1027,7 +1035,8 @@ export class MpcPoller {
   /**
    * Handle PriceCompareResult event from MXE
    *
-   * Calls DEX's update_orders_from_result instruction
+   * When prices match, triggers fill calculation MPC to compute actual fill amount.
+   * When prices don't match, updates orders directly (no fill).
    */
   private async handlePriceCompareResult(eventData: Buffer, signature: string): Promise<void> {
     const event = this.parsePriceCompareResultEvent(eventData);
@@ -1039,16 +1048,107 @@ export class MpcPoller {
       sellOrder: event.sellOrder.toBase58().slice(0, 8),
     }, 'Received PriceCompareResult event');
 
-    // Call DEX update_orders_from_result
+    if (event.pricesMatch) {
+      // Prices match - trigger fill calculation MPC
+      // This computes min(buy_remaining, sell_remaining) securely
+      log.info({
+        buyOrder: event.buyOrder.toBase58().slice(0, 8),
+        sellOrder: event.sellOrder.toBase58().slice(0, 8),
+      }, 'Prices match, triggering fill calculation MPC');
+
+      try {
+        await this.triggerFillCalculation(event.buyOrder, event.sellOrder);
+        // Don't call update_orders_from_result yet - wait for FillCalculationResult event
+        return;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        log.error({ error: errMsg }, 'Failed to trigger fill calculation, falling back to full fill assumption');
+        // Fall through to legacy behavior if fill calculation fails
+      }
+    }
+
+    // Prices don't match OR fill calculation failed - call DEX update directly
     await this.callUpdateOrdersFromResult(
       event.requestId,
       event.buyOrder,
       event.sellOrder,
       event.pricesMatch,
       null, // No fill amount for price comparison
-      event.pricesMatch, // If prices match, assume full fill for now
+      event.pricesMatch, // If prices match, assume full fill (fallback)
       event.pricesMatch
     );
+  }
+
+  /**
+   * Trigger fill calculation MPC after price comparison succeeds
+   *
+   * Fetches order accounts to get encrypted amounts, then calls MXE calculate_fill.
+   * The result will come back via FillCalculationResult event.
+   */
+  private async triggerFillCalculation(buyOrder: PublicKey, sellOrder: PublicKey): Promise<void> {
+    // Order data layout offsets (V5 format, 366 bytes)
+    const ENCRYPTED_AMOUNT_OFFSET = 74;   // encrypted_amount: 64 bytes
+    const ENCRYPTED_PRICE_OFFSET = 138;   // encrypted_price: 64 bytes
+    const ENCRYPTED_FILLED_OFFSET = 202;  // encrypted_filled: 64 bytes
+    const EPHEMERAL_PUBKEY_OFFSET = 334;  // ephemeral_pubkey: 32 bytes
+
+    // Fetch order accounts
+    const [buyOrderData, sellOrderData] = await Promise.all([
+      this.connection.getAccountInfo(buyOrder),
+      this.connection.getAccountInfo(sellOrder),
+    ]);
+
+    if (!buyOrderData || !sellOrderData) {
+      throw new Error('Order accounts not found for fill calculation');
+    }
+
+    // Extract encrypted amounts from order accounts
+    const buyEncryptedAmount = new Uint8Array(buyOrderData.data.slice(
+      ENCRYPTED_AMOUNT_OFFSET, ENCRYPTED_AMOUNT_OFFSET + 64
+    ));
+    const buyEncryptedFilled = new Uint8Array(buyOrderData.data.slice(
+      ENCRYPTED_FILLED_OFFSET, ENCRYPTED_FILLED_OFFSET + 64
+    ));
+    const sellEncryptedAmount = new Uint8Array(sellOrderData.data.slice(
+      ENCRYPTED_AMOUNT_OFFSET, ENCRYPTED_AMOUNT_OFFSET + 64
+    ));
+    const sellEncryptedFilled = new Uint8Array(sellOrderData.data.slice(
+      ENCRYPTED_FILLED_OFFSET, ENCRYPTED_FILLED_OFFSET + 64
+    ));
+    const ephemeralPubkey = new Uint8Array(buyOrderData.data.slice(
+      EPHEMERAL_PUBKEY_OFFSET, EPHEMERAL_PUBKEY_OFFSET + 32
+    ));
+
+    // Extract V2 blob components
+    const { extractFromV2Blob } = await import('./encryption-utils.js');
+    const buyAmountInputs = extractFromV2Blob(buyEncryptedAmount);
+    const buyFilledInputs = extractFromV2Blob(buyEncryptedFilled);
+    const sellAmountInputs = extractFromV2Blob(sellEncryptedAmount);
+    const sellFilledInputs = extractFromV2Blob(sellEncryptedFilled);
+
+    log.debug({
+      buyOrder: buyOrder.toBase58().slice(0, 8),
+      sellOrder: sellOrder.toBase58().slice(0, 8),
+      buyNonce: buyAmountInputs.nonce.toString(16).slice(0, 8),
+    }, 'Triggering calculate_fill MPC');
+
+    // Queue the fill calculation MPC
+    // The result will come back via FillCalculationResult event
+    await this.arciumClient.executeCalculateFill(
+      buyAmountInputs.ciphertext,
+      buyFilledInputs.ciphertext,
+      sellAmountInputs.ciphertext,
+      sellFilledInputs.ciphertext,
+      buyAmountInputs.nonce,
+      ephemeralPubkey,
+      buyOrder,
+      sellOrder
+    );
+
+    log.info({
+      buyOrder: buyOrder.toBase58().slice(0, 8),
+      sellOrder: sellOrder.toBase58().slice(0, 8),
+    }, 'calculate_fill MPC queued, awaiting FillCalculationResult event');
   }
 
   /**

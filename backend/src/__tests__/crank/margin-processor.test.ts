@@ -134,7 +134,7 @@ describe('MarginProcessor', () => {
   let config: CrankConfig;
 
   const dexProgramId = new PublicKey('63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB');
-  const mxeProgramId = new PublicKey('HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS');
+  const mxeProgramId = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 
   beforeEach(() => {
     vi.clearAllMocks();

@@ -95,7 +95,7 @@ pub fn verify_eligibility_proof(...) -> Result<bool> {
 ```rust
 // Lines 21-46 - Hardcoded addresses
 pub const ARCIUM_PROGRAM_ID: Pubkey = pubkey!("Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ");
-pub const MXE_PROGRAM_ID: Pubkey = pubkey!("DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM");
+pub const MXE_PROGRAM_ID: Pubkey = pubkey!("4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi");
 pub const VERIFIER_PROGRAM_ID: Pubkey = pubkey!("9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W");
 ```
 

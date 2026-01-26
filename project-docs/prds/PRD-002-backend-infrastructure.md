@@ -1253,7 +1253,7 @@ export function loadConfig(): CrankConfig {
 
     programs: {
       confidexDex: process.env.CONFIDEX_PROGRAM_ID || '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-      arciumMxe: process.env.MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM',
+      arciumMxe: process.env.MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
     },
 
     walletPath: process.env.CRANK_WALLET_PATH || './keys/crank-wallet.json',

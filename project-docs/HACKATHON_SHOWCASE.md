@@ -281,7 +281,7 @@ const eventFields = [
 | Component | Address | Status |
 |-----------|---------|--------|
 | confidex_dex | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Deployed |
-| confidex_mxe | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` | Deployed |
+| confidex_mxe | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | Deployed |
 | eligibility_verifier | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` | Deployed |
 | Arcium Cluster | Cluster 456 | Active |
 
@@ -325,7 +325,7 @@ Unlike demo projects, Confidex uses **real Arcium MPC computation** running 24/7
 // config.ts
 mpc: {
   useRealMpc: process.env.CRANK_USE_REAL_MPC !== 'false', // Default: true
-  fullMxeProgramId: 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS',
+  fullMxeProgramId: '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
   clusterOffset: 456,  // Devnet cluster
   timeoutMs: 120000,   // 2 minute timeout
 }

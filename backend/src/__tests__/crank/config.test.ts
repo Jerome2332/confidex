@@ -193,7 +193,7 @@ describe('Crank Configuration', () => {
         const config = loadCrankConfig();
 
         expect(config.programs.confidexDex).toBe('63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB');
-        expect(config.programs.arciumMxe).toBe('HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS');
+        expect(config.programs.arciumMxe).toBe('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
       });
     });
 

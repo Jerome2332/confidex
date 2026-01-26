@@ -27,7 +27,7 @@ const KEYPAIR_PATH = process.env.KEYPAIR_PATH || `${os.homedir()}/.config/solana
 
 // Values to set
 // New MXE with completed DKG (deployed 2025-01-22)
-const NEW_MXE_PROGRAM_ID = new PublicKey('HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS');
+const NEW_MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const CLUSTER_OFFSET = 456;
 
 // Instruction discriminator: sha256("global:update_program_ids")[0..8]

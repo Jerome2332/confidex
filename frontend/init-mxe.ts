@@ -24,7 +24,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 
 // Configuration
-const ARCIUM_MXE_PROGRAM_ID = new PublicKey('DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM');
+const ARCIUM_MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const RPC_URL = 'https://api.devnet.solana.com';
 
 // Arcium devnet cluster configuration

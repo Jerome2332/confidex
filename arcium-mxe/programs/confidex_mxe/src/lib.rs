@@ -58,8 +58,22 @@ const COMP_DEF_OFFSET_CALCULATE_FUNDING: u32 = comp_def_offset("calculate_fundin
 const COMP_DEF_OFFSET_ADD_ENCRYPTED: u32 = comp_def_offset("add_encrypted");
 const COMP_DEF_OFFSET_SUB_ENCRYPTED: u32 = comp_def_offset("sub_encrypted");
 const COMP_DEF_OFFSET_MUL_ENCRYPTED: u32 = comp_def_offset("mul_encrypted");
+const COMP_DEF_OFFSET_CHECK_BALANCE: u32 = comp_def_offset("check_balance");
+const COMP_DEF_OFFSET_CHECK_ORDER_BALANCE: u32 = comp_def_offset("check_order_balance");
+const COMP_DEF_OFFSET_DECRYPT_FOR_SETTLEMENT: u32 = comp_def_offset("decrypt_for_settlement");
+const COMP_DEF_OFFSET_CALCULATE_REFUND: u32 = comp_def_offset("calculate_refund");
+const COMP_DEF_OFFSET_BATCH_COMPARE_PRICES: u32 = comp_def_offset("batch_compare_prices");
+const COMP_DEF_OFFSET_BATCH_CALCULATE_FILL: u32 = comp_def_offset("batch_calculate_fill");
 
-declare_id!("HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS");
+/// DEX settle_order_callback instruction discriminator
+/// sha256("global:settle_order_callback")[0..8]
+const DEX_SETTLE_ORDER_CALLBACK_DISCRIMINATOR: [u8; 8] = [0x8d, 0x47, 0x94, 0x0c, 0x9f, 0x81, 0xa2, 0xe3];
+
+/// DEX cancel_order_callback instruction discriminator
+/// sha256("global:cancel_order_callback")[0..8]
+const DEX_CANCEL_ORDER_CALLBACK_DISCRIMINATOR: [u8; 8] = [0xa3, 0xc2, 0x1f, 0x67, 0x8b, 0x4e, 0xd9, 0x12];
+
+declare_id!("4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi");
 
 #[arcium_program]
 pub mod confidex_mxe {
@@ -193,6 +207,88 @@ pub mod confidex_mxe {
             Some(CircuitSource::OffChain(OffChainCircuitSource {
                 source: format!("{}/mul_encrypted.arcis", CIRCUIT_BASE_URL),
                 hash: circuit_hash!("mul_encrypted"),
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_check_balance_comp_def(ctx: Context<InitCheckBalanceCompDef>) -> Result<()> {
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/check_balance.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("check_balance"),
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_check_order_balance_comp_def(
+        ctx: Context<InitCheckOrderBalanceCompDef>,
+    ) -> Result<()> {
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/check_order_balance.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("check_order_balance"),
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_decrypt_for_settlement_comp_def(
+        ctx: Context<InitDecryptForSettlementCompDef>,
+    ) -> Result<()> {
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/decrypt_for_settlement.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("decrypt_for_settlement"),
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_calculate_refund_comp_def(
+        ctx: Context<InitCalculateRefundCompDef>,
+    ) -> Result<()> {
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/calculate_refund.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("calculate_refund"),
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_batch_compare_prices_comp_def(
+        ctx: Context<InitBatchComparePricesCompDef>,
+    ) -> Result<()> {
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/batch_compare_prices.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("batch_compare_prices"),
+            })),
+            None,
+        )?;
+        Ok(())
+    }
+
+    pub fn init_batch_calculate_fill_comp_def(
+        ctx: Context<InitBatchCalculateFillCompDef>,
+    ) -> Result<()> {
+        init_comp_def(
+            ctx.accounts,
+            Some(CircuitSource::OffChain(OffChainCircuitSource {
+                source: format!("{}/batch_calculate_fill.arcis", CIRCUIT_BASE_URL),
+                hash: circuit_hash!("batch_calculate_fill"),
             })),
             None,
         )?;
@@ -527,6 +623,717 @@ pub mod confidex_mxe {
 
             msg!("CPI to DEX finalize_match complete: buy_filled={}, sell_filled={}",
                  buy_fully_filled, sell_fully_filled);
+        }
+
+        Ok(())
+    }
+
+    // =============================================================
+    // BATCH SPOT TRADING OPERATIONS
+    // =============================================================
+
+    /// Queue batch price comparison for up to 5 order pairs
+    ///
+    /// More efficient than 5 separate compare_prices calls.
+    /// Results are revealed since match/no-match is public information.
+    pub fn batch_compare_prices(
+        ctx: Context<BatchComparePrices>,
+        computation_offset: u64,
+        buy_prices: [[u8; 32]; 5],
+        sell_prices: [[u8; 32]; 5],
+        pub_key: [u8; 32],
+        nonce: u128,
+        count: u8,
+    ) -> Result<()> {
+        require!(count > 0 && count <= 5, ErrorCode::AbortedComputation);
+
+        let mut args = ArgBuilder::new()
+            .x25519_pubkey(pub_key)
+            .plaintext_u128(nonce);
+
+        // Add all buy prices
+        for price in buy_prices.iter() {
+            args = args.encrypted_u64(*price);
+        }
+        // Add all sell prices
+        for price in sell_prices.iter() {
+            args = args.encrypted_u64(*price);
+        }
+        // Add count
+        args = args.plaintext_u8(count);
+
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args.build(),
+            None,
+            vec![BatchComparePricesCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &[], // No CPI callback - just emit event
+            )?],
+            1,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Callback for batch price comparison result
+    #[arcium_callback(encrypted_ix = "batch_compare_prices")]
+    pub fn batch_compare_prices_callback(
+        ctx: Context<BatchComparePricesCallback>,
+        output: SignedComputationOutputs<BatchComparePricesOutput>,
+    ) -> Result<()> {
+        let result = match output.verify_output(
+            &ctx.accounts.cluster_account,
+            &ctx.accounts.computation_account,
+        ) {
+            Ok(BatchComparePricesOutput { field_0 }) => field_0,
+            Err(e) => {
+                msg!("Batch price compare verification failed: {}", e);
+                return Err(ErrorCode::AbortedComputation.into());
+            }
+        };
+
+        // Extract match results
+        let matches = [
+            result.field_0,
+            result.field_1,
+            result.field_2,
+            result.field_3,
+            result.field_4,
+        ];
+
+        emit!(BatchPriceCompareResult {
+            computation_offset: ctx.accounts.computation_account.key(),
+            matches,
+        });
+
+        Ok(())
+    }
+
+    /// Queue batch fill calculation for up to 5 order pairs
+    ///
+    /// More efficient than 5 separate calculate_fill calls.
+    pub fn batch_calculate_fill(
+        ctx: Context<BatchCalculateFill>,
+        computation_offset: u64,
+        buy_amounts: [[u8; 32]; 5],
+        sell_amounts: [[u8; 32]; 5],
+        buy_prices: [[u8; 32]; 5],
+        sell_prices: [[u8; 32]; 5],
+        pub_key: [u8; 32],
+        nonce: u128,
+        count: u8,
+    ) -> Result<()> {
+        require!(count > 0 && count <= 5, ErrorCode::AbortedComputation);
+
+        let mut args = ArgBuilder::new()
+            .x25519_pubkey(pub_key)
+            .plaintext_u128(nonce);
+
+        // Add buy amounts, sell amounts, buy prices, sell prices
+        for amt in buy_amounts.iter() {
+            args = args.encrypted_u64(*amt);
+        }
+        for amt in sell_amounts.iter() {
+            args = args.encrypted_u64(*amt);
+        }
+        for price in buy_prices.iter() {
+            args = args.encrypted_u64(*price);
+        }
+        for price in sell_prices.iter() {
+            args = args.encrypted_u64(*price);
+        }
+        // Add count
+        args = args.plaintext_u8(count);
+
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args.build(),
+            None,
+            vec![BatchCalculateFillCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &[], // No CPI callback - just emit event
+            )?],
+            1,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Callback for batch fill calculation result
+    #[arcium_callback(encrypted_ix = "batch_calculate_fill")]
+    pub fn batch_calculate_fill_callback(
+        ctx: Context<BatchCalculateFillCallback>,
+        output: SignedComputationOutputs<BatchCalculateFillOutput>,
+    ) -> Result<()> {
+        let result = match output.verify_output(
+            &ctx.accounts.cluster_account,
+            &ctx.accounts.computation_account,
+        ) {
+            Ok(BatchCalculateFillOutput { field_0 }) => field_0,
+            Err(e) => {
+                msg!("Batch fill calculation verification failed: {}", e);
+                return Err(ErrorCode::AbortedComputation.into());
+            }
+        };
+
+        // Extract fill amounts (encrypted)
+        let fills = [
+            result.ciphertexts[0],
+            result.ciphertexts[1],
+            result.ciphertexts[2],
+            result.ciphertexts[3],
+            result.ciphertexts[4],
+        ];
+
+        // Extract filled flags from ciphertexts array
+        // The struct has fills[5], buy_filled[5], sell_filled[5]
+        // After fills, we have 5 more for buy_filled, 5 more for sell_filled
+        let buy_filled = [
+            result.ciphertexts[5][0] != 0,
+            result.ciphertexts[6][0] != 0,
+            result.ciphertexts[7][0] != 0,
+            result.ciphertexts[8][0] != 0,
+            result.ciphertexts[9][0] != 0,
+        ];
+        let sell_filled = [
+            result.ciphertexts[10][0] != 0,
+            result.ciphertexts[11][0] != 0,
+            result.ciphertexts[12][0] != 0,
+            result.ciphertexts[13][0] != 0,
+            result.ciphertexts[14][0] != 0,
+        ];
+
+        emit!(BatchFillCalculationResult {
+            computation_offset: ctx.accounts.computation_account.key(),
+            fills,
+            buy_filled,
+            sell_filled,
+            nonce: result.nonce.to_le_bytes(),
+        });
+
+        Ok(())
+    }
+
+    // =============================================================
+    // BALANCE VALIDATION OPERATIONS
+    // =============================================================
+
+    /// Queue a simple balance check (balance >= required)
+    ///
+    /// Returns true if the user has sufficient balance for the operation.
+    /// Used for pre-order validation to ensure users can't place orders
+    /// they can't fulfill.
+    pub fn check_balance(
+        ctx: Context<CheckBalance>,
+        computation_offset: u64,
+        balance_ciphertext: [u8; 32],
+        required_ciphertext: [u8; 32],
+        pub_key: [u8; 32],
+        nonce: u128,
+        // Optional: user account for CPI callback
+        user_account: Option<Pubkey>,
+    ) -> Result<()> {
+        let args = ArgBuilder::new()
+            .x25519_pubkey(pub_key)
+            .plaintext_u128(nonce)
+            .encrypted_u64(balance_ciphertext)
+            .encrypted_u64(required_ciphertext)
+            .build();
+
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+
+        let mut callback_accounts = Vec::new();
+        if let Some(user) = user_account {
+            callback_accounts.push(CallbackAccount {
+                pubkey: user,
+                is_writable: false,
+            });
+        }
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args,
+            None,
+            vec![CheckBalanceCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &callback_accounts,
+            )?],
+            1,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Callback for balance check result
+    #[arcium_callback(encrypted_ix = "check_balance")]
+    pub fn check_balance_callback(
+        ctx: Context<CheckBalanceCallback>,
+        output: SignedComputationOutputs<CheckBalanceOutput>,
+    ) -> Result<()> {
+        // The result is a revealed bool
+        let sufficient = match output.verify_output(
+            &ctx.accounts.cluster_account,
+            &ctx.accounts.computation_account,
+        ) {
+            Ok(CheckBalanceOutput { field_0 }) => field_0,
+            Err(e) => {
+                msg!("Balance check verification failed: {}", e);
+                return Err(ErrorCode::AbortedComputation.into());
+            }
+        };
+
+        emit!(BalanceCheckResult {
+            computation_offset: ctx.accounts.computation_account.key(),
+            sufficient,
+        });
+
+        Ok(())
+    }
+
+    /// Queue an order-specific balance check
+    ///
+    /// For buy orders: checks balance >= (amount * price / PRICE_SCALE)
+    /// For sell orders: checks balance >= amount
+    ///
+    /// This is more efficient than computing the required amount client-side
+    /// and then calling check_balance, since it's all done in MPC.
+    pub fn check_order_balance(
+        ctx: Context<CheckOrderBalance>,
+        computation_offset: u64,
+        balance_ciphertext: [u8; 32],
+        order_amount_ciphertext: [u8; 32],
+        order_price_ciphertext: [u8; 32],
+        is_buy: bool,
+        pub_key: [u8; 32],
+        nonce: u128,
+        // Optional: order account for CPI callback
+        order_account: Option<Pubkey>,
+    ) -> Result<()> {
+        let args = ArgBuilder::new()
+            .x25519_pubkey(pub_key)
+            .plaintext_u128(nonce)
+            .encrypted_u64(balance_ciphertext)
+            .encrypted_u64(order_amount_ciphertext)
+            .encrypted_u64(order_price_ciphertext)
+            .plaintext_bool(is_buy)
+            .build();
+
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+
+        let mut callback_accounts = Vec::new();
+        if let Some(order) = order_account {
+            callback_accounts.push(CallbackAccount {
+                pubkey: order,
+                is_writable: true,
+            });
+        }
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args,
+            None,
+            vec![CheckOrderBalanceCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &callback_accounts,
+            )?],
+            1,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Callback for order balance check result
+    #[arcium_callback(encrypted_ix = "check_order_balance")]
+    pub fn check_order_balance_callback(
+        ctx: Context<CheckOrderBalanceCallback>,
+        output: SignedComputationOutputs<CheckOrderBalanceOutput>,
+    ) -> Result<()> {
+        // The result is a revealed bool
+        let sufficient = match output.verify_output(
+            &ctx.accounts.cluster_account,
+            &ctx.accounts.computation_account,
+        ) {
+            Ok(CheckOrderBalanceOutput { field_0 }) => field_0,
+            Err(e) => {
+                msg!("Order balance check verification failed: {}", e);
+                return Err(ErrorCode::AbortedComputation.into());
+            }
+        };
+
+        emit!(OrderBalanceCheckResult {
+            computation_offset: ctx.accounts.computation_account.key(),
+            sufficient,
+        });
+
+        // TODO: If order account is provided and balance is insufficient,
+        // CPI to DEX to reject/cancel the order
+
+        Ok(())
+    }
+
+    // =============================================================
+    // SETTLEMENT OPERATIONS
+    // =============================================================
+
+    /// Queue settlement decryption
+    ///
+    /// Reveals fill amount and price for settlement transfer calculation.
+    /// The callback will CPI to DEX with the revealed values.
+    ///
+    /// SECURITY: Only the MXE authority can trigger settlement, and values
+    /// are NOT emitted in events (only passed via CPI to DEX).
+    pub fn decrypt_for_settlement(
+        ctx: Context<DecryptForSettlement>,
+        computation_offset: u64,
+        fill_ciphertext: [u8; 32],
+        price_ciphertext: [u8; 32],
+        pub_key: [u8; 32],
+        nonce: u128,
+        // Required: Settlement accounts for CPI callback
+        buy_order: Pubkey,
+        sell_order: Pubkey,
+        pair: Pubkey,
+        buyer_base_balance: Pubkey,
+        buyer_quote_balance: Pubkey,
+        seller_base_balance: Pubkey,
+        seller_quote_balance: Pubkey,
+        fee_recipient_balance: Pubkey,
+        exchange: Pubkey,
+    ) -> Result<()> {
+        let args = ArgBuilder::new()
+            .x25519_pubkey(pub_key)
+            .plaintext_u128(nonce)
+            .encrypted_u64(fill_ciphertext)
+            .encrypted_u64(price_ciphertext)
+            .build();
+
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+
+        // Build callback accounts for settlement CPI
+        let (mxe_authority, _) = Pubkey::find_program_address(
+            &[MXE_AUTHORITY_SEED],
+            ctx.program_id,
+        );
+
+        let callback_accounts = vec![
+            CallbackAccount { pubkey: mxe_authority, is_writable: false },
+            CallbackAccount { pubkey: buy_order, is_writable: true },
+            CallbackAccount { pubkey: sell_order, is_writable: true },
+            CallbackAccount { pubkey: pair, is_writable: false },
+            CallbackAccount { pubkey: buyer_base_balance, is_writable: true },
+            CallbackAccount { pubkey: buyer_quote_balance, is_writable: true },
+            CallbackAccount { pubkey: seller_base_balance, is_writable: true },
+            CallbackAccount { pubkey: seller_quote_balance, is_writable: true },
+            CallbackAccount { pubkey: fee_recipient_balance, is_writable: true },
+            CallbackAccount { pubkey: exchange, is_writable: false },
+        ];
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args,
+            None,
+            vec![DecryptForSettlementCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &callback_accounts,
+            )?],
+            1,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Callback for settlement decryption
+    ///
+    /// Receives revealed fill_amount and price from MPC, then CPIs to DEX
+    /// to execute the settlement with the decrypted values.
+    #[arcium_callback(encrypted_ix = "decrypt_for_settlement")]
+    pub fn decrypt_for_settlement_callback(
+        ctx: Context<DecryptForSettlementCallback>,
+        output: SignedComputationOutputs<DecryptForSettlementOutput>,
+    ) -> Result<()> {
+        // Verify and extract revealed values
+        let result = match output.verify_output(
+            &ctx.accounts.cluster_account,
+            &ctx.accounts.computation_account,
+        ) {
+            Ok(DecryptForSettlementOutput { field_0 }) => field_0,
+            Err(e) => {
+                msg!("Settlement decryption verification failed: {}", e);
+                return Err(ErrorCode::AbortedComputation.into());
+            }
+        };
+
+        // The result contains revealed fill_amount and price
+        let fill_amount = result.field_0; // fill_amount from struct
+        let price = result.field_1;       // price from struct
+
+        // Emit minimal event (NO amounts for privacy)
+        emit!(SettlementDecryptionResult {
+            computation_offset: ctx.accounts.computation_account.key(),
+        });
+
+        // CPI to DEX settle_order_callback with revealed values
+        // remaining_accounts[0] = MXE authority
+        // remaining_accounts[1] = buy_order
+        // remaining_accounts[2] = sell_order
+        // remaining_accounts[3] = pair
+        // remaining_accounts[4] = buyer_base_balance
+        // remaining_accounts[5] = buyer_quote_balance
+        // remaining_accounts[6] = seller_base_balance
+        // remaining_accounts[7] = seller_quote_balance
+        // remaining_accounts[8] = fee_recipient_balance
+        // remaining_accounts[9] = exchange
+        if ctx.remaining_accounts.len() >= 10 {
+            let mxe_authority_info = &ctx.remaining_accounts[0];
+            let buy_order = &ctx.remaining_accounts[1];
+            let sell_order = &ctx.remaining_accounts[2];
+            let pair = &ctx.remaining_accounts[3];
+            let buyer_base_balance = &ctx.remaining_accounts[4];
+            let buyer_quote_balance = &ctx.remaining_accounts[5];
+            let seller_base_balance = &ctx.remaining_accounts[6];
+            let seller_quote_balance = &ctx.remaining_accounts[7];
+            let fee_recipient_balance = &ctx.remaining_accounts[8];
+            let exchange = &ctx.remaining_accounts[9];
+
+            // Derive MXE authority PDA
+            let (expected_mxe_authority, bump) = Pubkey::find_program_address(
+                &[MXE_AUTHORITY_SEED],
+                ctx.program_id,
+            );
+
+            require!(
+                *mxe_authority_info.key == expected_mxe_authority,
+                ErrorCode::AbortedComputation
+            );
+
+            // Build CPI data: [discriminator(8) | fill_amount(8) | price(8)]
+            let mut ix_data = Vec::with_capacity(24);
+            ix_data.extend_from_slice(&DEX_SETTLE_ORDER_CALLBACK_DISCRIMINATOR);
+            ix_data.extend_from_slice(&fill_amount.to_le_bytes());
+            ix_data.extend_from_slice(&price.to_le_bytes());
+
+            let ix = Instruction {
+                program_id: DEX_PROGRAM_ID,
+                accounts: vec![
+                    AccountMeta::new_readonly(expected_mxe_authority, true), // MXE authority (signer)
+                    AccountMeta::new(*buy_order.key, false),
+                    AccountMeta::new(*sell_order.key, false),
+                    AccountMeta::new_readonly(*pair.key, false),
+                    AccountMeta::new(*buyer_base_balance.key, false),
+                    AccountMeta::new(*buyer_quote_balance.key, false),
+                    AccountMeta::new(*seller_base_balance.key, false),
+                    AccountMeta::new(*seller_quote_balance.key, false),
+                    AccountMeta::new(*fee_recipient_balance.key, false),
+                    AccountMeta::new_readonly(*exchange.key, false),
+                ],
+                data: ix_data,
+            };
+
+            let seeds: &[&[u8]] = &[MXE_AUTHORITY_SEED, &[bump]];
+            let signer_seeds = &[seeds];
+
+            invoke_signed(
+                &ix,
+                &[
+                    mxe_authority_info.clone(),
+                    buy_order.clone(),
+                    sell_order.clone(),
+                    pair.clone(),
+                    buyer_base_balance.clone(),
+                    buyer_quote_balance.clone(),
+                    seller_base_balance.clone(),
+                    seller_quote_balance.clone(),
+                    fee_recipient_balance.clone(),
+                    exchange.clone(),
+                ],
+                signer_seeds,
+            )?;
+
+            msg!("CPI to DEX settle_order_callback complete");
+        } else {
+            msg!("Warning: Not enough remaining accounts for settlement CPI");
+        }
+
+        Ok(())
+    }
+
+    // =============================================================
+    // CANCEL ORDER / REFUND OPERATIONS
+    // =============================================================
+
+    /// Queue refund calculation for order cancellation
+    ///
+    /// Computes: refund_amount = encrypted_amount - encrypted_filled
+    /// The result is revealed and passed to cancel_order_callback.
+    pub fn calculate_refund(
+        ctx: Context<CalculateRefund>,
+        computation_offset: u64,
+        amount_ciphertext: [u8; 32],
+        filled_ciphertext: [u8; 32],
+        pub_key: [u8; 32],
+        nonce: u128,
+        // Required: Cancel order accounts for CPI callback
+        order: Pubkey,
+        user_base_balance: Pubkey,
+        user_quote_balance: Pubkey,
+        pair: Pubkey,
+        exchange: Pubkey,
+    ) -> Result<()> {
+        let args = ArgBuilder::new()
+            .x25519_pubkey(pub_key)
+            .plaintext_u128(nonce)
+            .encrypted_u64(amount_ciphertext)
+            .encrypted_u64(filled_ciphertext)
+            .build();
+
+        ctx.accounts.sign_pda_account.bump = ctx.bumps.sign_pda_account;
+
+        // Build callback accounts for cancel order CPI
+        let (mxe_authority, _) = Pubkey::find_program_address(
+            &[MXE_AUTHORITY_SEED],
+            ctx.program_id,
+        );
+
+        let callback_accounts = vec![
+            CallbackAccount { pubkey: mxe_authority, is_writable: false },
+            CallbackAccount { pubkey: order, is_writable: true },
+            CallbackAccount { pubkey: user_base_balance, is_writable: true },
+            CallbackAccount { pubkey: user_quote_balance, is_writable: true },
+            CallbackAccount { pubkey: pair, is_writable: true },
+            CallbackAccount { pubkey: exchange, is_writable: false },
+        ];
+
+        queue_computation(
+            ctx.accounts,
+            computation_offset,
+            args,
+            None,
+            vec![CalculateRefundCallback::callback_ix(
+                computation_offset,
+                &ctx.accounts.mxe_account,
+                &callback_accounts,
+            )?],
+            1,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    /// Callback for refund calculation
+    ///
+    /// Receives revealed refund_amount from MPC, then CPIs to DEX
+    /// to execute the cancellation with the calculated refund.
+    #[arcium_callback(encrypted_ix = "calculate_refund")]
+    pub fn calculate_refund_callback(
+        ctx: Context<CalculateRefundCallback>,
+        output: SignedComputationOutputs<CalculateRefundOutput>,
+    ) -> Result<()> {
+        // Verify and extract revealed values
+        let result = match output.verify_output(
+            &ctx.accounts.cluster_account,
+            &ctx.accounts.computation_account,
+        ) {
+            Ok(CalculateRefundOutput { field_0 }) => field_0,
+            Err(e) => {
+                msg!("Refund calculation verification failed: {}", e);
+                return Err(ErrorCode::AbortedComputation.into());
+            }
+        };
+
+        // The result contains revealed refund_amount and had_fills flag
+        let refund_amount = result.field_0; // refund_amount from struct
+        let had_fills = result.field_1;     // had_fills from struct
+
+        // Emit minimal event (NO amounts for privacy)
+        emit!(RefundCalculationResult {
+            computation_offset: ctx.accounts.computation_account.key(),
+            had_fills,
+        });
+
+        // CPI to DEX cancel_order_callback with revealed values
+        // remaining_accounts[0] = MXE authority
+        // remaining_accounts[1] = order
+        // remaining_accounts[2] = user_base_balance
+        // remaining_accounts[3] = user_quote_balance
+        // remaining_accounts[4] = pair
+        // remaining_accounts[5] = exchange
+        if ctx.remaining_accounts.len() >= 6 {
+            let mxe_authority_info = &ctx.remaining_accounts[0];
+            let order = &ctx.remaining_accounts[1];
+            let user_base_balance = &ctx.remaining_accounts[2];
+            let user_quote_balance = &ctx.remaining_accounts[3];
+            let pair = &ctx.remaining_accounts[4];
+            let exchange = &ctx.remaining_accounts[5];
+
+            // Derive MXE authority PDA
+            let (expected_mxe_authority, bump) = Pubkey::find_program_address(
+                &[MXE_AUTHORITY_SEED],
+                ctx.program_id,
+            );
+
+            require!(
+                *mxe_authority_info.key == expected_mxe_authority,
+                ErrorCode::AbortedComputation
+            );
+
+            // Build CPI data: [discriminator(8) | refund_amount(8)]
+            let mut ix_data = Vec::with_capacity(16);
+            ix_data.extend_from_slice(&DEX_CANCEL_ORDER_CALLBACK_DISCRIMINATOR);
+            ix_data.extend_from_slice(&refund_amount.to_le_bytes());
+
+            let ix = Instruction {
+                program_id: DEX_PROGRAM_ID,
+                accounts: vec![
+                    AccountMeta::new_readonly(expected_mxe_authority, true), // MXE authority (signer)
+                    AccountMeta::new(*order.key, false),
+                    AccountMeta::new(*user_base_balance.key, false),
+                    AccountMeta::new(*user_quote_balance.key, false),
+                    AccountMeta::new(*pair.key, false),
+                    AccountMeta::new_readonly(*exchange.key, false),
+                ],
+                data: ix_data,
+            };
+
+            let seeds: &[&[u8]] = &[MXE_AUTHORITY_SEED, &[bump]];
+            let signer_seeds = &[seeds];
+
+            invoke_signed(
+                &ix,
+                &[
+                    mxe_authority_info.clone(),
+                    order.clone(),
+                    user_base_balance.clone(),
+                    user_quote_balance.clone(),
+                    pair.clone(),
+                    exchange.clone(),
+                ],
+                signer_seeds,
+            )?;
+
+            msg!("CPI to DEX cancel_order_callback complete");
+        } else {
+            msg!("Warning: Not enough remaining accounts for cancel order CPI");
         }
 
         Ok(())
@@ -944,6 +1751,54 @@ pub struct FundingCalculationResult {
     pub nonce: [u8; 16],
 }
 
+#[event]
+pub struct BalanceCheckResult {
+    pub computation_offset: Pubkey,
+    pub sufficient: bool,
+}
+
+#[event]
+pub struct OrderBalanceCheckResult {
+    pub computation_offset: Pubkey,
+    pub sufficient: bool,
+}
+
+#[event]
+pub struct SettlementDecryptionResult {
+    /// Computation account key (no amounts for privacy)
+    pub computation_offset: Pubkey,
+}
+
+#[event]
+pub struct RefundCalculationResult {
+    /// Computation account key (no amounts for privacy)
+    pub computation_offset: Pubkey,
+    /// Whether the order had any fills (for logging/monitoring)
+    pub had_fills: bool,
+}
+
+#[event]
+pub struct BatchPriceCompareResult {
+    /// Computation account key
+    pub computation_offset: Pubkey,
+    /// Match results for each pair (true = buy >= sell)
+    pub matches: [bool; 5],
+}
+
+#[event]
+pub struct BatchFillCalculationResult {
+    /// Computation account key
+    pub computation_offset: Pubkey,
+    /// Fill amounts (encrypted) for each pair
+    pub fills: [[u8; 32]; 5],
+    /// Whether each buy order is fully filled
+    pub buy_filled: [bool; 5],
+    /// Whether each sell order is fully filled
+    pub sell_filled: [bool; 5],
+    /// Nonce for decryption
+    pub nonce: [u8; 16],
+}
+
 // =============================================================
 // ERRORS
 // =============================================================
@@ -1090,6 +1945,90 @@ pub struct InitSubEncryptedCompDef<'info> {
 #[init_computation_definition_accounts("mul_encrypted", payer)]
 #[derive(Accounts)]
 pub struct InitMulEncryptedCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, address = derive_mxe_pda!())]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    /// CHECK: comp_def_account initialized via CPI
+    #[account(mut)]
+    pub comp_def_account: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
+#[init_computation_definition_accounts("check_balance", payer)]
+#[derive(Accounts)]
+pub struct InitCheckBalanceCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, address = derive_mxe_pda!())]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    /// CHECK: comp_def_account initialized via CPI
+    #[account(mut)]
+    pub comp_def_account: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
+#[init_computation_definition_accounts("check_order_balance", payer)]
+#[derive(Accounts)]
+pub struct InitCheckOrderBalanceCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, address = derive_mxe_pda!())]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    /// CHECK: comp_def_account initialized via CPI
+    #[account(mut)]
+    pub comp_def_account: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
+#[init_computation_definition_accounts("decrypt_for_settlement", payer)]
+#[derive(Accounts)]
+pub struct InitDecryptForSettlementCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, address = derive_mxe_pda!())]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    /// CHECK: comp_def_account initialized via CPI
+    #[account(mut)]
+    pub comp_def_account: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
+#[init_computation_definition_accounts("calculate_refund", payer)]
+#[derive(Accounts)]
+pub struct InitCalculateRefundCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, address = derive_mxe_pda!())]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    /// CHECK: comp_def_account initialized via CPI
+    #[account(mut)]
+    pub comp_def_account: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
+#[init_computation_definition_accounts("batch_compare_prices", payer)]
+#[derive(Accounts)]
+pub struct InitBatchComparePricesCompDef<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(mut, address = derive_mxe_pda!())]
+    pub mxe_account: Box<Account<'info, MXEAccount>>,
+    /// CHECK: comp_def_account initialized via CPI
+    #[account(mut)]
+    pub comp_def_account: UncheckedAccount<'info>,
+    pub arcium_program: Program<'info, Arcium>,
+    pub system_program: Program<'info, System>,
+}
+
+#[init_computation_definition_accounts("batch_calculate_fill", payer)]
+#[derive(Accounts)]
+pub struct InitBatchCalculateFillCompDef<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
     #[account(mut, address = derive_mxe_pda!())]
@@ -1368,6 +2307,234 @@ pub struct CalculateFunding<'info> {
     pub arcium_program: Program<'info, Arcium>,
 }
 
+#[queue_computation_accounts("check_balance", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct CheckBalance<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: mempool_account checked by arcium program
+    #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub mempool_account: UncheckedAccount<'info>,
+    /// CHECK: executing_pool checked by arcium program
+    #[account(mut, address = derive_execpool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub executing_pool: UncheckedAccount<'info>,
+    /// CHECK: computation_account checked by arcium program
+    #[account(mut, address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::AbortedComputation))]
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CHECK_BALANCE))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
+#[queue_computation_accounts("check_order_balance", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct CheckOrderBalance<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: mempool_account checked by arcium program
+    #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub mempool_account: UncheckedAccount<'info>,
+    /// CHECK: executing_pool checked by arcium program
+    #[account(mut, address = derive_execpool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub executing_pool: UncheckedAccount<'info>,
+    /// CHECK: computation_account checked by arcium program
+    #[account(mut, address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::AbortedComputation))]
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CHECK_ORDER_BALANCE))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
+#[queue_computation_accounts("decrypt_for_settlement", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct DecryptForSettlement<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: mempool_account checked by arcium program
+    #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub mempool_account: UncheckedAccount<'info>,
+    /// CHECK: executing_pool checked by arcium program
+    #[account(mut, address = derive_execpool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub executing_pool: UncheckedAccount<'info>,
+    /// CHECK: computation_account checked by arcium program
+    #[account(mut, address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::AbortedComputation))]
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_DECRYPT_FOR_SETTLEMENT))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
+#[queue_computation_accounts("calculate_refund", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct CalculateRefund<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: mempool_account checked by arcium program
+    #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub mempool_account: UncheckedAccount<'info>,
+    /// CHECK: executing_pool checked by arcium program
+    #[account(mut, address = derive_execpool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub executing_pool: UncheckedAccount<'info>,
+    /// CHECK: computation_account checked by arcium program
+    #[account(mut, address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::AbortedComputation))]
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CALCULATE_REFUND))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
+#[queue_computation_accounts("batch_compare_prices", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct BatchComparePrices<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: mempool_account checked by arcium program
+    #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub mempool_account: UncheckedAccount<'info>,
+    /// CHECK: executing_pool checked by arcium program
+    #[account(mut, address = derive_execpool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub executing_pool: UncheckedAccount<'info>,
+    /// CHECK: computation_account checked by arcium program
+    #[account(mut, address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::AbortedComputation))]
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_BATCH_COMPARE_PRICES))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
+#[queue_computation_accounts("batch_calculate_fill", payer)]
+#[derive(Accounts)]
+#[instruction(computation_offset: u64)]
+pub struct BatchCalculateFill<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        init_if_needed,
+        space = 9,
+        payer = payer,
+        seeds = [&SIGN_PDA_SEED],
+        bump,
+        address = derive_sign_pda!(),
+    )]
+    pub sign_pda_account: Account<'info, ArciumSignerAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: mempool_account checked by arcium program
+    #[account(mut, address = derive_mempool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub mempool_account: UncheckedAccount<'info>,
+    /// CHECK: executing_pool checked by arcium program
+    #[account(mut, address = derive_execpool_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub executing_pool: UncheckedAccount<'info>,
+    /// CHECK: computation_account checked by arcium program
+    #[account(mut, address = derive_comp_pda!(computation_offset, mxe_account, ErrorCode::AbortedComputation))]
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_BATCH_CALCULATE_FILL))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(mut, address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    #[account(mut, address = ARCIUM_FEE_POOL_ACCOUNT_ADDRESS)]
+    pub pool_account: Account<'info, FeePool>,
+    #[account(mut, address = ARCIUM_CLOCK_ACCOUNT_ADDRESS)]
+    pub clock_account: Account<'info, ClockAccount>,
+    pub system_program: Program<'info, System>,
+    pub arcium_program: Program<'info, Arcium>,
+}
+
 // Callback accounts
 #[callback_accounts("compare_prices")]
 #[derive(Accounts)]
@@ -1476,6 +2643,108 @@ pub struct CalculatePnlCallback<'info> {
 pub struct CalculateFundingCallback<'info> {
     pub arcium_program: Program<'info, Arcium>,
     #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CALCULATE_FUNDING))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account checked by arcium program via constraints
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    /// CHECK: instructions_sysvar checked by account constraint
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("check_balance")]
+#[derive(Accounts)]
+pub struct CheckBalanceCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CHECK_BALANCE))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account checked by arcium program via constraints
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    /// CHECK: instructions_sysvar checked by account constraint
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("check_order_balance")]
+#[derive(Accounts)]
+pub struct CheckOrderBalanceCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CHECK_ORDER_BALANCE))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account checked by arcium program via constraints
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    /// CHECK: instructions_sysvar checked by account constraint
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("decrypt_for_settlement")]
+#[derive(Accounts)]
+pub struct DecryptForSettlementCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_DECRYPT_FOR_SETTLEMENT))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account checked by arcium program via constraints
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    /// CHECK: instructions_sysvar checked by account constraint
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("calculate_refund")]
+#[derive(Accounts)]
+pub struct CalculateRefundCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_CALCULATE_REFUND))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account checked by arcium program via constraints
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    /// CHECK: instructions_sysvar checked by account constraint
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("batch_compare_prices")]
+#[derive(Accounts)]
+pub struct BatchComparePricesCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_BATCH_COMPARE_PRICES))]
+    pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
+    #[account(address = derive_mxe_pda!())]
+    pub mxe_account: Account<'info, MXEAccount>,
+    /// CHECK: computation_account checked by arcium program via constraints
+    pub computation_account: UncheckedAccount<'info>,
+    #[account(address = derive_cluster_pda!(mxe_account, ErrorCode::AbortedComputation))]
+    pub cluster_account: Account<'info, Cluster>,
+    /// CHECK: instructions_sysvar checked by account constraint
+    #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: AccountInfo<'info>,
+}
+
+#[callback_accounts("batch_calculate_fill")]
+#[derive(Accounts)]
+pub struct BatchCalculateFillCallback<'info> {
+    pub arcium_program: Program<'info, Arcium>,
+    #[account(address = derive_comp_def_pda!(COMP_DEF_OFFSET_BATCH_CALCULATE_FILL))]
     pub comp_def_account: Account<'info, ComputationDefinitionAccount>,
     #[account(address = derive_mxe_pda!())]
     pub mxe_account: Account<'info, MXEAccount>,

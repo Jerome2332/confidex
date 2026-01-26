@@ -31,7 +31,7 @@ import { blacklistRouter } from '../../../routes/admin/blacklist.js';
 
 // Valid test addresses (real Solana address format)
 const VALID_ADDRESS_1 = '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB';
-const VALID_ADDRESS_2 = 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS';
+const VALID_ADDRESS_2 = '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi';
 const INVALID_ADDRESS = 'not-a-valid-address';
 
 describe('Blacklist Admin Routes', () => {

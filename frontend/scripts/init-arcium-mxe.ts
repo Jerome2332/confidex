@@ -40,7 +40,7 @@ import {
 
 // Configuration
 const MXE_PROGRAM_ID = new PublicKey(
-  process.env.MXE_PROGRAM_ID || 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
+  process.env.MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
 );
 const RPC_URL = process.env.RPC_URL || 'https://api.devnet.solana.com';
 // Cluster 123: v0.5.4 (available)

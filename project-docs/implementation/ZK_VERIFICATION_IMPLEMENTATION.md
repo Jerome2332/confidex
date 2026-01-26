@@ -26,7 +26,7 @@ Layer 3: C-SPL Tokens       → Persistent encrypted balances (settlement)
 |---------|---------|---------|
 | **Confidex DEX** | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Core DEX logic, order management |
 | **Sunspot ZK Verifier** | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` | Groth16 proof verification |
-| **Arcium MXE** | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | MPC operations wrapper |
+| **Arcium MXE** | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | MPC operations wrapper |
 
 ### Key PDAs
 

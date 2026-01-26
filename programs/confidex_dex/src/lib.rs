@@ -92,6 +92,31 @@ pub mod confidex_dex {
         instructions::settle_order::handler(ctx, params)
     }
 
+    /// Settlement callback from MXE
+    ///
+    /// Called by the MXE's decrypt_for_settlement_callback with decrypted
+    /// fill_amount and price. Only the MXE authority PDA can invoke this.
+    /// This is the production MPC-based settlement that doesn't read plaintext.
+    pub fn settle_order_callback(
+        ctx: Context<SettleOrderCallback>,
+        fill_amount: u64,
+        price: u64,
+    ) -> Result<()> {
+        instructions::settle_order_callback::handler(ctx, fill_amount, price)
+    }
+
+    /// Cancel order callback from MXE
+    ///
+    /// Called by the MXE's calculate_refund_callback with decrypted
+    /// refund_amount. Only the MXE authority PDA can invoke this.
+    /// This is the production MPC-based cancellation that doesn't read plaintext.
+    pub fn cancel_order_callback(
+        ctx: Context<CancelOrderCallback>,
+        refund_amount: u64,
+    ) -> Result<()> {
+        instructions::cancel_order_callback::handler(ctx, refund_amount)
+    }
+
     /// Pause trading (admin only)
     pub fn pause(ctx: Context<Pause>) -> Result<()> {
         instructions::admin::pause_handler(ctx)

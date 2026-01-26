@@ -19,10 +19,10 @@ import {
   x25519
 } from '@arcium-hq/client';
 
-// MXE Program ID (devnet - from constants)
+// MXE Program ID (devnet - from constants, Jan 22 2026 deployment)
 const MXE_PROGRAM_ID = new PublicKey(
   process.env.NEXT_PUBLIC_MXE_PROGRAM_ID ||
-  'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
+  '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
 );
 
 // Optional: Override MXE public key via environment variable (hex-encoded 32 bytes)

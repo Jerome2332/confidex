@@ -10,9 +10,9 @@ export const CONFIDEX_PROGRAM_ID = new PublicKey(
   '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB'
 );
 
-// Full Arcium MXE deployed via `arcium deploy` - production MPC
+// Full Arcium MXE deployed via `arcium deploy` - production MPC (Jan 22, 2026)
 export const MXE_PROGRAM_ID = new PublicKey(
-  'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM'
+  '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
 );
 
 // Eligibility verifier program (Sunspot Groth16)
@@ -33,7 +33,7 @@ export const INCO_PROGRAM_ID = new PublicKey(
 // String versions for environments that can't use PublicKey
 export const PROGRAM_ID_STRINGS = {
   CONFIDEX_DEX: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB',
-  ARCIUM_MXE: 'DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM',
+  ARCIUM_MXE: '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi',
   ARCIUM_CORE: 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ',
   VERIFIER: '9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W',
   INCO: '5sjEbPiqgZrYwR31ahR6Uk9wf5awoX61YGg7jExQSwaj',
@@ -138,5 +138,5 @@ export const DEFAULT_TAKER_FEE_BPS = 30; // 0.30%
 // =============================================================================
 // MXE ENCRYPTION KEY (Production)
 // =============================================================================
-// X25519 public key from deployed MXE (keygen completed Jan 20, 2026)
-export const MXE_X25519_PUBKEY = '14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960';
+// X25519 public key from deployed MXE (keygen completed Jan 26, 2026 on cluster 456)
+export const MXE_X25519_PUBKEY = '113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c';

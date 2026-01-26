@@ -24,7 +24,7 @@ import * as crypto from 'crypto';
 
 // Configuration
 const RPC_URL = 'https://api.devnet.solana.com';
-const MXE_PROGRAM_ID = new PublicKey('DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM');
+const MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const MXE_CONFIG_PDA = new PublicKey('GqZ3v32aFzr1s5N4vSo6piur8pHuWw4jZpKW5xEy31qK');
 const MXE_AUTHORITY_PDA = new PublicKey('9WH1PNEpvHQDLTUm1W3MuwSdsbTtLMK8eoy2SyNBLnyn');
 

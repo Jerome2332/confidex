@@ -18,7 +18,7 @@ describe('Arcium RPC Integration', () => {
   let client: ArciumClient;
 
   const mxeProgramId = new PublicKey(
-    process.env.MXE_PROGRAM_ID || 'HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS'
+    process.env.MXE_PROGRAM_ID || '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi'
   );
   const clusterOffset = 456; // Correct cluster offset per CLAUDE.md
 

@@ -55,7 +55,7 @@ Configure these variables in GitHub Settings → Secrets and Variables → Actio
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `NEXT_PUBLIC_PROGRAM_ID` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | DEX program ID |
-| `NEXT_PUBLIC_MXE_PROGRAM_ID` | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` | MXE program ID |
+| `NEXT_PUBLIC_MXE_PROGRAM_ID` | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | MXE program ID |
 | `NEXT_PUBLIC_MXE_X25519_PUBKEY` | `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b` | MXE encryption key |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | RPC endpoint |
 | `VERCEL_PROJECT_ID` | - | Vercel project ID |
@@ -165,7 +165,7 @@ pnpm install
 # 2. Create .env.production
 cat > .env.production << EOF
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 NEXT_PUBLIC_MXE_X25519_PUBKEY=46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b
 NEXT_PUBLIC_NETWORK=devnet
 NEXT_PUBLIC_ARCIUM_ENABLED=true
@@ -273,7 +273,7 @@ The crank service requires these environment variables:
 CRANK_ENABLED=true
 CRANK_RPC_PRIMARY=https://api.devnet.solana.com
 CONFIDEX_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 ADMIN_API_KEY=<generate with: openssl rand -hex 32>
 
 # Wallet Configuration (use ONE of these options)
@@ -325,7 +325,7 @@ Confidex backend is deployed on Render with Docker containerization.
 | `NODE_ENV` | Environment mode | `production` |
 | `ADMIN_API_KEY` | Admin authentication | `<openssl rand -hex 32>` |
 | `CONFIDEX_PROGRAM_ID` | DEX program address | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` |
-| `MXE_PROGRAM_ID` | MXE program address | `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS` |
+| `MXE_PROGRAM_ID` | MXE program address | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` |
 | `CRANK_RPC_PRIMARY` | Solana RPC endpoint | `https://api.devnet.solana.com` |
 | `CRANK_WALLET_SECRET_KEY` | Wallet secret key | `[104,33,2,...]` (JSON array) |
 | `CRANK_ENABLED` | Enable crank service | `true` |
@@ -526,7 +526,7 @@ arcium mxe-info <MXE_PROGRAM_ID> -u devnet
 
 - [ ] All programs deployed to devnet/mainnet
   - `confidex_dex`: `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`
-  - `confidex_mxe`: `HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS`
+  - `confidex_mxe`: `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi`
   - `eligibility_verifier`: `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`
 - [ ] ExchangeState initialized with correct `fee_recipient`
 - [ ] Trading pair(s) created and active

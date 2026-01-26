@@ -90,3 +90,6 @@ credentials.json
 token.json
 *.credentials
 service-account*.json
+backend-logs.txt
+backend/data/*.db-shm
+backend/data/*.db-wal

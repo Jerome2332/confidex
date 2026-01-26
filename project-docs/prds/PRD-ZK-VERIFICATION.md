@@ -306,5 +306,5 @@ Offset 12-43: blacklist_root (32 bytes)
 ```
 DEX:      63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
 Verifier: 9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W
-MXE:      DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+MXE:      4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 ```

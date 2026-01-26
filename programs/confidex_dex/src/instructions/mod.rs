@@ -26,6 +26,8 @@ pub mod check_liquidation_batch;
 
 // MPC callback handlers
 pub mod mpc_callback;
+pub mod settle_order_callback;
+pub mod cancel_order_callback;
 
 pub use admin::*;
 pub use cancel_order::*;
@@ -55,3 +57,5 @@ pub use check_liquidation_batch::*;
 
 // MPC callback exports
 pub use mpc_callback::*;
+pub use settle_order_callback::*;
+pub use cancel_order_callback::*;

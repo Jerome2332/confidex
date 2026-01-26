@@ -160,8 +160,13 @@ impl SettleOrderParams {
 /// - C-SPL (1): Arcium MPC confidential tokens, 0% fee (disabled until SDK)
 /// - StandardSPL (2): Fallback with no privacy
 ///
-/// HACKATHON VERSION: Uses plaintext helpers from first 8 bytes of encrypted fields.
-/// When C-SPL SDK is available, replace with proper confidential_transfer CPI.
+/// # DEPRECATED
+///
+/// This is the legacy hackathon settlement that reads plaintext from encrypted fields.
+/// **Use `settle_order_callback` instead** which receives MPC-decrypted values.
+///
+/// This handler remains for backward compatibility but will be removed in v2.0.
+#[allow(deprecated)]
 pub fn handler(ctx: Context<SettleOrder>, params: SettleOrderParams) -> Result<()> {
     let buy_order = &ctx.accounts.buy_order;
     let sell_order = &ctx.accounts.sell_order;

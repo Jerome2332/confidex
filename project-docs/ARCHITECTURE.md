@@ -162,7 +162,7 @@ pnpm test:coverage              # Run tests with coverage
 | Program | Program ID (Devnet) | Purpose |
 |---------|---------------------|---------|
 | `confidex_dex` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | Core DEX logic, order management, MPC callbacks |
-| `confidex_mxe` | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` | MXE wrapper for Arcium MPC operations (deployed 2026-01-20) |
+| `confidex_mxe` | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | MXE wrapper for Arcium MPC operations (deployed 2026-01-20) |
 | `eligibility_verifier` | `9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W` | ZK proof verification (Groth16 via Sunspot) |
 | `c_spl_program` | TBD | Confidential token standard |
 
@@ -296,7 +296,7 @@ arcup list                 # List installed versions
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
 
 # Arcium MXE Program (our deployed MXE wrapper)
-NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 
 # Arcium Core Program (official Arcium program)
 ARCIUM_PROGRAM_ID=Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ
@@ -964,7 +964,7 @@ arcium requeue-mxe-keygen <MXE_PROGRAM_ID> \
 **Current Configuration:**
 ```env
 # frontend/.env.local
-NEXT_PUBLIC_MXE_PROGRAM_ID=DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM
+NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 NEXT_PUBLIC_MXE_X25519_PUBKEY=14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
 NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
 ```
@@ -1091,7 +1091,7 @@ NEXT_PUBLIC_ARCIUM_ENABLED=true
 **Deployment Summary:**
 | Item | Value |
 |------|-------|
-| MXE Program ID | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` |
+| MXE Program ID | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` |
 | X25519 Public Key | `14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960` |
 | Cluster | 456 (Arcium v0.6.3) |
 | Recovery Set | 4 nodes |

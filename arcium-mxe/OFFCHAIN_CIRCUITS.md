@@ -12,7 +12,7 @@ Arcis-compiled circuits are large (14MB total for Confidex). Storing them on-cha
 |------|--------|-------|
 | Update MXE program with `CircuitSource::OffChain` | ✅ Done | Uses `circuit_hash!` macro |
 | Upload circuits to public storage | ✅ Done | GitHub Releases v0.1.0-circuits |
-| Deploy updated MXE | ✅ Done | `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM` |
+| Deploy updated MXE | ✅ Done | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` |
 | Initialize comp defs | ✅ Done | All 10 circuits registered |
 | MXE keygen complete | ✅ Done | X25519 key: `14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960` |
 | Update program IDs in codebase | ✅ Done | Frontend + DEX updated |
@@ -20,7 +20,7 @@ Arcis-compiled circuits are large (14MB total for Confidex). Storing them on-cha
 
 ## Deployment Details
 
-**MXE Program ID:** `DoT4uChyp5TCtkDw4VkUSsmj3u3SFqYQzr2KafrCqYCM`
+**MXE Program ID:** `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi`
 **DEX Program ID:** `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`
 **Cluster:** 456 (Arcium v0.6.3 devnet)
 **Circuit Storage:** https://github.com/Jerome2332/confidex/releases/tag/v0.1.0-circuits

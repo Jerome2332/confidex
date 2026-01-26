@@ -24,7 +24,7 @@
 | **Frontend** | [https://www.confidex.xyz](https://www.confidex.xyz) | Live |
 | **Backend API** | [https://confidex-uflk.onrender.com](https://confidex-uflk.onrender.com) | Live |
 | **DEX Program** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) | Deployed |
-| **MXE Program** | [`HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS`](https://explorer.solana.com/address/HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS?cluster=devnet) | Deployed |
+| **MXE Program** | [`4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi`](https://explorer.solana.com/address/4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi?cluster=devnet) | Deployed |
 | **ZK Verifier** | [`9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`](https://explorer.solana.com/address/9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W?cluster=devnet) | Deployed |
 | **Arcium Core** | [`Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ`](https://explorer.solana.com/address/Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ?cluster=devnet) | Active |
 
@@ -289,11 +289,11 @@ confidex/
 ```env
 # Program IDs (Devnet)
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
-NEXT_PUBLIC_MXE_PROGRAM_ID=HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 NEXT_PUBLIC_VERIFIER_PROGRAM_ID=9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W
 
 # MPC Encryption (Required)
-NEXT_PUBLIC_MXE_X25519_PUBKEY=46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b
+NEXT_PUBLIC_MXE_X25519_PUBKEY=113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
 
 # RPC
 HELIUS_API_KEY=your-helius-api-key

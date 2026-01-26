@@ -27,7 +27,7 @@ import {
   ARCIUM_ADDR,
 } from '@arcium-hq/client';
 
-const MXE_PROGRAM_ID = new PublicKey('HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS');
+const MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const ARCIUM_PROGRAM = new PublicKey(ARCIUM_ADDR);
 
 // Compute discriminator for instruction
@@ -91,7 +91,7 @@ and verified the circuit files from GitHub Releases.
 This is a cluster-side issue. Possible solutions:
 
 1. Contact Arcium team on Discord to investigate
-   - MXE Program ID: HrAjvetNk3UYzsrnbSEcybpQoTTSS8spZZFkiVWmWLbS
+   - MXE Program ID: 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
    - Cluster: 456
 
 2. Check if the circuit URLs are accessible from the cluster's perspective
