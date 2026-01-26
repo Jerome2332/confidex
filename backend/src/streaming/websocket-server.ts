@@ -36,13 +36,24 @@ export class WebSocketServer {
     private httpServer: HttpServer,
     private config: StreamingConfig
   ) {
+    const allowedOrigins = this.getAllowedOrigins();
+    log.info({ allowedOrigins }, 'WebSocket CORS origins configured');
+
     this.io = new Server(httpServer, {
       path: config.websocket.path,
       pingTimeout: config.websocket.pingTimeout,
       pingInterval: config.websocket.pingInterval,
       maxHttpBufferSize: config.websocket.maxPayloadSize,
       cors: {
-        origin: this.getAllowedOrigins(),
+        origin: (origin, callback) => {
+          log.debug({ origin, allowedOrigins }, 'WebSocket CORS check');
+          if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+          } else {
+            log.warn({ origin, allowedOrigins }, 'WebSocket CORS rejected');
+            callback(new Error('CORS not allowed'), false);
+          }
+        },
         methods: ['GET', 'POST'],
         credentials: true,
       },
