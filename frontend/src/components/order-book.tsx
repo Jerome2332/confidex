@@ -424,7 +424,16 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
           {/* Footer */}
           <div className="border-t border-border bg-secondary/20 px-2 py-1.5 shrink-0">
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span>{recentTrades.length} recent trades</span>
+              <span>
+                {hasRealTrades ? (
+                  `${recentTrades.length} recent trades`
+                ) : (
+                  <span className="flex items-center gap-1">
+                    <Lock size={8} className="opacity-60" />
+                    <span>Sample data - real trades are private</span>
+                  </span>
+                )}
+              </span>
               <div className="flex items-center gap-2">
                 {/* WebSocket status indicator */}
                 <div className="flex items-center gap-1" title={tradeWsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}>
