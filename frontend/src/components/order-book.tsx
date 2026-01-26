@@ -155,9 +155,12 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
     return generateMockLevels(midPrice, 'bid', maxRows, precisionNum);
   }, [chainBids, hasRealOrders, midPrice, maxRows, precisionNum, isMounted]);
 
-  // Calculate spread
-  const bestAsk = asks[asks.length - 1]?.price || midPrice + precisionNum;
-  const bestBid = bids[0]?.price || midPrice - precisionNum;
+  // Calculate spread (if prices are encrypted, we can't calculate real spread)
+  const bestAskPrice = asks[asks.length - 1]?.price;
+  const bestBidPrice = bids[0]?.price;
+  const hasEncryptedPrices = bestAskPrice === -1 || bestBidPrice === -1;
+  const bestAsk = hasEncryptedPrices ? midPrice + precisionNum : (bestAskPrice || midPrice + precisionNum);
+  const bestBid = hasEncryptedPrices ? midPrice - precisionNum : (bestBidPrice || midPrice - precisionNum);
   const spread = Math.round((bestAsk - bestBid) * 100) / 100;
   const spreadPercent = ((spread / midPrice) * 100).toFixed(2);
 
@@ -200,6 +203,8 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
   const renderPriceRow = (entry: OrderBookEntry, side: 'ask' | 'bid', index: number) => {
     const isAsk = side === 'ask';
     const depthWidth = `${entry.depthIndicator}%`;
+    // Price of -1 is a sentinel value indicating the price is encrypted
+    const isFullyEncrypted = entry.price === -1;
 
     return (
       <div
@@ -217,9 +222,16 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
           style={{ width: depthWidth }}
         />
 
-        {/* Price */}
-        <span className={`relative z-10 font-mono ${isAsk ? 'text-rose-400/80' : 'text-emerald-400/80'}`}>
-          {entry.price.toFixed(precision === '1' ? 0 : precision === '0.1' ? 1 : 2)}
+        {/* Price - show "Encrypted" if price is -1 (sentinel) */}
+        <span className={`relative z-10 font-mono flex items-center gap-1 ${isAsk ? 'text-rose-400/80' : 'text-emerald-400/80'}`}>
+          {isFullyEncrypted ? (
+            <>
+              <Lock size={10} className="opacity-60" />
+              <span className="text-[10px] opacity-80">Encrypted</span>
+            </>
+          ) : (
+            entry.price.toFixed(precision === '1' ? 0 : precision === '0.1' ? 1 : 2)
+          )}
         </span>
 
         {/* Encrypted depth indicator */}
@@ -312,8 +324,15 @@ export const OrderBook: FC<OrderBookProps> = ({ variant = 'default', maxRows = 1
                 {priceChange === 'up' && <TrendUp size={12} className="text-white" />}
                 {priceChange === 'down' && <TrendDown size={12} className="text-white/60" />}
               </div>
-              <span className="text-[10px] text-muted-foreground font-mono">
-                Spread: ${spread.toFixed(2)} ({spreadPercent}%)
+              <span className="text-[10px] text-muted-foreground font-mono flex items-center gap-1">
+                {hasEncryptedPrices && hasRealOrders ? (
+                  <>
+                    <Lock size={8} className="opacity-60" />
+                    <span>Spread: Encrypted</span>
+                  </>
+                ) : (
+                  <span>Spread: ${spread.toFixed(2)} ({spreadPercent}%)</span>
+                )}
               </span>
             </div>
           </div>

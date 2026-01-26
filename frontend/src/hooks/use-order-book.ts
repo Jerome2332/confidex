@@ -42,8 +42,9 @@ interface ParsedOrder {
   pair: PublicKey;
   side: Side;
   status: OrderStatus;
-  priceU64: bigint; // From first 8 bytes of encrypted_price (V5 hackathon plaintext)
-  amountU64: bigint; // From first 8 bytes of encrypted_amount (V5 hackathon plaintext)
+  // V5 orders have fully encrypted prices/amounts (V2 encryption format)
+  // We can only know that an order exists, not its price or amount
+  isEncrypted: true;
 }
 
 // Simple in-memory cache
@@ -67,8 +68,8 @@ const CACHE_TTL_MS = 10000; // Cache valid for 10 seconds
  *   40-71:  pair (32)
  *   72:     side (1)
  *   73:     order_type (1)
- *   74-137: encrypted_amount (64)
- *   138-201: encrypted_price (64)
+ *   74-137: encrypted_amount (64) - V2 format: [nonce|ciphertext|ephemeral_pubkey]
+ *   138-201: encrypted_price (64) - V2 format: [nonce|ciphertext|ephemeral_pubkey]
  *   202-265: encrypted_filled (64)
  *   266:    status (1)
  *   267-274: created_at_hour (8)
@@ -79,13 +80,15 @@ const CACHE_TTL_MS = 10000; // Cache valid for 10 seconds
  *   332:    is_matching (1)
  *   333:    bump (1)
  *   334-365: ephemeral_pubkey (32)
+ *
+ * NOTE: V5 orders use V2 encryption (64 bytes fully encrypted).
+ * We cannot read price/amount without MPC decryption.
+ * This function only extracts metadata (side, status, pair) for counting orders.
  */
 function parseV5Order(data: Uint8Array): ParsedOrder | null {
   if (data.length !== ORDER_ACCOUNT_SIZE_V5) {
     return null;
   }
-
-  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
 
   // Offsets based on V5 order format
   const maker = new PublicKey(data.slice(8, 40));
@@ -93,19 +96,15 @@ function parseV5Order(data: Uint8Array): ParsedOrder | null {
   const side = data[72] as Side;
   const status = data[266] as OrderStatus;
 
-  // V5 has NO plaintext fields - read from first 8 bytes of encrypted fields
-  // encrypted_amount: offset 74-137 (first 8 bytes = hackathon plaintext)
-  // encrypted_price: offset 138-201 (first 8 bytes = hackathon plaintext)
-  const amountU64 = view.getBigUint64(74, true); // first 8 bytes of encrypted_amount
-  const priceU64 = view.getBigUint64(138, true); // first 8 bytes of encrypted_price
+  // V5 orders have fully encrypted prices/amounts
+  // We can only know that an order exists, not its price or amount
 
   return {
     maker,
     pair,
     side,
     status,
-    priceU64,
-    amountU64,
+    isEncrypted: true,
   };
 }
 
@@ -170,9 +169,9 @@ export function useOrderBook(pairPubkey?: PublicKey, refreshIntervalMs = DEFAULT
       // Reset backoff on success
       backoffRef.current = refreshIntervalMs;
 
-      // Aggregate orders by price level
-      const askLevels = new Map<number, { count: number; totalAmount: bigint }>();
-      const bidLevels = new Map<number, { count: number; totalAmount: bigint }>();
+      // Count orders by side (prices are encrypted, cannot group by price)
+      let askCount = 0;
+      let bidCount = 0;
 
       for (const { account } of accounts) {
         const order = parseV5Order(account.data as Uint8Array);
@@ -184,48 +183,28 @@ export function useOrderBook(pairPubkey?: PublicKey, refreshIntervalMs = DEFAULT
         // Only include active orders
         if (order.status !== OrderStatus.Active) continue;
 
-        // Skip orders with zero price or amount (invalid/placeholder)
-        if (order.priceU64 === BigInt(0) || order.amountU64 === BigInt(0)) continue;
-
-        // Convert price from u64 (6 decimals for USDC) to number
-        const price = Number(order.priceU64) / 1_000_000;
-
-        const levels = order.side === Side.Buy ? bidLevels : askLevels;
-        const existing = levels.get(price) || { count: 0, totalAmount: BigInt(0) };
-        levels.set(price, {
-          count: existing.count + 1,
-          totalAmount: existing.totalAmount + order.amountU64,
-        });
-      }
-
-      // Calculate max amount for depth normalization
-      let maxAmount = BigInt(1);
-      const allLevels = [...Array.from(askLevels.values()), ...Array.from(bidLevels.values())];
-      for (const level of allLevels) {
-        if (level.totalAmount > maxAmount) {
-          maxAmount = level.totalAmount;
+        if (order.side === Side.Buy) {
+          bidCount++;
+        } else {
+          askCount++;
         }
       }
 
-      // Convert to sorted arrays with depth indicators
-      const processedAsks: OrderBookLevel[] = Array.from(askLevels.entries())
-        .map(([price, { count, totalAmount }]) => ({
-          price,
-          orderCount: count,
-          // Depth indicator: 20-100 based on relative amount
-          depthIndicator: Math.max(20, Math.min(100, 20 + Math.floor(80 * Number(totalAmount) / Number(maxAmount)))),
-          isEncrypted: true, // Amounts are encrypted, only count is real
-        }))
-        .sort((a, b) => a.price - b.price); // Lowest price first (best ask at end)
+      // Since prices are encrypted, we show a single "Encrypted" level per side
+      // with the count of orders at that level
+      const processedAsks: OrderBookLevel[] = askCount > 0 ? [{
+        price: -1, // Sentinel value indicating encrypted
+        orderCount: askCount,
+        depthIndicator: 50, // Default depth since we can't know amounts
+        isEncrypted: true,
+      }] : [];
 
-      const processedBids: OrderBookLevel[] = Array.from(bidLevels.entries())
-        .map(([price, { count, totalAmount }]) => ({
-          price,
-          orderCount: count,
-          depthIndicator: Math.max(20, Math.min(100, 20 + Math.floor(80 * Number(totalAmount) / Number(maxAmount)))),
-          isEncrypted: true,
-        }))
-        .sort((a, b) => b.price - a.price); // Highest price first (best bid at top)
+      const processedBids: OrderBookLevel[] = bidCount > 0 ? [{
+        price: -1, // Sentinel value indicating encrypted
+        orderCount: bidCount,
+        depthIndicator: 50, // Default depth since we can't know amounts
+        isEncrypted: true,
+      }] : [];
 
       // Update cache
       orderBookCache = {
