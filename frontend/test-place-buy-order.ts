@@ -195,7 +195,7 @@ async function main() {
     const eligibilityProof = new Uint8Array(Buffer.from(proveResult.proofHex, 'hex'));
     console.log('   ✅ ZK proof generated');
 
-    const tx = await buildPlaceOrderTransaction({
+    const { transaction: tx, orderNonce } = await buildPlaceOrderTransaction({
       connection,
       maker: maker.publicKey,
       baseMint: WSOL_MINT,
@@ -211,7 +211,7 @@ async function main() {
     const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
     tx.instructions.unshift(computeBudgetIx);
 
-    console.log('   Submitting transaction...');
+    console.log('   Submitting transaction... (order nonce:', orderNonce.toString(), ')');
     const sig = await sendAndConfirmTransaction(connection, tx, [maker], {
       commitment: 'confirmed',
     });
@@ -256,7 +256,7 @@ async function main() {
   const eligibilityProof = new Uint8Array(Buffer.from(proveResult.proofHex, 'hex'));
   console.log('✅ ZK proof generated');
 
-  const tx = await buildPlaceOrderTransaction({
+  const { transaction: tx, orderNonce } = await buildPlaceOrderTransaction({
     connection,
     maker: maker.publicKey,
     baseMint: WSOL_MINT,
@@ -272,7 +272,7 @@ async function main() {
   const computeBudgetIx = ComputeBudgetProgram.setComputeUnitLimit({ units: 400_000 });
   tx.instructions.unshift(computeBudgetIx);
 
-  console.log('Submitting transaction...');
+  console.log('Submitting transaction... (order nonce:', orderNonce.toString(), ')');
   const sig = await sendAndConfirmTransaction(connection, tx, [maker], {
     commitment: 'confirmed',
   });

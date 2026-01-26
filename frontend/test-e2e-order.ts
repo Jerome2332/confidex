@@ -312,7 +312,7 @@ async function main() {
   console.log('\n--- Step 7: Submit Transaction ---');
 
   try {
-    const tx = await buildPlaceOrderTransaction({
+    const { transaction: tx, orderNonce } = await buildPlaceOrderTransaction({
       connection,
       maker: maker.publicKey,
       baseMint: WSOL_MINT,
@@ -331,7 +331,7 @@ async function main() {
     });
     tx.instructions.unshift(computeBudgetIx);
 
-    logTest('Build transaction', 'pass', `${tx.instructions.length} instructions`);
+    logTest('Build transaction', 'pass', `${tx.instructions.length} instructions, nonce: ${orderNonce}`);
 
     console.log('   Sending transaction...');
     const sig = await sendAndConfirmTransaction(connection, tx, [maker], {
@@ -344,7 +344,7 @@ async function main() {
     // Step 8: Verify order on-chain
     console.log('\n--- Step 8: Verify Order On-Chain ---');
 
-    const [orderPda] = deriveOrderPda(maker.publicKey, BigInt(orderId));
+    const [orderPda] = deriveOrderPda(maker.publicKey, orderNonce);
 
     // Wait a moment for confirmation
     await new Promise(r => setTimeout(r, 2000));

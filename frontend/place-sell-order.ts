@@ -86,7 +86,7 @@ async function main() {
   console.log('  Price:', Number(price) / 1e6, 'USDC');
 
   try {
-    const tx = await buildPlaceOrderTransaction({
+    const { transaction: tx, orderNonce } = await buildPlaceOrderTransaction({
       connection,
       maker: maker.publicKey,
       baseMint: WSOL_MINT,
@@ -106,6 +106,7 @@ async function main() {
     tx.instructions.unshift(computeBudgetIx);
 
     console.log('\nSending transaction (with 400K CU budget)...');
+    console.log('Order nonce:', orderNonce.toString());
     const sig = await sendAndConfirmTransaction(connection, tx, [maker], {
       commitment: 'confirmed',
     });
@@ -114,8 +115,8 @@ async function main() {
     console.log('Signature:', sig);
     console.log(`https://explorer.solana.com/tx/${sig}?cluster=devnet`);
 
-    // Derive order PDA
-    const [orderPda] = deriveOrderPda(maker.publicKey, BigInt(orderId));
+    // Derive order PDA using the nonce
+    const [orderPda] = deriveOrderPda(maker.publicKey, orderNonce);
     console.log('\nOrder PDA:', orderPda.toString());
 
   } catch (error) {
