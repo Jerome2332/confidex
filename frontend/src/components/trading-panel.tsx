@@ -290,6 +290,9 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
   // Handle button click
   const handleButtonClick = () => {
+    log.debug('Button clicked', { connected, publicKey: publicKey?.toBase58(), tradingMode, amount, solPrice });
+    console.log('[Trading] Button clicked:', { connected, publicKey: publicKey?.toBase58(), tradingMode, amount, solPrice });
+
     if (!connected || !publicKey) {
       toast.error('Please connect your wallet');
       return;
@@ -301,6 +304,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         toast.error('Please enter a position size');
         return;
       }
+      log.debug('Calling handleOpenPosition...');
+      console.log('[Trading] Calling handleOpenPosition...');
       handleOpenPosition();
       return;
     }
@@ -325,12 +330,38 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
 
   // Handle opening a perpetual position
   const handleOpenPosition = async () => {
+    log.debug('handleOpenPosition called', {
+      connected,
+      publicKey: publicKey?.toBase58(),
+      solPrice,
+      hasSendTransaction: !!sendTransaction,
+    });
+    console.log('[Trading] handleOpenPosition called:', {
+      connected,
+      publicKey: publicKey?.toBase58(),
+      solPrice,
+      hasSendTransaction: !!sendTransaction,
+    });
+
     if (!connected || !publicKey || !solPrice || !sendTransaction) {
+      log.warn('Missing required values for position open', {
+        connected,
+        hasPublicKey: !!publicKey,
+        solPrice,
+        hasSendTransaction: !!sendTransaction,
+      });
+      console.log('[Trading] Missing required values:', {
+        connected,
+        hasPublicKey: !!publicKey,
+        solPrice,
+        hasSendTransaction: !!sendTransaction,
+      });
       toast.error('Please connect your wallet and wait for price feed');
       return;
     }
 
     setIsOpeningPosition(true);
+    log.info('Starting position open', { positionSide, leverage, amount });
 
     try {
       // Check if perp market is initialized on devnet
