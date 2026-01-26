@@ -22,8 +22,8 @@ import type {
 
 const DEFAULT_OPTIONS: Required<UseWebSocketOptions> = {
   autoConnect: true,
-  maxReconnectAttempts: 5,
-  reconnectDelayMs: 1000,
+  maxReconnectAttempts: 10, // More attempts for Render 502 recovery
+  reconnectDelayMs: 2000, // Start with 2s delay for Render cold starts
   onStatusChange: () => {},
 };
 
@@ -138,8 +138,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       // Use polling first for Render.com compatibility (no sticky sessions)
       // Socket.IO will upgrade to websocket after handshake
       transports: ['polling', 'websocket'],
-      reconnection: false, // We handle reconnection manually
-      timeout: 20000, // Longer timeout for Render cold starts
+      // Enable Socket.IO built-in reconnection for better transient failure handling
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 2000,
+      reconnectionDelayMax: 30000,
+      randomizationFactor: 0.5,
+      timeout: 30000, // Longer timeout for Render cold starts (can take 30+ seconds)
       secure: isSecure,
       // Required for CORS with credentials
       withCredentials: true,
@@ -159,20 +164,31 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     });
 
     socket.on('disconnect', (reason) => {
+      console.log('[WebSocket] Disconnected:', reason);
       updateStatus('disconnected');
-
-      // Attempt reconnection for recoverable disconnects
-      if (reason === 'io server disconnect') {
-        // Server intentionally disconnected, don't reconnect
-        return;
-      }
-
-      attemptReconnectRef.current();
+      // Socket.IO built-in reconnection handles this automatically
     });
 
     socket.on('connect_error', (error) => {
+      console.log('[WebSocket] Connection error:', error.message);
       updateStatus('error', error.message);
-      attemptReconnectRef.current();
+      // Socket.IO built-in reconnection handles this automatically
+    });
+
+    // Socket.IO reconnection events
+    socket.on('reconnect_attempt', (attempt) => {
+      console.log('[WebSocket] Reconnection attempt:', attempt);
+      updateStatus('connecting');
+    });
+
+    socket.on('reconnect', (attempt) => {
+      console.log('[WebSocket] Reconnected after', attempt, 'attempts');
+      // 'connect' event will also fire, which handles status update
+    });
+
+    socket.on('reconnect_failed', () => {
+      console.log('[WebSocket] Reconnection failed after all attempts');
+      updateStatus('error', 'Failed to reconnect after multiple attempts');
     });
 
     socketRef.current = socket;
