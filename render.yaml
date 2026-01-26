@@ -47,6 +47,16 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
+      # WebSocket Streaming
+      - key: STREAMING_ENABLED
+        value: "true"
+      - key: WS_PATH
+        value: "/ws"
+      # CORS for WebSocket (Vercel frontend)
+      - key: FRONTEND_URL
+        value: "https://confidex-theta.vercel.app"
+      - key: ALLOWED_ORIGINS
+        value: "https://confidex-theta.vercel.app,https://www.confidex.xyz,https://confidex.xyz"
     disk:
       name: crank-data
       mountPath: /app/data

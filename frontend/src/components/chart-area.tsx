@@ -20,12 +20,28 @@ const TIMEFRAMES: TimeframeOption[] = [
 // TradingView Widget Component
 const TradingViewWidget: FC<{ interval: string }> = memo(({ interval }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const scriptRef = useRef<HTMLScriptElement | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
+
+    // Track if effect is still active (handles React strict mode double-invoke)
+    let isActive = true;
 
     // Clear previous widget
-    containerRef.current.innerHTML = '';
+    if (scriptRef.current && scriptRef.current.parentNode) {
+      scriptRef.current.parentNode.removeChild(scriptRef.current);
+      scriptRef.current = null;
+    }
+    container.innerHTML = '';
+
+    // Create widget container div that TradingView expects
+    const widgetDiv = document.createElement('div');
+    widgetDiv.className = 'tradingview-widget-container__widget';
+    widgetDiv.style.height = '100%';
+    widgetDiv.style.width = '100%';
+    container.appendChild(widgetDiv);
 
     const script = document.createElement('script');
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js';
@@ -48,7 +64,6 @@ const TradingViewWidget: FC<{ interval: string }> = memo(({ interval }) => {
       calendar: false,
       hide_volume: false,
       support_host: 'https://www.tradingview.com',
-      // Monochrome color overrides
       overrides: {
         'paneProperties.background': '#000000',
         'paneProperties.backgroundType': 'solid',
@@ -65,19 +80,26 @@ const TradingViewWidget: FC<{ interval: string }> = memo(({ interval }) => {
       },
     });
 
-    containerRef.current.appendChild(script);
+    // Only append if effect is still active
+    if (isActive && container) {
+      container.appendChild(script);
+      scriptRef.current = script;
+    }
 
     return () => {
-      if (containerRef.current) {
-        containerRef.current.innerHTML = '';
+      isActive = false;
+      if (scriptRef.current && scriptRef.current.parentNode) {
+        scriptRef.current.parentNode.removeChild(scriptRef.current);
+        scriptRef.current = null;
+      }
+      if (container) {
+        container.innerHTML = '';
       }
     };
   }, [interval]);
 
   return (
-    <div className="tradingview-widget-container h-full w-full" ref={containerRef}>
-      <div className="tradingview-widget-container__widget h-full w-full" />
-    </div>
+    <div className="tradingview-widget-container h-full w-full" ref={containerRef} />
   );
 });
 
