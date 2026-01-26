@@ -185,9 +185,22 @@ export class WebSocketServer {
         this.handleSubscribe(socket, request);
       });
 
-      // Handle unsubscribe requests
-      socket.on('unsubscribe', (request: { channels: string[] }) => {
-        this.handleUnsubscribe(socket, request.channels);
+      // Handle unsubscribe requests (supports both { channels: [] } and { channel, filter })
+      socket.on('unsubscribe', (request: { channels?: string[]; channel?: string; filter?: string }) => {
+        // Normalize to channels array
+        let channels: string[];
+        if (request.channels && Array.isArray(request.channels)) {
+          channels = request.channels;
+        } else if (request.channel) {
+          const channelWithFilter = request.filter
+            ? `${request.channel}:${request.filter}`
+            : request.channel;
+          channels = [channelWithFilter];
+        } else {
+          log.warn({ clientId, request }, 'Invalid unsubscribe request format');
+          return;
+        }
+        this.handleUnsubscribe(socket, channels);
       });
 
       // Handle disconnection
@@ -261,6 +274,9 @@ export class WebSocketServer {
 
   /**
    * Handle subscription request from client
+   * Supports two formats:
+   * 1. Legacy: { channels: string[] } - batch subscription
+   * 2. Frontend: { channel: string, filter?: string } - single channel with optional filter
    */
   private handleSubscribe(socket: Socket, request: SubscribeRequest): void {
     const clientId = socket.id;
@@ -280,10 +296,33 @@ export class WebSocketServer {
       return;
     }
 
+    // Normalize request to channels array (handle both frontend and legacy formats)
+    let channels: string[];
+    if (request.channels && Array.isArray(request.channels)) {
+      // Legacy format: { channels: ['orders', 'trades'] }
+      channels = request.channels;
+    } else if (request.channel) {
+      // Frontend format: { channel: 'orders', filter: 'pair123' }
+      // Combine channel and filter into a single channel string
+      const channelWithFilter = request.filter
+        ? `${request.channel}:${request.filter}`
+        : request.channel;
+      channels = [channelWithFilter];
+    } else {
+      log.warn({ clientId, request }, 'Invalid subscribe request format');
+      socket.emit('error', {
+        code: 'INVALID_REQUEST',
+        message: 'Subscribe request must include either "channels" array or "channel" string',
+      });
+      return;
+    }
+
+    log.debug({ clientId, channels, originalRequest: request }, 'Processing subscribe request');
+
     const validChannels: string[] = [];
     const invalidChannels: string[] = [];
 
-    for (const channel of request.channels) {
+    for (const channel of channels) {
       // Validate channel name
       if (!isValidChannel(channel)) {
         invalidChannels.push(channel);

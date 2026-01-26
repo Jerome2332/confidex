@@ -136,9 +136,16 @@ export type SubscriptionChannel =
 
 /**
  * Client subscription request
+ * Supports two formats for backwards compatibility:
+ * 1. Legacy: { channels: SubscriptionChannel[] } - batch subscription
+ * 2. Frontend: { channel: ChannelType, filter?: string } - single channel with optional filter
  */
 export interface SubscribeRequest {
-  readonly channels: SubscriptionChannel[];
+  // Legacy format (batch)
+  readonly channels?: SubscriptionChannel[];
+  // Frontend format (single channel)
+  readonly channel?: string;
+  readonly filter?: string;
 }
 
 /**
