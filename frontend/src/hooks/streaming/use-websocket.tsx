@@ -139,8 +139,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       // Socket.IO will upgrade to websocket after handshake
       transports: ['polling', 'websocket'],
       reconnection: false, // We handle reconnection manually
-      timeout: 10000,
+      timeout: 20000, // Longer timeout for Render cold starts
       secure: isSecure,
+      // Required for CORS with credentials
+      withCredentials: true,
       // Render may need longer timeouts for cold starts
       upgrade: true,
       rememberUpgrade: true,

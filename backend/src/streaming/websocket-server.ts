@@ -429,7 +429,16 @@ export class WebSocketServer {
    * Get allowed CORS origins
    */
   private getAllowedOrigins(): string[] {
-    const origins = process.env.ALLOWED_ORIGINS?.split(',') || [];
+    // Hardcoded production origins (same as Express CORS)
+    const origins = [
+      'https://www.confidex.xyz',
+      'https://confidex.xyz',
+      'https://staging.confidex.exchange',
+    ];
+
+    // Add origins from environment variable
+    const envOrigins = process.env.ALLOWED_ORIGINS?.split(',').map((o) => o.trim()) || [];
+    origins.push(...envOrigins);
 
     // Always allow localhost in development
     if (process.env.NODE_ENV !== 'production') {

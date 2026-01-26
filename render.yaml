@@ -52,9 +52,9 @@ services:
         value: "true"
       - key: WS_PATH
         value: "/ws"
-      # CORS for WebSocket (Vercel frontend)
+      # CORS for WebSocket (Vercel frontend with custom domain)
       - key: FRONTEND_URL
-        value: "https://confidex-theta.vercel.app"
+        value: "https://www.confidex.xyz"
       - key: ALLOWED_ORIGINS
         value: "https://confidex-theta.vercel.app,https://www.confidex.xyz,https://confidex.xyz"
     disk:
