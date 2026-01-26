@@ -44,6 +44,8 @@ function buildCSP() {
       'wss://hermes.pyth.network',
       // Backend API
       'https://api.confidex.exchange',
+      'https://confidex-uflk.onrender.com', // Render backend
+      'wss://confidex-uflk.onrender.com', // Render WebSocket
       isDev ? 'http://localhost:3001' : '',
       isDev ? 'ws://localhost:3001' : '',
       // Wallet adapters
