@@ -107,32 +107,22 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   // Show balances (inverse of privacy mode)
   const showBalances = !privacyMode;
 
-  // Helper to get actual wrapped balance from on-chain account
-  const getWrappedBalanceForDisplay = (account: typeof wrappedBalances.solAccount): bigint => {
-    if (!account) return BigInt(0);
-    const view = new DataView(
-      account.encryptedBalance.buffer,
-      account.encryptedBalance.byteOffset,
-      8
-    );
-    return view.getBigUint64(0, true);
-  };
-
   // Calculate available balance for display
-  // Uses actual on-chain wrapped balance (not the fallback native balance)
+  // Uses the validated/decrypted balance from useEncryptedBalance hook
+  // The hook already handles legacy broken accounts and falls back to native balances
   const availableBalance = useMemo(() => {
     if (side === 'buy') {
-      // Buying SOL with USDC
-      const wrapped = getWrappedBalanceForDisplay(wrappedBalances.usdcAccount);
+      // Buying SOL with USDC - use validated wrapped balance from hook
+      const wrapped = wrappedBalances.usdc;
       const total = wrapped + (autoWrap ? tokenBalances.usdc : BigInt(0));
       return Number(total) / 1e6;
     } else {
-      // Selling SOL for USDC
-      const wrapped = getWrappedBalanceForDisplay(wrappedBalances.solAccount);
+      // Selling SOL for USDC - use validated wrapped balance from hook
+      const wrapped = wrappedBalances.sol;
       const total = wrapped + (autoWrap ? tokenBalances.sol : BigInt(0));
       return Number(total) / 1e9;
     }
-  }, [side, wrappedBalances.solAccount, wrappedBalances.usdcAccount, tokenBalances, autoWrap]);
+  }, [side, wrappedBalances.sol, wrappedBalances.usdc, tokenBalances, autoWrap]);
 
   // Calculate order value
   const orderValue = useMemo(() => {
@@ -186,8 +176,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
   };
 
   // Calculate required amount and wrap needs
-  // NOTE: wrappedBalances.sol/.usdc from useEncryptedBalance falls back to native balances when C-SPL is empty
-  // We use solAccount/usdcAccount to detect if the wrapped balance account actually exists
+  // NOTE: wrappedBalances.sol/.usdc from useEncryptedBalance are already validated/decrypted
+  // The hook handles legacy broken accounts and falls back to native balances when needed
   const getOrderRequirements = () => {
     if (!amount || parseFloat(amount) <= 0) {
       return { requiredAmount: BigInt(0), wrapNeeded: BigInt(0), canProceed: true, needsWrap: false };
@@ -196,10 +186,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     const amountLamports = BigInt(Math.floor(parseFloat(amount) * 1e9));
 
     if (side === 'sell') {
-      // Check if the wrapped balance account exists on-chain
-      const hasWrappedAccount = wrappedBalances.solAccount !== null;
-      // If account doesn't exist, wrapped balance is 0
-      const currentWrapped = getWrappedBalanceForDisplay(wrappedBalances.solAccount);
+      // Use validated wrapped balance from hook (handles legacy broken accounts)
+      const currentWrapped = wrappedBalances.sol;
       const availableUnwrapped = tokenBalances.sol;
 
       if (currentWrapped >= amountLamports) {
@@ -217,10 +205,8 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
     } else {
       if (orderType === 'limit' && price && parseFloat(price) > 0) {
         const totalUsdcNeeded = BigInt(Math.floor(parseFloat(amount) * parseFloat(price) * 1e6));
-        // Check if the wrapped balance account exists on-chain
-        const hasWrappedAccount = wrappedBalances.usdcAccount !== null;
-        // If account doesn't exist, wrapped balance is 0
-        const currentWrapped = getWrappedBalanceForDisplay(wrappedBalances.usdcAccount);
+        // Use validated wrapped balance from hook (handles legacy broken accounts)
+        const currentWrapped = wrappedBalances.usdc;
         const availableUnwrapped = tokenBalances.usdc;
 
         if (currentWrapped >= totalUsdcNeeded) {
