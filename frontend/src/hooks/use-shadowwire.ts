@@ -22,7 +22,7 @@ interface TransferResponse {
   tx_signature: string;
   amount_sent: number | null;
   amount_hidden: boolean;
-  proof_pda: string;
+  proof_pda?: string; // Optional - may not be returned in all SDK versions
 }
 
 interface PoolBalance {
