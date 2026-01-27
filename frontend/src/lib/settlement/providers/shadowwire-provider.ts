@@ -153,7 +153,7 @@ export class ShadowWireProvider implements ISettlementProvider {
           txSignature: result.tx_signature,
           amountSent: result.amount_sent,
           amountHidden: result.amount_hidden,
-          proofPda: result.proof_pda,
+          proofPda: (result as { proof_pda?: string }).proof_pda,
           feeCharged: params.amount * (this.capabilities.feeBps / 10000),
         };
       }
@@ -175,7 +175,7 @@ export class ShadowWireProvider implements ISettlementProvider {
         txSignature: result.tx_signature,
         amountSent: result.amount_sent,
         amountHidden: result.amount_hidden,
-        proofPda: result.proof_pda,
+        proofPda: (result as { proof_pda?: string }).proof_pda,
         feeCharged: params.amount * (this.capabilities.feeBps / 10000),
       };
     } catch (error) {
