@@ -2060,14 +2060,19 @@ export interface ClosePositionParams {
 }
 
 /**
- * @deprecated Use buildInitiateClosePositionTransaction instead.
- * This function uses the deprecated close_position instruction which PANICS in V7.
- * The new async MPC flow requires: initiate_close_position -> MPC callback -> close_position_callback
+ * Build a transaction to close a LEGACY position with plaintext data
+ *
+ * This function is for hackathon-era positions that have plaintext values
+ * stored in bytes 0-8 of encrypted fields. These positions cannot use the
+ * MPC flow because bytes 16-48 (ciphertext region) are zeros.
+ *
+ * Use isLegacyPlaintextPosition() to check if a position needs this path.
+ * New positions with proper V2 encryption should use buildInitiateClosePositionTransaction.
  *
  * @param params - Close position parameters
  * @returns Transaction to sign and send
  */
-export async function buildClosePositionTransaction(
+export async function buildLegacyClosePositionTransaction(
   params: ClosePositionParams
 ): Promise<Transaction> {
   const {
@@ -2434,6 +2439,48 @@ export interface ConfidentialPositionAccount {
   pendingCloseExitPrice: bigint;      // u64
   pendingCloseFull: boolean;
   pendingCloseSize: Uint8Array;       // 64 bytes
+}
+
+/**
+ * Check if a position is a legacy hackathon-era position with plaintext data
+ *
+ * Legacy positions have:
+ * - Plaintext values in bytes 0-8 of encrypted fields
+ * - Zeros in bytes 16-48 (the ciphertext region of V2 format)
+ *
+ * V2 encrypted format is: [nonce(16) | ciphertext(32) | ephemeral_pubkey(16)]
+ * The MPC extracts bytes 16-48 as ciphertext, so legacy positions with zeros
+ * there will fail with "PlaintextU64(0) for parameter Ciphertext".
+ *
+ * @param position - The position account to check
+ * @returns true if this is a legacy position that needs plaintext close path
+ */
+export function isLegacyPlaintextPosition(position: ConfidentialPositionAccount): boolean {
+  // Check if bytes 16-48 (ciphertext region) are all zeros for size and entry_price
+  const sizeCiphertextZeros = position.encryptedSize
+    .slice(16, 48)
+    .every((b) => b === 0);
+  const priceCiphertextZeros = position.encryptedEntryPrice
+    .slice(16, 48)
+    .every((b) => b === 0);
+
+  // Check if there's plaintext data in the first 8 bytes
+  const hasPlaintextSize = readLittleEndianU64(position.encryptedSize.slice(0, 8)) > BigInt(0);
+  const hasPlaintextPrice = readLittleEndianU64(position.encryptedEntryPrice.slice(0, 8)) > BigInt(0);
+
+  // It's legacy if ciphertext regions are zeros but plaintext regions have data
+  return (sizeCiphertextZeros || priceCiphertextZeros) && (hasPlaintextSize || hasPlaintextPrice);
+}
+
+/**
+ * Helper to read a little-endian u64 from a Uint8Array
+ */
+function readLittleEndianU64(bytes: Uint8Array): bigint {
+  let value = BigInt(0);
+  for (let i = 0; i < 8; i++) {
+    value |= BigInt(bytes[i]) << BigInt(i * 8);
+  }
+  return value;
 }
 
 /**

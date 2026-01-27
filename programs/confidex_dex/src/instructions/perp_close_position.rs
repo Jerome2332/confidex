@@ -231,11 +231,12 @@ pub struct ClosePositionInitiated {
 }
 
 // ============================================================================
-// LEGACY SYNC HANDLER (DEPRECATED - kept for ABI compatibility)
+// LEGACY PLAINTEXT CLOSE (for hackathon-era positions)
 // ============================================================================
 
-/// Legacy accounts struct (for backwards compatibility)
-/// NOTE: This instruction will panic if called - use initiate_close_position instead
+/// Accounts for closing legacy positions with plaintext data
+/// Used when position.is_legacy_plaintext_position() returns true
+/// These positions cannot use MPC because their encrypted fields contain zeros
 #[derive(Accounts)]
 pub struct ClosePosition<'info> {
     #[account(
@@ -256,7 +257,10 @@ pub struct ClosePosition<'info> {
         bump = position.bump,
         constraint = position.trader == trader.key() @ ConfidexError::Unauthorized,
         constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
-        constraint = position.is_open() @ ConfidexError::PositionNotOpen
+        constraint = position.is_open() @ ConfidexError::PositionNotOpen,
+        constraint = !position.pending_close @ ConfidexError::PositionPendingClose,
+        // CRITICAL: Only allow legacy positions (plaintext data, no MPC-compatible encryption)
+        constraint = position.is_legacy_plaintext_position() @ ConfidexError::InvalidPositionType
     )]
     pub position: Box<Account<'info, ConfidentialPosition>>,
 
@@ -298,35 +302,164 @@ pub struct ClosePosition<'info> {
     #[account(mut)]
     pub trader: Signer<'info>,
 
-    /// CHECK: Arcium program (unused in async flow)
+    /// CHECK: Arcium program (unused in legacy flow, kept for ABI compatibility)
     pub arcium_program: AccountInfo<'info>,
 
     /// SPL Token program
     pub token_program: Program<'info, Token>,
 }
 
-/// Legacy parameters (for backwards compatibility)
+/// Parameters for legacy close
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct ClosePositionParams {
+    /// Unused - kept for ABI compatibility
     pub encrypted_close_size: [u8; 64],
+    /// Unused - kept for ABI compatibility
     pub encrypted_exit_price: [u8; 64],
+    /// Whether to fully close the position
     pub full_close: bool,
+    /// Unused - payout is calculated from plaintext position data
     pub payout_amount: u64,
 }
 
-/// DEPRECATED: Legacy sync handler - always panics
+/// Close a legacy position with plaintext data
 ///
-/// This handler is kept for ABI compatibility but will always panic.
-/// Use initiate_close_position instead for the async MPC flow.
+/// This handler is for positions created during the hackathon period that have
+/// plaintext values stored in bytes 0-8 of encrypted fields. These positions
+/// cannot use the MPC flow because bytes 16-48 (ciphertext region) are zeros.
+///
+/// The handler reads plaintext values directly and performs settlement.
+/// New positions with proper V2 encryption should use initiate_close_position.
 #[allow(unused_variables)]
 pub fn handler(ctx: Context<ClosePosition>, params: ClosePositionParams) -> Result<()> {
-    // V7: This sync path is no longer valid
-    // All close operations must use the async two-phase flow:
-    // 1. initiate_close_position (queues MPC)
-    // 2. close_position_callback (receives MPC result, executes transfer)
-    panic!(
-        "FATAL: Legacy close_position handler called. \
-        V7 requires async MPC flow via initiate_close_position. \
-        This sync path attempted to call deprecated calculate_pnl_sync/add_encrypted."
+    let clock = Clock::get()?;
+    let position = &mut ctx.accounts.position;
+    let perp_market = &ctx.accounts.perp_market;
+
+    msg!("Closing LEGACY position with plaintext data (hackathon-era position)");
+
+    // Double-check this is a legacy position
+    require!(
+        position.is_legacy_plaintext_position(),
+        ConfidexError::InvalidPositionType
     );
+
+    // Fetch current oracle price for exit
+    let exit_price = get_sol_usd_price(&ctx.accounts.oracle)?;
+
+    // Read plaintext position data
+    let position_size = position.get_size_plaintext();
+    let entry_price = position.get_entry_price_plaintext();
+    let collateral = position.get_collateral_plaintext();
+
+    msg!(
+        "Legacy position data: size={}, entry_price={}, collateral={}, exit_price={}",
+        position_size,
+        entry_price,
+        collateral,
+        exit_price
+    );
+
+    // Calculate PnL using plaintext values
+    // PnL = size * (exit_price - entry_price) for longs
+    // PnL = size * (entry_price - exit_price) for shorts
+    // Note: All prices are in 6-decimal USDC scale
+    let pnl: i64 = match position.side {
+        PositionSide::Long => {
+            let price_diff = exit_price as i64 - entry_price as i64;
+            let size_scaled = position_size as i64;
+            // PnL = size * price_diff / PRICE_SCALE (assuming 1e6 scale)
+            size_scaled.saturating_mul(price_diff) / 1_000_000
+        }
+        PositionSide::Short => {
+            let price_diff = entry_price as i64 - exit_price as i64;
+            let size_scaled = position_size as i64;
+            size_scaled.saturating_mul(price_diff) / 1_000_000
+        }
+    };
+
+    msg!("Calculated PnL: {} (positive=profit, negative=loss)", pnl);
+
+    // Calculate payout: collateral + pnl (capped at 0 minimum)
+    let payout_before_fees = if pnl >= 0 {
+        collateral.saturating_add(pnl as u64)
+    } else {
+        collateral.saturating_sub(pnl.unsigned_abs())
+    };
+
+    // Calculate taker fee
+    let taker_fee = payout_before_fees
+        .checked_mul(perp_market.taker_fee_bps as u64)
+        .ok_or(ConfidexError::ArithmeticOverflow)?
+        .checked_div(10_000)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+
+    let net_payout = payout_before_fees.saturating_sub(taker_fee);
+
+    msg!(
+        "Legacy close: payout_before_fees={}, taker_fee={}, net_payout={}",
+        payout_before_fees,
+        taker_fee,
+        net_payout
+    );
+
+    // Transfer payout to trader
+    if net_payout > 0 {
+        let market_key = perp_market.key();
+        let seeds = &[
+            b"vault".as_ref(),
+            market_key.as_ref(),
+            &[ctx.bumps.vault_authority],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.collateral_vault.to_account_info(),
+                    to: ctx.accounts.trader_collateral_account.to_account_info(),
+                    authority: ctx.accounts.vault_authority.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            net_payout,
+        )?;
+
+        msg!("Transferred {} to trader", net_payout);
+    }
+
+    // Update position state
+    position.status = PositionStatus::Closed;
+    position.set_realized_pnl_plaintext(pnl);
+    let coarse_time = ConfidentialPosition::coarse_timestamp(clock.unix_timestamp);
+    position.last_updated_hour = coarse_time;
+
+    // Emit close event (without amounts for privacy consistency)
+    emit!(LegacyPositionClosed {
+        position: position.key(),
+        trader: position.trader,
+        market: position.market,
+        exit_price,
+        timestamp: coarse_time,
+    });
+
+    msg!(
+        "Legacy position closed: position={:?}, pnl={}",
+        position.position_id,
+        pnl
+    );
+
+    Ok(())
+}
+
+/// Event emitted when a legacy position is closed
+#[event]
+pub struct LegacyPositionClosed {
+    pub position: Pubkey,
+    pub trader: Pubkey,
+    pub market: Pubkey,
+    /// Exit price from oracle (public)
+    pub exit_price: u64,
+    pub timestamp: i64,
 }

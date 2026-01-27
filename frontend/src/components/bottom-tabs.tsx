@@ -15,9 +15,12 @@ import { usePositions } from '@/hooks/use-positions';
 import { usePerpetualStore, PerpPosition } from '@/stores/perpetuals-store';
 import {
   buildInitiateClosePositionTransaction,
+  buildLegacyClosePositionTransaction,
   createHybridEncryptedValue,
   derivePerpMarketPda,
   fetchPerpMarketData,
+  fetchPositionByPda,
+  isLegacyPlaintextPosition,
 } from '@/lib/confidex-client';
 import { PYTH_SOL_USD_FEED, getMxePublicKeyBytes } from '@/lib/constants';
 import { toast } from 'sonner';
@@ -376,12 +379,6 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
         throw new Error('Failed to fetch perpetual market data');
       }
 
-      // Get current oracle price for exit (convert to micro-dollars: 6 decimals)
-      const exitPrice = solPrice ? BigInt(Math.floor(solPrice * 1_000_000)) : BigInt(0);
-
-      // Use position's encrypted size directly for full close
-      const encryptedCloseSize = position.encryptedSize;
-
       // Validate position.id is a valid base58 string before creating PublicKey
       log.debug('Creating PublicKey from position.id', {
         positionId: position.id,
@@ -400,32 +397,78 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
         throw new Error(`Invalid position ID format: ${position.id}`);
       }
 
-      // Get MXE public key for encryption
-      const mxePubKey = getMxePublicKeyBytes();
+      // Fetch fresh position data from chain to check if it's a legacy position
+      const positionData = await fetchPositionByPda(connection, positionPda);
+      if (!positionData) {
+        throw new Error('Failed to fetch position data from chain');
+      }
 
-      // Generate a unique nonce for this computation
-      const nonce = BigInt(Date.now()) * BigInt(1000000) + BigInt(Math.floor(Math.random() * 1000000));
-
-      // Build initiate close position transaction (V7 async MPC flow)
-      // Phase 1: User calls initiate_close_position -> queues MPC PnL computation
-      // Phase 2: Backend crank detects event, waits for MPC, calls close_position_callback
-      const transaction = await buildInitiateClosePositionTransaction({
-        connection,
-        trader: publicKey,
-        perpMarketPda,
-        positionPda,
-        encryptedCloseSize,
-        fullClose: true,
-        oraclePriceFeed: marketData.oraclePriceFeed,
-        mxePubKey,
-        nonce,
+      // Check if this is a legacy hackathon-era position with plaintext data
+      const isLegacy = isLegacyPlaintextPosition(positionData);
+      log.debug('Position type detection', {
+        positionId: position.id,
+        isLegacy,
+        encryptedSizeFirst8: Array.from(positionData.encryptedSize.slice(0, 8)),
+        encryptedSize16to24: Array.from(positionData.encryptedSize.slice(16, 24)),
       });
 
+      let transaction;
+      let successMessage: string;
+
+      if (isLegacy) {
+        // Legacy position: use plaintext close path (direct settlement)
+        log.info('Closing LEGACY position with plaintext data', { positionId });
+
+        // For legacy close, we need to provide some parameters for ABI compatibility
+        // but the actual values are read from position's plaintext fields
+        const encryptedCloseSize = position.encryptedSize;
+        const encryptedExitPrice = new Uint8Array(64); // Unused, but required for ABI
+
+        transaction = await buildLegacyClosePositionTransaction({
+          connection,
+          trader: publicKey,
+          perpMarketPda,
+          positionPda,
+          encryptedCloseSize,
+          encryptedExitPrice,
+          fullClose: true,
+          payoutAmount: BigInt(0), // Calculated on-chain from plaintext
+          oraclePriceFeed: marketData.oraclePriceFeed,
+          collateralVault: marketData.collateralVault,
+          feeRecipient: marketData.feeRecipient,
+          arciumProgram: new PublicKey('Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ'),
+        });
+
+        successMessage = 'Legacy position closed successfully';
+      } else {
+        // V7 position: use async MPC flow
+        log.info('Closing V7 position via MPC flow', { positionId });
+
+        const encryptedCloseSize = position.encryptedSize;
+        const mxePubKey = getMxePublicKeyBytes();
+        const nonce = BigInt(Date.now()) * BigInt(1000000) + BigInt(Math.floor(Math.random() * 1000000));
+
+        transaction = await buildInitiateClosePositionTransaction({
+          connection,
+          trader: publicKey,
+          perpMarketPda,
+          positionPda,
+          encryptedCloseSize,
+          fullClose: true,
+          oraclePriceFeed: marketData.oraclePriceFeed,
+          mxePubKey,
+          nonce,
+        });
+
+        successMessage = 'Position close initiated - awaiting MPC settlement';
+      }
+
       // Log transaction details for debugging
-      log.debug('Initiate close position transaction details (V7 async MPC)', {
+      log.debug('Close position transaction details', {
         positionPda: position.id,
         perpMarket: perpMarketPda.toBase58(),
         oracle: marketData.oraclePriceFeed.toBase58(),
+        isLegacy,
       });
 
       // Simulate first to get better error messages
@@ -446,23 +489,15 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
 
       // Send transaction
       const signature = await sendTransaction(transaction, connection);
-      log.info('Initiate close position transaction sent', { signature });
+      log.info('Close position transaction sent', { signature, isLegacy });
 
       // Wait for confirmation
       await connection.confirmTransaction(signature, 'confirmed');
 
-      // NOTE: Position is NOT closed yet! This is V7 async MPC flow:
-      // 1. initiate_close_position sets pending_close = true
-      // 2. MPC computes PnL in the background
-      // 3. Backend crank calls close_position_callback when MPC completes
-      // 4. Position is actually closed with correct payout
-      // For now, show "pending" message - position will disappear after MPC callback
-      toast.success('Position close initiated - awaiting MPC settlement');
+      toast.success(successMessage);
+      log.info('Position close completed', { positionId, signature, isLegacy });
 
-      log.info('Position close initiated (V7 async MPC)', { positionId, signature });
-
-      // Refresh positions to show pending_close status
-      // Don't remove from local state - let the MPC callback handle that
+      // Refresh positions
       refreshPositions();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);

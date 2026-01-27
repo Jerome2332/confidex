@@ -192,4 +192,7 @@ pub enum ConfidexError {
 
     #[msg("Invalid payout amount from MPC")]
     InvalidPayoutAmount,
+
+    #[msg("Invalid position type - use appropriate instruction for legacy vs MPC positions")]
+    InvalidPositionType,
 }

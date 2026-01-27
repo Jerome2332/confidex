@@ -416,6 +416,48 @@ impl ConfidentialPosition {
         self.pending_close_size = [0u8; 64];
         self.clear_pending_mpc_request();
     }
+
+    // =========================================================================
+    // LEGACY POSITION DETECTION (V7)
+    // =========================================================================
+
+    /// Check if this position has legacy hackathon-mode data (plaintext in first 8 bytes)
+    ///
+    /// Legacy positions have:
+    /// - Plaintext values in bytes 0-8 of encrypted fields
+    /// - Zeros in bytes 16-48 (the ciphertext region of V2 format)
+    ///
+    /// V2 encrypted format is: [nonce(16) | ciphertext(32) | ephemeral_pubkey(16)]
+    /// The MPC extracts bytes 16-48 as ciphertext, so legacy positions with zeros
+    /// there will fail with "PlaintextU64(0) for parameter Ciphertext".
+    ///
+    /// This method allows detection of legacy positions to route them through
+    /// the plaintext close fallback instead of the MPC flow.
+    pub fn is_legacy_plaintext_position(&self) -> bool {
+        // Check if bytes 16-48 (ciphertext region) are all zeros for both size and entry_price
+        // If they are, this is a legacy position with plaintext-only data
+        let size_ciphertext_zeros = self.encrypted_size[16..48].iter().all(|&b| b == 0);
+        let price_ciphertext_zeros = self.encrypted_entry_price[16..48].iter().all(|&b| b == 0);
+
+        // Also verify there IS some plaintext data (not a completely zeroed position)
+        let has_plaintext_size = self.get_size_plaintext() > 0;
+        let has_plaintext_price = self.get_entry_price_plaintext() > 0;
+
+        // It's legacy if ciphertext regions are zeros but plaintext regions have data
+        (size_ciphertext_zeros || price_ciphertext_zeros) && (has_plaintext_size || has_plaintext_price)
+    }
+
+    /// Check if position has valid V2 encrypted data (ready for MPC)
+    ///
+    /// V2 positions have properly encrypted ciphertext in bytes 16-48.
+    /// This is the opposite of is_legacy_plaintext_position.
+    pub fn has_valid_mpc_encryption(&self) -> bool {
+        // For valid V2 encryption, the ciphertext region should NOT be all zeros
+        let size_has_ciphertext = !self.encrypted_size[16..48].iter().all(|&b| b == 0);
+        let price_has_ciphertext = !self.encrypted_entry_price[16..48].iter().all(|&b| b == 0);
+
+        size_has_ciphertext && price_has_ciphertext
+    }
 }
 
 /// Batch liquidation check request account
