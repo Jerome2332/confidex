@@ -12,7 +12,6 @@ import {
   ShieldCheck,
   ArrowRight,
   ArrowSquareOut,
-  CaretRight,
   GithubLogo,
   BookOpen,
   Lightning,
@@ -64,7 +63,7 @@ export default function LandingPage() {
 
   const stats = [
     { label: 'Privacy Level', value: 'V2', description: 'Pure ciphertext format' },
-    { label: 'Proof Generation', value: '<3s', description: 'Client-side ZK' },
+    { label: 'Proof Generation', value: '<3s', description: 'Server-side ZK' },
     { label: 'MPC Batch Check', value: '10 pos', description: 'Liquidation verification' },
   ];
 
@@ -98,7 +97,7 @@ export default function LandingPage() {
             Solana Privacy Hack 2026
           </div>
 
-          <h1 className="text-4xl md:text-6xl lg:text-7xl font-light mb-6 text-white leading-tight">
+          <h1 className="font-display text-4xl md:text-6xl lg:text-7xl font-light mb-6 text-white leading-tight">
             Trade with
             <br />
             Complete Privacy
@@ -113,19 +112,19 @@ export default function LandingPage() {
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16">
             <Link
               href="/trade"
-              className="group inline-flex items-center gap-2 bg-white text-black px-8 py-4 rounded-lg font-medium text-lg hover:bg-white/90 transition-all shadow-lg shadow-white/10 hover:shadow-xl hover:shadow-white/20"
+              className="group inline-flex items-center gap-2.5 bg-transparent text-white px-7 py-3.5 rounded-full font-normal text-base border border-white/40 hover:border-white hover:bg-white/5 transition-all duration-200"
             >
               Start Trading
-              <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
+              <ArrowRight size={18} weight="light" className="group-hover:translate-x-0.5 transition-transform duration-200" />
             </Link>
             <a
               href="https://docs.arcium.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 bg-white/10 text-white px-8 py-4 rounded-lg font-medium text-lg hover:bg-white/20 transition-colors border border-white/20"
+              className="group inline-flex items-center gap-2.5 bg-transparent text-white/70 px-7 py-3.5 rounded-full font-normal text-base border border-white/20 hover:border-white/40 hover:text-white transition-all duration-200"
             >
-              Read Documentation
-              <ArrowSquareOut size={16} />
+              Documentation
+              <ArrowSquareOut size={16} weight="light" className="group-hover:translate-y-[-1px] group-hover:translate-x-[1px] transition-transform duration-200" />
             </a>
           </div>
 
@@ -201,7 +200,7 @@ export default function LandingPage() {
               <Fingerprint size={12} className="text-white" />
               Responsible Privacy
             </div>
-            <h2 className="text-3xl md:text-4xl font-light mb-4 text-white">
+            <h2 className="font-display text-3xl md:text-4xl font-light mb-4 text-white">
               Privacy with Accountability
             </h2>
             <p className="text-white/60 max-w-2xl mx-auto text-lg font-light">
@@ -346,7 +345,7 @@ export default function LandingPage() {
       <section className="py-20 md:py-32 border-t border-white/10">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-light mb-4 text-white">
+            <h2 className="font-display text-3xl md:text-4xl font-light mb-4 text-white">
               Built on Proven Technology
             </h2>
             <p className="text-white/60 max-w-2xl mx-auto text-lg font-light">
@@ -369,7 +368,7 @@ export default function LandingPage() {
       {/* CTA Section */}
       <section className="py-20 md:py-32 border-t border-white/10">
         <div className="container mx-auto px-4 text-center">
-          <h2 className="text-3xl md:text-4xl font-light mb-4 text-white">
+          <h2 className="font-display text-3xl md:text-4xl font-light mb-4 text-white">
             Ready to Trade Privately?
           </h2>
           <p className="text-white/60 max-w-xl mx-auto mb-8 text-lg font-light">
@@ -377,10 +376,10 @@ export default function LandingPage() {
           </p>
           <Link
             href="/trade"
-            className="group inline-flex items-center gap-2 bg-white text-black px-8 py-4 rounded-lg font-medium text-lg hover:bg-white/90 transition-all shadow-lg shadow-white/10"
+            className="group inline-flex items-center gap-2.5 bg-transparent text-white px-7 py-3.5 rounded-full font-normal text-base border border-white/40 hover:border-white hover:bg-white/5 transition-all duration-200"
           >
             Launch App
-            <CaretRight size={20} className="group-hover:translate-x-1 transition-transform" />
+            <ArrowRight size={18} weight="light" className="group-hover:translate-x-0.5 transition-transform duration-200" />
           </Link>
         </div>
       </section>

@@ -1,9 +1,43 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { Providers } from '@/components/providers';
 
 const inter = Inter({ subsets: ['latin'] });
+
+const iosevka = localFont({
+  src: [
+    {
+      path: '../../public/fonts/Iosevka-Term-Slab-Light.ttf',
+      weight: '300',
+      style: 'normal',
+    },
+    {
+      path: '../../public/fonts/Iosevka-Term-Slab.ttf',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../../public/fonts/Iosevka-Term-Slab-Medium.ttf',
+      weight: '500',
+      style: 'normal',
+    },
+    {
+      path: '../../public/fonts/Iosevka-Term-Slab-Bold.ttf',
+      weight: '700',
+      style: 'normal',
+    },
+  ],
+  variable: '--font-iosevka',
+  display: 'swap',
+});
+
+const tektur = localFont({
+  src: '../../public/fonts/Tektur-VariableFont_wdth,wght.ttf',
+  variable: '--font-tektur',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Confidex - Confidential DEX',
@@ -41,7 +75,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} ${iosevka.variable} ${tektur.variable}`}>
         <Providers>
           {children}
         </Providers>
