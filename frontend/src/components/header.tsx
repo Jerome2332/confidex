@@ -30,7 +30,7 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
           {/* Logo */}
           <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
             <Logo variant="auto" size={42} />
-            <span className="text-[10px] bg-white/10 text-white/80 px-1.5 py-0.5 rounded font-medium border border-white/20">
+            <span className="text-[10px] bg-green-500/10 text-green-500 px-1.5 py-0.5 rounded font-medium border border-green-500/30">
               DEVNET
             </span>
           </Link>

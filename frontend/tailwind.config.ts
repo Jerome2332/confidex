@@ -10,7 +10,8 @@ const config: Config = {
   theme: {
     extend: {
       fontFamily: {
-        mono: ['var(--font-iosevka)', 'ui-monospace', 'monospace'],
+        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
+        iosevka: ['var(--font-iosevka)', 'ui-monospace', 'monospace'],
         display: ['var(--font-tektur)', 'system-ui', 'sans-serif'],
       },
       colors: {

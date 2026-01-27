@@ -91,8 +91,8 @@ export default function LandingPage() {
           {/* Badge */}
           <div className="inline-flex items-center gap-2 text-xs font-light bg-white/10 text-white px-4 py-1.5 rounded-full mb-6 border border-white/20">
             <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-500 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
             </span>
             Solana Privacy Hack 2026
           </div>
@@ -132,7 +132,7 @@ export default function LandingPage() {
           <div className="flex flex-wrap justify-center gap-8 md:gap-16">
             {stats.map((stat, i) => (
               <div key={i} className="text-center">
-                <div className="text-3xl md:text-4xl font-light font-mono text-white mb-1">
+                <div className="text-3xl md:text-4xl font-light font-iosevka text-white mb-1">
                   {stat.value}
                 </div>
                 <div className="text-sm font-normal text-white/80">{stat.label}</div>
@@ -196,23 +196,23 @@ export default function LandingPage() {
       <section className="py-20 md:py-32 border-t border-white/10">
         <div className="container mx-auto px-4">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center gap-2 text-xs font-light bg-white/10 text-white px-4 py-1.5 rounded-full mb-4 border border-white/20">
-              <Fingerprint size={12} className="text-white" />
-              Responsible Privacy
+            <div className="group inline-flex items-center gap-2 text-xs font-light bg-white/10 text-white px-4 py-1.5 rounded-full mb-4 border border-white/20 hover:bg-green-500/10 hover:border-green-500/30 transition-all duration-200 cursor-default">
+              <Fingerprint size={16} className="text-white group-hover:text-green-500 transition-colors duration-200" />
+              <span className="group-hover:text-green-500 transition-colors duration-200">Responsible Privacy</span>
             </div>
             <h2 className="font-display text-3xl md:text-4xl font-light mb-4 text-white">
               Privacy with Accountability
             </h2>
             <p className="text-white/60 max-w-2xl mx-auto text-lg font-light">
-              Our four-layer architecture delivers complete trading privacy while ensuring regulatory compliance — no anonymity without safeguards.
+              Our three-layer privacy architecture delivers complete trading privacy while ensuring regulatory compliance — no anonymity without safeguards.
             </p>
           </div>
 
-          {/* Architecture Diagram */}
-          <div className="max-w-6xl mx-auto mb-16">
-            <div className="grid md:grid-cols-4 gap-4 mb-8">
+          {/* Architecture Diagram - Three Privacy Layers */}
+          <div className="max-w-5xl mx-auto mb-16">
+            <div className="grid md:grid-cols-3 gap-4 mb-8">
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal whitespace-nowrap">
                   Layer 1: Compliance
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
@@ -245,33 +245,17 @@ export default function LandingPage() {
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
-                  Layer 3: Storage
-                </div>
-                <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
-                  <Lightning size={32} className="text-white" />
-                </div>
-                <h3 className="font-normal mb-2 text-white">Light Protocol</h3>
-                <p className="text-sm text-white/60 font-light">
-                  ZK Compression for rent-free token accounts — 400x cheaper storage
-                </p>
-                <div className="mt-4 text-xs bg-white/10 text-white/80 px-3 py-1.5 rounded-full inline-block font-light">
-                  ZK Compression
-                </div>
-              </div>
-
-              <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
-                  Layer 4: Settlement
+                  Layer 3: Settlement
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
                   <EyeClosed size={32} className="text-white" />
                 </div>
-                <h3 className="font-normal mb-2 text-white">Confidential Tokens</h3>
+                <h3 className="font-normal mb-2 text-white">ShadowWire</h3>
                 <p className="text-sm text-white/60 font-light">
-                  Balances stay encrypted on-chain with C-SPL or ShadowWire Bulletproofs
+                  Balances stay encrypted on-chain with Bulletproof range proofs (C-SPL coming soon)
                 </p>
                 <div className="mt-4 text-xs bg-white/10 text-white/80 px-3 py-1.5 rounded-full inline-block font-light">
-                  Persistent Privacy
+                  Bulletproof Privacy
                 </div>
               </div>
             </div>
@@ -281,8 +265,6 @@ export default function LandingPage() {
               <span>Prove Eligibility</span>
               <ArrowRight size={16} />
               <span>Encrypt & Match</span>
-              <ArrowRight size={16} />
-              <span>Compress & Store</span>
               <ArrowRight size={16} />
               <span>Settle Privately</span>
             </div>

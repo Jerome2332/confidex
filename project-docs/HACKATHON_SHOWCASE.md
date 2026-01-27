@@ -6,20 +6,20 @@
 
 ## Executive Summary
 
-Confidex is a **production-ready confidential decentralized exchange** built on Solana that enables private trading with hidden order amounts, prices, and balances. Our four-layer privacy architecture combines cutting-edge cryptographic technologies to deliver institutional-grade privacy while maintaining regulatory compliance capabilities.
+Confidex is a **production-ready confidential decentralized exchange** built on Solana that enables private trading with hidden order amounts, prices, and balances. Our three-layer privacy architecture combines cutting-edge cryptographic technologies to deliver institutional-grade privacy while maintaining regulatory compliance capabilities.
 
 | Metric | Value |
 |--------|-------|
 | **Test Suites** | 9 E2E + 3 Unit Test Files |
 | **Total Tests** | 80+ test cases |
 | **Backend Coverage** | 80%+ |
-| **Privacy Layers** | 4 (ZK + MPC + Compression + Settlement) |
+| **Privacy Layers** | 3 (ZK Compliance + MPC Execution + Private Settlement) |
 | **Live on Devnet** | Yes |
 | **Production MPC** | Real Arcium cluster (not simulated) |
 
 ---
 
-## Four-Layer Privacy Architecture
+## Three-Layer Privacy Architecture
 
 ```
 +========================================================================+
@@ -44,23 +44,21 @@ Confidex is a **production-ready confidential decentralized exchange** built on 
                                     |
                                     v
 +========================================================================+
-|  LAYER 3: STORAGE                                                       |
-|  Technology: Light Protocol ZK Compression                              |
-|  Purpose: Rent-free compressed accounts for positions & balances        |
-|  - 99.9% reduction in rent costs                                       |
-|  - Merkle tree state with ZK proof verification                        |
-|  - Enables scalable position management                                |
-+========================================================================+
-                                    |
-                                    v
-+========================================================================+
-|  LAYER 4: SETTLEMENT                                                    |
+|  LAYER 3: SETTLEMENT                                                    |
 |  Technology: ShadowWire (Bulletproof ZK)                               |
 |  Purpose: Privacy-preserving token transfers                            |
 |  - 17+ supported tokens (SOL, USDC, BONK, etc.)                       |
 |  - 1% privacy fee for Bulletproof overhead                             |
 |  - No amount leakage in settlement events                              |
 +========================================================================+
+
++------------------------------------------------------------------------+
+|  INFRASTRUCTURE: Light Protocol (Cost Optimization - NOT Privacy)       |
+|  Technology: ZK Compression                                             |
+|  Purpose: Rent-free compressed accounts (~400x storage savings)         |
+|  Note: Amounts remain visible on-chain. This is for cost optimization,  |
+|        not privacy. It does NOT hide balances or transaction amounts.   |
++------------------------------------------------------------------------+
 ```
 
 ---
@@ -264,13 +262,14 @@ const eventFields = [
 | **Liquidation Threshold** | Hidden | MPC batch check |
 | **Settlement Amount** | Hidden | ShadowWire Bulletproofs |
 | **User Identity** | Hidden | ZK eligibility proofs |
-| **Wallet Balances** | Hidden | Light Protocol compression |
 
 **What IS visible on-chain:**
 - Order ID (random 16 bytes)
 - Timestamp
 - Trade side (Buy/Sell)
 - Position status (Open/Closed/Liquidated)
+
+**Note on Light Protocol:** Light Protocol provides ZK Compression for rent-free token accounts (~400x cheaper storage), but this is an **infrastructure optimization**, not a privacy layer. Amounts stored via Light Protocol remain visible on-chain.
 
 ---
 
@@ -488,28 +487,35 @@ Novel combination of:
                     | - batch_liquidation     |
                     +-------------------------+
                                   |
-                    +-------------+-------------+
-                    |                           |
-                    v                           v
-        +-------------------+       +-------------------+
-        |  Light Protocol   |       |    ShadowWire     |
-        | (ZK Compression)  |       |   (Settlement)    |
-        |                   |       |                   |
-        | - Rent-free accts |       | - Bulletproofs    |
-        | - Merkle storage  |       | - Hidden amounts  |
-        +-------------------+       +-------------------+
+                                  v
+                    +-------------------------+
+                    |      ShadowWire         |
+                    |   (Private Settlement)  |
+                    |                         |
+                    | - Bulletproof ZK        |
+                    | - Hidden amounts        |
+                    | - No amount leakage     |
+                    +-------------------------+
+
+        +---------------------------------------------------+
+        |  Infrastructure: Light Protocol (Cost Savings)    |
+        |  - ZK Compression for rent-free accounts          |
+        |  - ~400x storage cost reduction                   |
+        |  - Note: NOT a privacy layer (amounts visible)    |
+        +---------------------------------------------------+
 ```
 
 ---
 
 ## Conclusion
 
-Confidex demonstrates that **privacy and DeFi can coexist** on Solana. Our four-layer architecture provides:
+Confidex demonstrates that **privacy and DeFi can coexist** on Solana. Our three-layer architecture provides:
 
-1. **Compliance** without KYC exposure (Noir ZK)
+1. **Compliance** without KYC exposure (Noir ZK proofs via Sunspot)
 2. **Execution** without information leakage (Arcium MPC)
-3. **Storage** without rent burden (Light Protocol)
-4. **Settlement** without amount visibility (ShadowWire)
+3. **Settlement** without amount visibility (ShadowWire Bulletproofs)
+
+We also leverage Light Protocol for infrastructure cost optimization (~400x storage savings), though this is not a privacy layer.
 
 With 80+ test cases, production MPC integration, and a comprehensive E2E test suite, Confidex is ready for institutional-grade private trading on Solana.
 

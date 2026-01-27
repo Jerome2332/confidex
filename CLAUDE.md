@@ -1,6 +1,6 @@
 # CLAUDE.md - Confidex
 
-Confidential DEX on Solana with four-layer privacy: ZK proofs (compliance) + Arcium MPC (execution) + Light Protocol (storage) + ShadowWire (settlement).
+Confidential DEX on Solana with three-layer privacy: ZK proofs (compliance) + Arcium MPC (execution) + ShadowWire (settlement). Also uses Light Protocol for cost optimization (not privacy).
 
 ## Critical Rules
 
@@ -38,7 +38,7 @@ confidex/
 | Blockchain | Solana devnet, Anchor 0.32.1 |
 | ZK Proofs | Noir 1.0.0-beta.13, Sunspot Groth16 |
 | MPC | Arcium v0.6.3 (Cerberus protocol) |
-| ZK Compression | Light Protocol v0.22.0 (rent-free accounts) |
+| ZK Compression | Light Protocol v0.22.0 (rent-free accounts, cost optimization only) |
 | Settlement | ShadowWire (Bulletproof privacy) |
 | Frontend | Next.js 14, TypeScript, Tailwind, shadcn/ui |
 | Icons | Phosphor Icons (`@phosphor-icons/react`) |
@@ -92,12 +92,15 @@ No plaintext prefix. All values fully encrypted. MPC handles comparisons.
 5. MPC callback updates fill amounts
 6. Settlement transfers confidential balances (ShadowWire)
 
-### Four-Layer Privacy Architecture
+### Three-Layer Privacy Architecture
 ```
 Layer 1: COMPLIANCE    - Noir ZK proofs via Sunspot (eligibility without identity)
 Layer 2: EXECUTION     - Arcium MPC (encrypted order matching)
-Layer 3: STORAGE       - Light Protocol (rent-free compressed accounts)
-Layer 4: SETTLEMENT    - ShadowWire (Bulletproof hidden amounts)
+Layer 3: SETTLEMENT    - ShadowWire (Bulletproof hidden amounts)
+
+Infrastructure:
+- Light Protocol     - ZK Compression for rent-free accounts (cost optimization, NOT privacy)
+                       Amounts remain visible on-chain. Provides ~400x storage savings.
 ```
 
 ### MPC Operations
@@ -114,7 +117,7 @@ NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 NEXT_PUBLIC_MXE_X25519_PUBKEY=113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
 HELIUS_API_KEY=your-key
 
-# Light Protocol (ZK Compression)
+# Light Protocol (ZK Compression - cost optimization, not privacy)
 NEXT_PUBLIC_LIGHT_PROTOCOL_ENABLED=true
 
 # Crank service

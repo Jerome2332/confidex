@@ -57,12 +57,18 @@
   }
 }
 
-/* Wallet adapter modal - ensure it appears on top */
+/* Prevent layout shift when modal opens */
+html {
+  overflow-y: scroll;
+}
+
+/* Wallet adapter modal - dark minimal design */
 .wallet-adapter-modal-overlay {
   position: fixed !important;
   inset: 0 !important;
   z-index: 9999 !important;
-  background-color: rgba(0, 0, 0, 0.5) !important;
+  background-color: rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(4px) !important;
 }
 
 .wallet-adapter-modal-container {
@@ -70,12 +76,31 @@
 }
 
 .wallet-adapter-modal-wrapper {
-  @apply bg-card border border-border rounded-lg;
+  background: rgba(0, 0, 0, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px !important;
   z-index: 10000 !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5) !important;
 }
 
-.wallet-adapter-button {
-  @apply bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md font-medium;
+.wallet-adapter-modal-title {
+  color: white !important;
+  font-weight: 300 !important;
+  font-size: 1.25rem !important;
+}
+
+.wallet-adapter-modal-button-close {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-radius: 50% !important;
+  transition: all 0.2s !important;
+}
+
+.wallet-adapter-modal-button-close:hover {
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.wallet-adapter-modal-button-close svg {
+  fill: white !important;
 }
 
 .wallet-adapter-modal-list {
@@ -87,8 +112,49 @@
   padding: 0 !important;
 }
 
+.wallet-adapter-modal-list {
+  padding: 0 16px !important;
+}
+
 .wallet-adapter-modal-list .wallet-adapter-button {
   width: 100% !important;
+  background: transparent !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  color: white !important;
+  padding: 12px 16px !important;
+  margin-bottom: 8px !important;
+  transition: all 0.2s !important;
+  font-weight: 400 !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button-end-icon {
+  color: rgba(255, 255, 255, 0.5) !important;
+  font-size: 0.75rem !important;
+}
+
+.wallet-adapter-button {
+  background: transparent !important;
+  color: white !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  border-radius: 9999px !important;
+  padding: 8px 16px !important;
+  font-weight: 400 !important;
+  transition: all 0.2s !important;
+}
+
+.wallet-adapter-button:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border-color: white !important;
+}
+
+.wallet-adapter-button-trigger {
+  background: transparent !important;
 }
 
 /* Custom scrollbar */

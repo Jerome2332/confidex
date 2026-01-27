@@ -35,7 +35,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: <Shield size={16} /> },
-  { id: 'architecture', label: 'Three-Layer Privacy', icon: <StackIcon size={16} /> },
+  { id: 'architecture', label: 'Privacy Architecture', icon: <StackIcon size={16} /> },
   { id: 'zk-layer', label: 'ZK Compliance', icon: <FingerprintIcon size={16} /> },
   { id: 'mpc-layer', label: 'MPC Execution', icon: <CpuIcon size={16} /> },
   { id: 'settlement', label: 'Settlement', icon: <HardDrivesIcon size={16} /> },
@@ -218,7 +218,8 @@ export default function DocsPage() {
 
             <p className="text-white/70 mb-8">
               Most privacy projects use EITHER zero-knowledge proofs OR multi-party computation. Confidex uniquely combines both
-              with encrypted tokens to address different privacy needs at each stage of a trade.
+              with encrypted tokens to address different privacy needs at each stage of a trade. We also leverage Light Protocol
+              for infrastructure optimization (rent-free storage), though this is a cost-saving measure rather than a privacy layer.
             </p>
 
             {/* Layer Cards */}
@@ -322,6 +323,35 @@ export default function DocsPage() {
                   <p className="text-white/60 mt-4 text-sm">
                     ShadowWire enables private transfers where amounts are hidden via Bulletproof range proofs. C-SPL will provide fully encrypted on-chain balances.
                   </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Infrastructure Note */}
+            <div className="bg-white/5 border border-white/10 rounded-xl p-6 mt-6">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                  <HardDrivesIcon size={20} className="text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="font-medium text-white">Light Protocol (Infrastructure)</h4>
+                    <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">Cost Optimization</span>
+                  </div>
+                  <p className="text-sm text-white/60 mb-3">
+                    Light Protocol provides ZK Compression for rent-free token accounts, reducing storage costs by ~400x compared to regular SPL accounts.
+                    This is an <strong className="text-white">infrastructure optimization</strong>, not a privacy layer - amounts remain visible on-chain.
+                  </p>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <div className="text-white/50 mb-1">Privacy Level</div>
+                      <div className="text-yellow-400 font-mono">Partial (amounts visible)</div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Cost Savings</div>
+                      <div className="text-white font-mono">~400x cheaper storage</div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
