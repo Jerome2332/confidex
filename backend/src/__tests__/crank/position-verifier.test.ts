@@ -49,10 +49,10 @@ enum PositionSide {
   Short = 1,
 }
 
-// V6 position account size
-const POSITION_ACCOUNT_SIZE_V6 = 618;
+// V8 position account size (724 bytes - V7 was 692, V6 was 618)
+const POSITION_ACCOUNT_SIZE_V8 = 724;
 
-// Helper to create mock V6 position data
+// Helper to create mock V8 position data
 function createMockPositionData(
   trader: PublicKey,
   market: PublicKey,
@@ -61,7 +61,7 @@ function createMockPositionData(
   status: PositionStatus,
   thresholdVerified: boolean
 ): Buffer {
-  const data = Buffer.alloc(POSITION_ACCOUNT_SIZE_V6);
+  const data = Buffer.alloc(POSITION_ACCOUNT_SIZE_V8);
   let offset = 8; // Skip discriminator
 
   // trader (32 bytes)
@@ -115,7 +115,7 @@ function createMockPositionData(
   // lastThresholdUpdateHour (8 bytes)
   offset += 8;
 
-  // thresholdVerified (1 byte) - this is at offset 492 in V6
+  // thresholdVerified (1 byte) - offset 530 in V7/V8
   data.writeUInt8(thresholdVerified ? 1 : 0, offset);
   offset += 1;
 
@@ -126,10 +126,12 @@ function createMockPositionData(
   data.writeUInt8(status, offset);
   offset += 1;
 
-  // Rest of the fields...
+  // V7/V8 fields continue...
   // eligibilityProofVerified (1), partialCloseCount (1), autoDeleveragePriority (8),
   // lastMarginAddHour (8), marginAddCount (1), bump (1), positionSeed (8),
   // pendingMpcRequest (32), pendingMarginAmount (8), pendingMarginIsAdd (1), isLiquidatable (1)
+  // pendingClose (1), pendingCloseExitPrice (8), pendingCloseFull (1), pendingCloseSize (64)
+  // V8: ephemeralPubkey (32 bytes)
 
   return data;
 }
@@ -226,7 +228,7 @@ describe('PositionVerifier', () => {
   });
 
   describe('polling for pending positions', () => {
-    it('queries for V6 positions only', async () => {
+    it('queries for V8 positions only', async () => {
       vi.useFakeTimers();
 
       await verifier.start();
@@ -237,7 +239,7 @@ describe('PositionVerifier', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: POSITION_ACCOUNT_SIZE_V6 },
+            { dataSize: POSITION_ACCOUNT_SIZE_V8 },
           ]),
         })
       );
@@ -258,7 +260,7 @@ describe('PositionVerifier', () => {
           filters: expect.arrayContaining([
             expect.objectContaining({
               memcmp: expect.objectContaining({
-                offset: 492, // thresholdVerified offset in V6
+                offset: 530, // thresholdVerified offset in V7/V8
               }),
             }),
           ]),

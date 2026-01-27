@@ -640,3 +640,412 @@ pub fn update_program_ids_handler(
     msg!("Program IDs update complete");
     Ok(())
 }
+
+// ============================================================================
+// Admin Force Close Position (for broken V2 / legacy positions)
+// ============================================================================
+
+use crate::state::{ConfidentialPosition, PositionStatus};
+// Note: TokenAccount already imported at top of file
+use anchor_spl::token::{self, Token, Transfer};
+
+/// Accounts for admin force-closing a broken/legacy position
+/// This is used when positions cannot be closed via MPC due to:
+/// - Broken V2 encryption (truncated ephemeral pubkey)
+/// - Legacy hackathon positions (plaintext format)
+#[derive(Accounts)]
+pub struct AdminForceClosePosition<'info> {
+    #[account(
+        seeds = [ExchangeState::SEED],
+        bump = exchange.bump,
+        has_one = authority @ ConfidexError::Unauthorized
+    )]
+    pub exchange: Account<'info, ExchangeState>,
+
+    #[account(
+        mut,
+        seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
+        bump = perp_market.bump,
+    )]
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
+
+    #[account(
+        mut,
+        seeds = [
+            ConfidentialPosition::SEED,
+            position.trader.as_ref(),
+            perp_market.key().as_ref(),
+            &position.position_seed.to_le_bytes()
+        ],
+        bump = position.bump,
+        constraint = position.market == perp_market.key() @ ConfidexError::InvalidFundingState,
+        constraint = position.status == PositionStatus::Open @ ConfidexError::PositionNotOpen,
+        // Only allow force-close for broken/legacy positions
+        constraint = position.is_legacy_plaintext_position() @ ConfidexError::InvalidPositionType
+    )]
+    pub position: Box<Account<'info, ConfidentialPosition>>,
+
+    /// The trader who owns this position (receives refund)
+    /// CHECK: We verify this matches position.trader
+    #[account(
+        mut,
+        constraint = trader.key() == position.trader @ ConfidexError::Unauthorized
+    )]
+    pub trader: AccountInfo<'info>,
+
+    /// Trader's collateral token account (receives refund)
+    #[account(
+        mut,
+        constraint = trader_collateral_account.owner == position.trader @ ConfidexError::InvalidOwner,
+        constraint = trader_collateral_account.mint == perp_market.quote_mint @ ConfidexError::InvalidMint
+    )]
+    pub trader_collateral_account: Account<'info, TokenAccount>,
+
+    /// Market's collateral vault (source of refund)
+    #[account(
+        mut,
+        constraint = collateral_vault.key() == perp_market.collateral_vault @ ConfidexError::InvalidVault
+    )]
+    pub collateral_vault: Account<'info, TokenAccount>,
+
+    /// CHECK: Vault authority PDA
+    #[account(
+        seeds = [b"vault", perp_market.key().as_ref()],
+        bump
+    )]
+    pub vault_authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+/// Parameters for admin force-close
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct AdminForceCloseParams {
+    /// Refund amount to return to trader (typically the collateral they deposited)
+    /// Set to 0 to close position with no refund (e.g., for abandoned positions)
+    pub refund_amount: u64,
+}
+
+/// Admin force-close a broken or legacy position
+///
+/// This is an EMERGENCY function for positions that cannot be closed normally because:
+/// 1. **Broken V2 positions**: Frontend encrypted with truncated 16-byte ephemeral pubkey,
+///    but MPC needs full 32 bytes to decrypt. These are permanently undecryptable.
+/// 2. **Legacy hackathon positions**: Created before encryption was properly implemented.
+///
+/// SECURITY NOTES:
+/// - Only exchange authority can call this
+/// - Position must be marked as legacy/broken (threshold_verified = false)
+/// - Refund amount is specified by admin (not calculated from encrypted data)
+/// - This is a LOSSY operation - we cannot compute actual PnL
+///
+/// RECOMMENDED REFUND POLICY:
+/// - Return the original collateral deposited by the trader
+/// - This is fair since we cannot determine if they had profit or loss
+pub fn admin_force_close_handler(
+    ctx: Context<AdminForceClosePosition>,
+    params: AdminForceCloseParams,
+) -> Result<()> {
+    // Capture keys before mutable borrow
+    let position_key = ctx.accounts.position.key();
+    let market_key = ctx.accounts.perp_market.key();
+    let authority_key = ctx.accounts.authority.key();
+
+    let position = &mut ctx.accounts.position;
+
+    msg!(
+        "Admin force-closing position {:?} for trader {}",
+        position.position_id,
+        position.trader
+    );
+
+    // Verify this is a broken/legacy position
+    require!(
+        position.is_legacy_plaintext_position(),
+        ConfidexError::InvalidPositionType
+    );
+
+    // Log position details for audit trail
+    let is_broken_v2 = position.is_broken_v2_position();
+    let trader_key = position.trader;
+    let position_id = position.position_id;
+
+    msg!(
+        "Position type: {} (threshold_verified={})",
+        if is_broken_v2 { "BROKEN_V2" } else { "LEGACY_HACKATHON" },
+        position.threshold_verified
+    );
+
+    // Transfer refund to trader if amount > 0
+    if params.refund_amount > 0 {
+        // Check vault has sufficient balance
+        let vault_balance = ctx.accounts.collateral_vault.amount;
+        require!(
+            vault_balance >= params.refund_amount,
+            ConfidexError::InsufficientBalance
+        );
+
+        let seeds = &[
+            b"vault".as_ref(),
+            market_key.as_ref(),
+            &[ctx.bumps.vault_authority],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.collateral_vault.to_account_info(),
+                    to: ctx.accounts.trader_collateral_account.to_account_info(),
+                    authority: ctx.accounts.vault_authority.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            params.refund_amount,
+        )?;
+
+        msg!("Refunded {} to trader", params.refund_amount);
+    } else {
+        msg!("No refund - position closed at zero value");
+    }
+
+    // Mark position as closed
+    position.status = PositionStatus::Closed;
+    position.last_updated_hour = ConfidentialPosition::coarse_timestamp(Clock::get()?.unix_timestamp);
+
+    // Emit event for tracking
+    emit!(AdminForceClosedPosition {
+        position: position_key,
+        trader: trader_key,
+        market: market_key,
+        refund_amount: params.refund_amount,
+        position_type: if is_broken_v2 { "broken_v2".to_string() } else { "legacy_hackathon".to_string() },
+        authority: authority_key,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+
+    msg!(
+        "Position force-closed by admin: {:?}, refund={}",
+        position_id,
+        params.refund_amount
+    );
+
+    Ok(())
+}
+
+/// Event emitted when admin force-closes a position
+#[event]
+pub struct AdminForceClosedPosition {
+    pub position: Pubkey,
+    pub trader: Pubkey,
+    pub market: Pubkey,
+    pub refund_amount: u64,
+    pub position_type: String,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+// ============================================================================
+// Admin Force Close V7 Position (for pre-V8 positions with 692 byte accounts)
+// ============================================================================
+// This instruction handles positions created before V8 that have 692 byte accounts
+// instead of the new 724 byte format. It uses AccountInfo for the position
+// to avoid deserialization errors from the size mismatch.
+// ============================================================================
+
+/// Accounts for admin force-closing a V7 position (692 bytes)
+/// Uses AccountInfo to handle old account size
+#[derive(Accounts)]
+pub struct AdminForceCloseV7Position<'info> {
+    #[account(
+        seeds = [ExchangeState::SEED],
+        bump = exchange.bump,
+        has_one = authority @ ConfidexError::Unauthorized
+    )]
+    pub exchange: Account<'info, ExchangeState>,
+
+    #[account(
+        mut,
+        seeds = [PerpetualMarket::SEED, perp_market.underlying_mint.as_ref()],
+        bump = perp_market.bump,
+    )]
+    pub perp_market: Box<Account<'info, PerpetualMarket>>,
+
+    /// CHECK: V7 position account (692 bytes) - manual verification
+    /// We use AccountInfo because the struct size changed in V8
+    #[account(mut)]
+    pub position: AccountInfo<'info>,
+
+    /// CHECK: The trader who owns this position
+    #[account(mut)]
+    pub trader: AccountInfo<'info>,
+
+    /// Trader's collateral token account (receives refund)
+    #[account(
+        mut,
+        constraint = trader_collateral_account.mint == perp_market.quote_mint @ ConfidexError::InvalidMint
+    )]
+    pub trader_collateral_account: Account<'info, TokenAccount>,
+
+    /// Market's collateral vault (source of refund)
+    #[account(
+        mut,
+        constraint = collateral_vault.key() == perp_market.collateral_vault @ ConfidexError::InvalidVault
+    )]
+    pub collateral_vault: Account<'info, TokenAccount>,
+
+    /// CHECK: Vault authority PDA
+    #[account(
+        seeds = [b"vault", perp_market.key().as_ref()],
+        bump
+    )]
+    pub vault_authority: AccountInfo<'info>,
+
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+/// V7 position size (before ephemeral_pubkey was added)
+const V7_POSITION_SIZE: usize = 692;
+
+/// Admin force-close a V7 position (pre-V8, 692 bytes)
+///
+/// This handler manually parses V7 position data to avoid deserialization
+/// errors from the size mismatch with V8 positions.
+pub fn admin_force_close_v7_handler(
+    ctx: Context<AdminForceCloseV7Position>,
+    params: AdminForceCloseParams,
+) -> Result<()> {
+    let position_info = &ctx.accounts.position;
+    let perp_market = &ctx.accounts.perp_market;
+
+    // Verify position account size is V7
+    require!(
+        position_info.data_len() == V7_POSITION_SIZE,
+        ConfidexError::InvalidAccountSize
+    );
+
+    // Verify position is owned by our program
+    require!(
+        position_info.owner == &crate::ID,
+        ConfidexError::InvalidOwner
+    );
+
+    let data = position_info.try_borrow_data()?;
+
+    // Parse V7 position fields manually
+    // Layout: discriminator(8) + trader(32) + market(32) + ...
+    let trader = Pubkey::try_from(&data[8..40]).map_err(|_| ConfidexError::InvalidAccountData)?;
+    let market = Pubkey::try_from(&data[40..72]).map_err(|_| ConfidexError::InvalidAccountData)?;
+
+    // position_id at offset 72 (16 bytes)
+    let mut position_id = [0u8; 16];
+    position_id.copy_from_slice(&data[72..88]);
+
+    // side at offset 104, leverage at 105
+    let _side = data[104];
+    let _leverage = data[105];
+
+    // threshold_verified at offset 530
+    let threshold_verified = data[530] != 0;
+
+    // status at offset 547 (0=Open, 1=Closed, etc.)
+    let status = data[547];
+
+    // Drop borrow before writing
+    drop(data);
+
+    // Verify constraints
+    require!(
+        trader == ctx.accounts.trader.key(),
+        ConfidexError::Unauthorized
+    );
+    require!(
+        market == perp_market.key(),
+        ConfidexError::InvalidFundingState
+    );
+    require!(
+        status == 0, // Open
+        ConfidexError::PositionNotOpen
+    );
+    require!(
+        !threshold_verified,
+        ConfidexError::InvalidPositionType
+    );
+    require!(
+        ctx.accounts.trader_collateral_account.owner == trader,
+        ConfidexError::InvalidOwner
+    );
+
+    msg!(
+        "Admin force-closing V7 position {:?} for trader {}",
+        position_id,
+        trader
+    );
+
+    // Transfer refund to trader if amount > 0
+    if params.refund_amount > 0 {
+        let vault_balance = ctx.accounts.collateral_vault.amount;
+        require!(
+            vault_balance >= params.refund_amount,
+            ConfidexError::InsufficientBalance
+        );
+
+        let market_key = perp_market.key();
+        let seeds = &[
+            b"vault".as_ref(),
+            market_key.as_ref(),
+            &[ctx.bumps.vault_authority],
+        ];
+        let signer_seeds = &[&seeds[..]];
+
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.collateral_vault.to_account_info(),
+                    to: ctx.accounts.trader_collateral_account.to_account_info(),
+                    authority: ctx.accounts.vault_authority.to_account_info(),
+                },
+                signer_seeds,
+            ),
+            params.refund_amount,
+        )?;
+
+        msg!("Refunded {} to trader", params.refund_amount);
+    } else {
+        msg!("No refund - position closed at zero value");
+    }
+
+    // Mark position as closed by writing status byte
+    // status is at offset 547
+    {
+        let mut data = position_info.try_borrow_mut_data()?;
+        data[547] = 1; // Closed
+    }
+
+    // Emit event
+    emit!(AdminForceClosedPosition {
+        position: position_info.key(),
+        trader,
+        market,
+        refund_amount: params.refund_amount,
+        position_type: "v7_broken_v2".to_string(),
+        authority: ctx.accounts.authority.key(),
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+
+    msg!(
+        "V7 position force-closed by admin: {:?}, refund={}",
+        position_id,
+        params.refund_amount
+    );
+
+    Ok(())
+}

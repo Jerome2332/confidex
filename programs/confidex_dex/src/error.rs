@@ -195,4 +195,21 @@ pub enum ConfidexError {
 
     #[msg("Invalid position type - use appropriate instruction for legacy vs MPC positions")]
     InvalidPositionType,
+
+    // === Settlement Errors ===
+
+    #[msg("Settlement has already expired")]
+    SettlementExpired,
+
+    #[msg("Settlement is not in a failed state")]
+    SettlementNotFailed,
+
+    #[msg("Settlement is already being rolled back")]
+    SettlementAlreadyRollingBack,
+
+    #[msg("Rollback not required - no partial transfers")]
+    RollbackNotRequired,
+
+    #[msg("Settlement cannot be failed in current state")]
+    CannotFailSettlement,
 }

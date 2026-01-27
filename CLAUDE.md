@@ -131,6 +131,14 @@ CRANK_USE_REAL_MPC=true
 - **Icons**: Phosphor only (`@phosphor-icons/react`)
 - **No emojis** in code or comments
 
+## Backend API
+
+See [API Documentation](project-docs/API.md) for complete endpoint reference.
+
+Key endpoints: `/api/status`, `/api/orderbook/:pair`, `/api/orders/simulate`, `/api/prove`
+
+Admin endpoints require `X-API-Key` header. Load testing: set `LOAD_TEST_MODE=true`.
+
 ## Testing
 
 ```bash
@@ -142,6 +150,9 @@ cd backend && pnpm test
 
 # Anchor
 anchor test
+
+# Load tests (requires k6)
+k6 run --vus 5 --duration 30s tests/load/settlement.js
 ```
 
 Coverage requirement: 80%+
@@ -170,10 +181,12 @@ Coverage requirement: 80%+
 ## Documentation
 
 Detailed documentation moved to `project-docs/`:
+- [API Reference](project-docs/API.md)
 - [Architecture Details](project-docs/ARCHITECTURE.md)
 - [Arcium Integration](project-docs/arcium/)
 - [Privacy Model](project-docs/PRIVACY_MODEL.md)
 - [Deployment Guide](project-docs/deployment/DEPLOYMENT.md)
+- [Load Testing](tests/load/README.md)
 
 ## Performance Targets
 

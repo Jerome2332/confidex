@@ -184,6 +184,33 @@ pub mod confidex_dex {
         instructions::admin::update_program_ids_handler(ctx, params)
     }
 
+    /// Admin force-close a broken or legacy position (admin only)
+    ///
+    /// EMERGENCY function for positions that cannot be closed via MPC because:
+    /// - Broken V2 encryption (truncated ephemeral pubkey - cannot decrypt)
+    /// - Legacy hackathon positions (plaintext format)
+    ///
+    /// The position must have `threshold_verified = false` to be eligible.
+    /// Refund amount is specified by admin since encrypted values are unreadable.
+    pub fn admin_force_close_position(
+        ctx: Context<AdminForceClosePosition>,
+        params: AdminForceCloseParams,
+    ) -> Result<()> {
+        instructions::admin::admin_force_close_handler(ctx, params)
+    }
+
+    /// Admin force-close a V7 position (pre-V8, 692 bytes) - admin only
+    ///
+    /// This is for positions created before the V8 update that added the
+    /// ephemeral_pubkey field. These positions are 692 bytes instead of 724.
+    /// Uses manual parsing to avoid deserialization errors from size mismatch.
+    pub fn admin_force_close_v7_position(
+        ctx: Context<AdminForceCloseV7Position>,
+        params: AdminForceCloseParams,
+    ) -> Result<()> {
+        instructions::admin::admin_force_close_v7_handler(ctx, params)
+    }
+
     // === ZK Verification (Layer 1 of Three-Layer Privacy) ===
 
     /// Verify trader eligibility via ZK proof (blacklist non-membership)
@@ -444,5 +471,78 @@ pub mod confidex_dex {
         params: LiquidationCheckParams,
     ) -> Result<()> {
         instructions::mpc_callback::liquidation_check_callback(ctx, params)
+    }
+
+    // === ShadowWire Settlement (Layer 4 - Private Transfer) ===
+
+    /// Initiate ShadowWire settlement for matched orders
+    ///
+    /// Creates a SettlementRequest that tracks the two-phase transfer process.
+    /// Backend executes transfers via ShadowWire API using MPC-decrypted amounts.
+    pub fn initiate_settlement(
+        ctx: Context<InitiateSettlement>,
+        params: InitiateSettlementParams,
+    ) -> Result<()> {
+        instructions::initiate_settlement::handler(ctx, params)
+    }
+
+    /// Record a ShadowWire transfer completion
+    ///
+    /// Called by backend after executing a transfer via ShadowWire API.
+    /// Updates settlement state machine with transfer ID.
+    pub fn record_shadowwire_transfer(
+        ctx: Context<RecordShadowWireTransfer>,
+        params: RecordTransferParams,
+    ) -> Result<()> {
+        instructions::record_shadowwire_transfer::handler(ctx, params)
+    }
+
+    /// Finalize ShadowWire settlement after both transfers complete
+    ///
+    /// Marks orders as filled and closes settlement request account.
+    pub fn finalize_settlement(ctx: Context<FinalizeSettlement>) -> Result<()> {
+        instructions::finalize_settlement::handler(ctx)
+    }
+
+    /// Register a user's ShadowWire account for private settlement
+    ///
+    /// Creates UserShadowWireAccount linking wallet to ShadowWire pool.
+    /// Required before orders can be settled via ShadowWire.
+    pub fn register_shadowwire_account(
+        ctx: Context<RegisterShadowWireAccount>,
+        params: RegisterShadowWireParams,
+    ) -> Result<()> {
+        instructions::register_shadowwire::handler(ctx, params)
+    }
+
+    /// Update a user's ShadowWire account
+    ///
+    /// Add supported mints or update pool address.
+    pub fn update_shadowwire_account(
+        ctx: Context<UpdateShadowWireAccount>,
+        params: UpdateShadowWireParams,
+    ) -> Result<()> {
+        instructions::register_shadowwire::update_handler(ctx, params)
+    }
+
+    /// Fail a settlement that cannot complete
+    ///
+    /// Handles settlement failures:
+    /// - If no transfers occurred: marks Failed, returns orders to Active
+    /// - If base transferred but quote failed: marks RollingBack, triggers rollback
+    pub fn fail_settlement(
+        ctx: Context<FailSettlement>,
+        params: FailSettlementParams,
+    ) -> Result<()> {
+        instructions::fail_settlement::handler(ctx, params)
+    }
+
+    /// Expire a settlement that has passed its deadline
+    ///
+    /// Anyone can call this after expiry time. Handles:
+    /// - No transfers: marks Expired, returns orders to Active
+    /// - Partial transfer: marks RollingBack for manual intervention
+    pub fn expire_settlement(ctx: Context<ExpireSettlement>) -> Result<()> {
+        instructions::expire_settlement::handler(ctx)
     }
 }

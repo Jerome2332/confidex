@@ -235,15 +235,18 @@ export class PositionVerifier {
   private async fetchPendingPositions(): Promise<PositionWithPda[]> {
     // Fetch all position accounts for the DEX program
     // Filter by: discriminator matches ConfidentialPosition, threshold_verified = false
+    // V8 position size: 724 bytes (V7 was 692, V6 was 618)
+    // V8 adds ephemeral_pubkey (32 bytes) at the end
+    const V8_POSITION_SIZE = 724;
+    const THRESHOLD_VERIFIED_OFFSET = 530; // Same offset as V7/V8
+
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        // V6 position size: 618 bytes (8 discriminator + 610 data)
-        { dataSize: 618 },
-        // threshold_verified = false (offset 492 in V6 layout)
-        // The exact offset needs to be calculated based on struct layout
+        { dataSize: V8_POSITION_SIZE },
+        // threshold_verified = false (offset 530 in V7/V8 layout)
         {
           memcmp: {
-            offset: 492, // Adjust based on actual layout
+            offset: THRESHOLD_VERIFIED_OFFSET,
             bytes: bs58.encode(Buffer.from([0])), // false
           },
         },

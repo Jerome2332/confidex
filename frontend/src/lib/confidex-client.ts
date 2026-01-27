@@ -1195,6 +1195,8 @@ export interface OpenPositionParams {
   positionNonce: Uint8Array;           // 8 bytes - nonce for hash-based position ID
   collateralAmount: bigint;            // Plaintext collateral for SPL transfer (USDC with 6 decimals)
                                        // NOTE: Temporary fallback until C-SPL SDK available
+  ephemeralPubkey: Uint8Array;         // 32 bytes - full X25519 ephemeral pubkey for MPC decryption
+                                       // V8: Required - MPC needs this to compute shared secret
   // REMOVED in V3 (two-instruction pattern):
   // - encryptedCollateral: derived from collateralAmount on-chain
   // - encryptedLiqThreshold: computed by MPC from entry_price + leverage
@@ -1369,11 +1371,22 @@ export async function buildOpenPositionTransaction(
     oracle: marketData.oraclePriceFeed.toString(),
   });
 
+  // Get ephemeral pubkey from params
+  const { ephemeralPubkey } = params;
+
+  // Validate ephemeral pubkey length
+  if (!ephemeralPubkey || ephemeralPubkey.length !== 32) {
+    throw new Error(
+      `Invalid ephemeral pubkey length: ${ephemeralPubkey?.length ?? 0}. ` +
+      `Expected 32 bytes. V8 requires the full X25519 ephemeral public key for MPC decryption.`
+    );
+  }
+
   // Build instruction data
-  // V3 Layout: discriminator(8) + side(1) + leverage(1) + collateral_amount(8) + position_nonce(8) +
-  //            encrypted_size(64) + encrypted_entry_price(64)
-  // Total: 8 + 1 + 1 + 8 + 8 + 64 + 64 = 154 bytes
-  const dataSize = 8 + 1 + 1 + 8 + 8 + 64 + 64;
+  // V8 Layout: discriminator(8) + side(1) + leverage(1) + collateral_amount(8) + position_nonce(8) +
+  //            encrypted_size(64) + encrypted_entry_price(64) + ephemeral_pubkey(32)
+  // Total: 8 + 1 + 1 + 8 + 8 + 64 + 64 + 32 = 186 bytes
+  const dataSize = 8 + 1 + 1 + 8 + 8 + 64 + 64 + 32;
   const instructionData = Buffer.alloc(dataSize);
   let offset = 0;
 
@@ -1403,6 +1416,10 @@ export async function buildOpenPositionTransaction(
 
   // Encrypted entry price (64 bytes)
   Buffer.from(encryptedEntryPrice).copy(instructionData, offset);
+  offset += 64;
+
+  // Ephemeral pubkey (32 bytes) - V8: full X25519 pubkey for MPC decryption
+  Buffer.from(ephemeralPubkey).copy(instructionData, offset);
 
   // Arcium program ID for MPC verification
   const arciumProgramId = new PublicKey('Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ');

@@ -285,14 +285,14 @@ export class ClosePositionProcessor {
    * (pending_close = true)
    */
   private async fetchPendingCloseOperations(): Promise<PendingCloseOperation[]> {
-    // V7 position size: 692 bytes (8 discriminator + 684 data)
-    const V7_POSITION_SIZE = 692;
+    // V8 position size: 724 bytes (adds 32-byte ephemeral_pubkey at end)
+    const V8_POSITION_SIZE = 724;
 
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        { dataSize: V7_POSITION_SIZE },
+        { dataSize: V8_POSITION_SIZE },
         // Filter for pending_close = true
-        // pending_close is at offset 618 (after V6 fields)
+        // pending_close is at offset 618 (same for V7/V8 - ephemeral_pubkey added at end)
         {
           memcmp: {
             offset: 618,

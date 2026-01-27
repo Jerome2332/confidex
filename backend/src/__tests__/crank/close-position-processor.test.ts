@@ -80,8 +80,8 @@ function createMockConfig(): CrankConfig {
   } as CrankConfig;
 }
 
-// Helper to create V7 position data for close position testing
-function createMockPositionDataV7(options: {
+// Helper to create V8 position data for close position testing (724 bytes)
+function createMockPositionDataV8(options: {
   market?: PublicKey;
   trader?: PublicKey;
   side?: number;
@@ -91,7 +91,7 @@ function createMockPositionDataV7(options: {
   pendingMpcRequest?: Uint8Array;
   encryptedCollateral?: Uint8Array;
 } = {}): Buffer {
-  const data = Buffer.alloc(692);
+  const data = Buffer.alloc(724); // V8 position size
   let offset = 0;
 
   // Discriminator (8 bytes)
@@ -328,7 +328,7 @@ describe('ClosePositionProcessor', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: 692 },
+            { dataSize: 724 },
           ]),
         })
       );
@@ -417,7 +417,7 @@ describe('ClosePositionProcessor', () => {
     it('fetches positions with pending close', async () => {
       const positionPda = Keypair.generate().publicKey;
 
-      const pendingClosePosition = createMockPositionDataV7({
+      const pendingClosePosition = createMockPositionDataV8({
         pendingClose: true,
         pendingMpcRequest: new Uint8Array(32).fill(1),
       });
@@ -432,7 +432,7 @@ describe('ClosePositionProcessor', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: 692 },
+            { dataSize: 724 },
             expect.objectContaining({
               memcmp: expect.objectContaining({
                 offset: 618, // pending_close offset
@@ -444,7 +444,7 @@ describe('ClosePositionProcessor', () => {
     });
 
     it('filters out positions without pending close', async () => {
-      const positionNoPendingClose = createMockPositionDataV7({
+      const positionNoPendingClose = createMockPositionDataV8({
         pendingClose: false,
       });
 
@@ -566,7 +566,7 @@ describe('ClosePositionProcessor', () => {
       const trader = Keypair.generate().publicKey;
       const market = Keypair.generate().publicKey;
 
-      const positionData = createMockPositionDataV7({
+      const positionData = createMockPositionDataV8({
         trader,
         market,
         side: 1,
@@ -649,7 +649,7 @@ describe('ClosePositionProcessor', () => {
       const marketPda = Keypair.generate().publicKey;
       const positionPda = Keypair.generate().publicKey;
 
-      const positionData = createMockPositionDataV7({
+      const positionData = createMockPositionDataV8({
         market: marketPda,
         pendingClose: true,
       });
@@ -680,7 +680,7 @@ describe('ClosePositionProcessor', () => {
     });
 
     it('handles missing market account', async () => {
-      const positionData = createMockPositionDataV7({
+      const positionData = createMockPositionDataV8({
         pendingClose: true,
       });
 
@@ -755,7 +755,7 @@ describe('ClosePositionProcessor', () => {
 
   describe('full close vs partial close', () => {
     it('handles full close', async () => {
-      const fullClosePosition = createMockPositionDataV7({
+      const fullClosePosition = createMockPositionDataV8({
         pendingClose: true,
         pendingCloseFull: true,
       });
@@ -770,7 +770,7 @@ describe('ClosePositionProcessor', () => {
     });
 
     it('handles partial close', async () => {
-      const partialClosePosition = createMockPositionDataV7({
+      const partialClosePosition = createMockPositionDataV8({
         pendingClose: true,
         pendingCloseFull: false,
       });
@@ -787,7 +787,7 @@ describe('ClosePositionProcessor', () => {
 
   describe('side-specific handling', () => {
     it('handles long position close', async () => {
-      const longPosition = createMockPositionDataV7({
+      const longPosition = createMockPositionDataV8({
         side: 0,
         pendingClose: true,
       });
@@ -802,7 +802,7 @@ describe('ClosePositionProcessor', () => {
     });
 
     it('handles short position close', async () => {
-      const shortPosition = createMockPositionDataV7({
+      const shortPosition = createMockPositionDataV8({
         side: 1,
         pendingClose: true,
       });

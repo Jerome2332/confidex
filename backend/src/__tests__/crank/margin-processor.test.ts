@@ -3,8 +3,8 @@ import { Connection, Keypair, PublicKey, Transaction, Logs, Context } from '@sol
 import { MarginProcessor } from '../../crank/margin-processor.js';
 import { CrankConfig } from '../../crank/config.js';
 
-// V6 position account size
-const POSITION_ACCOUNT_SIZE_V6 = 618;
+// V8 position account size (724 bytes - V7 was 692, V6 was 618)
+const POSITION_ACCOUNT_SIZE_V8 = 724;
 
 // Mock logger
 vi.mock('../../lib/logger.js', () => ({
@@ -27,7 +27,7 @@ vi.mock('@solana/web3.js', async (importOriginal) => {
   };
 });
 
-// Helper to create mock V6 position data with pending margin operation
+// Helper to create mock V8 position data with pending margin operation
 function createMockPositionDataWithPendingMargin(
   options: {
     trader?: PublicKey;
@@ -39,7 +39,7 @@ function createMockPositionDataWithPendingMargin(
     encryptedCollateral?: Uint8Array;
   } = {}
 ): Buffer {
-  const data = Buffer.alloc(POSITION_ACCOUNT_SIZE_V6);
+  const data = Buffer.alloc(POSITION_ACCOUNT_SIZE_V8);
   let offset = 8; // Skip discriminator
 
   // trader (32 bytes)
@@ -282,11 +282,11 @@ describe('MarginProcessor', () => {
   });
 
   describe('fetchPendingMarginOperations', () => {
-    it('queries for V6 positions', async () => {
+    it('queries for V8 positions', async () => {
       await processor.start();
 
       expect(mockConnection.getProgramAccounts).toHaveBeenCalledWith(dexProgramId, {
-        filters: [{ dataSize: POSITION_ACCOUNT_SIZE_V6 }],
+        filters: [{ dataSize: POSITION_ACCOUNT_SIZE_V8 }],
       });
     });
 

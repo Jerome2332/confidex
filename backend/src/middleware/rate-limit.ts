@@ -122,11 +122,12 @@ function defaultHandler(req: Request, res: Response, options: RateLimitOptions):
  */
 export const rateLimiters = {
   /**
-   * Standard API rate limit: 100 requests per minute
+   * Standard API rate limit: 500 requests per minute (increased for load testing)
+   * Production should use 100 requests per minute
    */
   standard: createRateLimiter({
     windowMs: 60 * 1000,
-    maxRequests: 100,
+    maxRequests: process.env.NODE_ENV === 'production' ? 100 : 500,
   }),
 
   /**

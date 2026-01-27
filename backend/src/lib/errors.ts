@@ -40,6 +40,8 @@ export enum ErrorCode {
   MPC_ENCRYPTION_FAILED = 3003,
   MPC_CALLBACK_FAILED = 3004,
   MPC_KEYGEN_INCOMPLETE = 3005,
+  MPC_INVALID_RESPONSE = 3006,
+  MPC_SIGNATURE_INVALID = 3007,
 
   // Rate limiting (4xxx)
   RATE_LIMIT_EXCEEDED = 4000,
@@ -51,6 +53,29 @@ export enum ErrorCode {
   INVALID_INPUT = 5001,
   MISSING_REQUIRED_FIELD = 5002,
   OUT_OF_RANGE = 5003,
+
+  // Settlement errors (6xxx)
+  SETTLEMENT_TIMEOUT = 6000,
+  SETTLEMENT_ROLLBACK_FAILED = 6001,
+  SETTLEMENT_ALREADY_COMPLETE = 6002,
+  SETTLEMENT_NOT_FOUND = 6003,
+  SETTLEMENT_INVALID_STATE = 6004,
+  SETTLEMENT_PARTIAL_TRANSFER = 6005,
+
+  // ShadowWire errors (7xxx)
+  SHADOWWIRE_TRANSFER_FAILED = 7000,
+  SHADOWWIRE_INSUFFICIENT_BALANCE = 7001,
+  SHADOWWIRE_API_ERROR = 7002,
+  SHADOWWIRE_INVALID_TOKEN = 7003,
+  SHADOWWIRE_TIMEOUT = 7004,
+  SHADOWWIRE_CIRCUIT_OPEN = 7005,
+
+  // Order errors (8xxx)
+  ORDER_NOT_FOUND = 8000,
+  ORDER_ALREADY_SETTLED = 8001,
+  ORDER_EXPIRED = 8002,
+  ORDER_INVALID_STATUS = 8003,
+  ORDER_MATCH_FAILED = 8004,
 
   // Internal errors (9xxx)
   INTERNAL_ERROR = 9000,
@@ -428,6 +453,248 @@ export class ValidationError extends ConfidexError {
 }
 
 // =============================================================================
+// Settlement Error
+// =============================================================================
+
+export class SettlementError extends ConfidexError {
+  constructor(
+    message: string,
+    code: ErrorCode = ErrorCode.SETTLEMENT_TIMEOUT,
+    cause?: Error,
+    context?: ErrorContext,
+    isRetryable: boolean = false
+  ) {
+    super({
+      code,
+      message,
+      cause,
+      context,
+      isRetryable,
+      severity: 'error',
+    });
+    this.name = 'SettlementError';
+  }
+
+  static timeout(settlementId?: string, timeoutMs?: number): SettlementError {
+    return new SettlementError(
+      'Settlement timeout',
+      ErrorCode.SETTLEMENT_TIMEOUT,
+      undefined,
+      { settlementId, timeoutMs },
+      true // retryable
+    );
+  }
+
+  static rollbackFailed(settlementId?: string, transferId?: string, cause?: Error): SettlementError {
+    return new SettlementError(
+      'Settlement rollback failed - manual intervention required',
+      ErrorCode.SETTLEMENT_ROLLBACK_FAILED,
+      cause,
+      { settlementId, transferId },
+      false // not retryable - requires manual intervention
+    );
+  }
+
+  static alreadyComplete(settlementId?: string): SettlementError {
+    return new SettlementError(
+      'Settlement already completed',
+      ErrorCode.SETTLEMENT_ALREADY_COMPLETE,
+      undefined,
+      { settlementId },
+      false
+    );
+  }
+
+  static notFound(settlementId?: string): SettlementError {
+    return new SettlementError(
+      'Settlement not found',
+      ErrorCode.SETTLEMENT_NOT_FOUND,
+      undefined,
+      { settlementId },
+      false
+    );
+  }
+
+  static invalidState(settlementId?: string, currentState?: string, expectedStates?: string[]): SettlementError {
+    return new SettlementError(
+      `Settlement in invalid state: ${currentState}, expected: ${expectedStates?.join(' or ')}`,
+      ErrorCode.SETTLEMENT_INVALID_STATE,
+      undefined,
+      { settlementId, currentState, expectedStates },
+      false
+    );
+  }
+
+  static partialTransfer(settlementId?: string, completedTransfers?: string[]): SettlementError {
+    return new SettlementError(
+      'Partial transfer occurred - rollback required',
+      ErrorCode.SETTLEMENT_PARTIAL_TRANSFER,
+      undefined,
+      { settlementId, completedTransfers },
+      false // not retryable - requires rollback
+    );
+  }
+}
+
+// =============================================================================
+// ShadowWire Error
+// =============================================================================
+
+export class ShadowWireError extends ConfidexError {
+  constructor(
+    message: string,
+    code: ErrorCode = ErrorCode.SHADOWWIRE_API_ERROR,
+    cause?: Error,
+    context?: ErrorContext,
+    isRetryable: boolean = true
+  ) {
+    super({
+      code,
+      message,
+      cause,
+      context,
+      isRetryable,
+      severity: 'error',
+    });
+    this.name = 'ShadowWireError';
+  }
+
+  static transferFailed(transferId?: string, reason?: string, cause?: Error): ShadowWireError {
+    return new ShadowWireError(
+      `ShadowWire transfer failed: ${reason || 'unknown'}`,
+      ErrorCode.SHADOWWIRE_TRANSFER_FAILED,
+      cause,
+      { transferId, reason },
+      true
+    );
+  }
+
+  static insufficientBalance(sender?: string, token?: string, required?: bigint, available?: bigint): ShadowWireError {
+    return new ShadowWireError(
+      'Insufficient balance for ShadowWire transfer',
+      ErrorCode.SHADOWWIRE_INSUFFICIENT_BALANCE,
+      undefined,
+      { sender, token, required: required?.toString(), available: available?.toString() },
+      false // not retryable - need more funds
+    );
+  }
+
+  static apiError(statusCode?: number, message?: string, cause?: Error): ShadowWireError {
+    return new ShadowWireError(
+      `ShadowWire API error: ${message || 'unknown'}`,
+      ErrorCode.SHADOWWIRE_API_ERROR,
+      cause,
+      { statusCode, message },
+      true
+    );
+  }
+
+  static invalidToken(token?: string): ShadowWireError {
+    return new ShadowWireError(
+      `Token not supported by ShadowWire: ${token}`,
+      ErrorCode.SHADOWWIRE_INVALID_TOKEN,
+      undefined,
+      { token },
+      false // not retryable - token not supported
+    );
+  }
+
+  static timeout(transferId?: string, timeoutMs?: number): ShadowWireError {
+    return new ShadowWireError(
+      'ShadowWire transfer timeout',
+      ErrorCode.SHADOWWIRE_TIMEOUT,
+      undefined,
+      { transferId, timeoutMs },
+      true
+    );
+  }
+
+  static circuitOpen(): ShadowWireError {
+    return new ShadowWireError(
+      'ShadowWire circuit breaker is open - service unavailable',
+      ErrorCode.SHADOWWIRE_CIRCUIT_OPEN,
+      undefined,
+      undefined,
+      true // retryable after circuit resets
+    );
+  }
+}
+
+// =============================================================================
+// Order Error
+// =============================================================================
+
+export class OrderError extends ConfidexError {
+  constructor(
+    message: string,
+    code: ErrorCode = ErrorCode.ORDER_NOT_FOUND,
+    cause?: Error,
+    context?: ErrorContext,
+    isRetryable: boolean = false
+  ) {
+    super({
+      code,
+      message,
+      cause,
+      context,
+      isRetryable,
+      severity: 'warning',
+    });
+    this.name = 'OrderError';
+  }
+
+  static notFound(orderId?: string): OrderError {
+    return new OrderError(
+      'Order not found',
+      ErrorCode.ORDER_NOT_FOUND,
+      undefined,
+      { orderId },
+      false
+    );
+  }
+
+  static alreadySettled(orderId?: string): OrderError {
+    return new OrderError(
+      'Order already settled',
+      ErrorCode.ORDER_ALREADY_SETTLED,
+      undefined,
+      { orderId },
+      false
+    );
+  }
+
+  static expired(orderId?: string, expiryTime?: number): OrderError {
+    return new OrderError(
+      'Order has expired',
+      ErrorCode.ORDER_EXPIRED,
+      undefined,
+      { orderId, expiryTime },
+      false
+    );
+  }
+
+  static invalidStatus(orderId?: string, currentStatus?: string, expectedStatuses?: string[]): OrderError {
+    return new OrderError(
+      `Order in invalid status: ${currentStatus}, expected: ${expectedStatuses?.join(' or ')}`,
+      ErrorCode.ORDER_INVALID_STATUS,
+      undefined,
+      { orderId, currentStatus, expectedStatuses },
+      false
+    );
+  }
+
+  static matchFailed(buyOrderId?: string, sellOrderId?: string, reason?: string): OrderError {
+    return new OrderError(
+      `Order matching failed: ${reason || 'unknown'}`,
+      ErrorCode.ORDER_MATCH_FAILED,
+      undefined,
+      { buyOrderId, sellOrderId, reason },
+      true // may be retryable
+    );
+  }
+}
+
+// =============================================================================
 // Error Classification
 // =============================================================================
 
@@ -523,6 +790,48 @@ export function classifyError(error: unknown): ConfidexError {
   // MPC errors
   if (message.includes('mpc') || message.includes('arcium')) {
     return MpcError.computationFailed(undefined, error.message, error);
+  }
+
+  // Settlement errors
+  if (message.includes('settlement')) {
+    if (message.includes('timeout')) {
+      return SettlementError.timeout();
+    }
+    if (message.includes('rollback')) {
+      return SettlementError.rollbackFailed(undefined, undefined, error);
+    }
+    if (message.includes('already complete') || message.includes('already settled')) {
+      return SettlementError.alreadyComplete();
+    }
+    return new SettlementError(error.message, ErrorCode.SETTLEMENT_INVALID_STATE, error);
+  }
+
+  // ShadowWire errors
+  if (message.includes('shadowwire')) {
+    if (message.includes('insufficient') || message.includes('balance')) {
+      return ShadowWireError.insufficientBalance();
+    }
+    if (message.includes('timeout')) {
+      return ShadowWireError.timeout();
+    }
+    if (message.includes('circuit')) {
+      return ShadowWireError.circuitOpen();
+    }
+    return ShadowWireError.apiError(undefined, error.message, error);
+  }
+
+  // Order errors
+  if (message.includes('order')) {
+    if (message.includes('not found')) {
+      return OrderError.notFound();
+    }
+    if (message.includes('already settled')) {
+      return OrderError.alreadySettled();
+    }
+    if (message.includes('expired')) {
+      return OrderError.expired();
+    }
+    return OrderError.matchFailed(undefined, undefined, error.message);
   }
 
   // Default to internal error

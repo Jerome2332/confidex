@@ -93,3 +93,4 @@ service-account*.json
 backend-logs.txt
 backend/data/*.db-shm
 backend/data/*.db-wal
+.vercel

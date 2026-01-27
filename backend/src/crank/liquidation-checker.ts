@@ -434,7 +434,7 @@ export class LiquidationChecker {
   private async fetchOpenPositions(marketPda: PublicKey): Promise<OpenPosition[]> {
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        { dataSize: 618 }, // V6 position size
+        { dataSize: 724 }, // V8 position size (V7 was 692, V6 was 618)
         // Filter by market
         {
           memcmp: {
@@ -454,7 +454,7 @@ export class LiquidationChecker {
   private async fetchAllOpenPositions(): Promise<OpenPosition[]> {
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        { dataSize: 618 }, // V6 position size
+        { dataSize: 724 }, // V8 position size (V7 was 692, V6 was 618)
       ],
     });
 
@@ -718,10 +718,10 @@ export class LiquidationChecker {
   private async fetchLiquidatablePositions(
     marketPda: PublicKey
   ): Promise<OpenPosition[]> {
-    // Fetch all V7 positions (692 bytes)
-    const V7_POSITION_SIZE = 692;
+    // Fetch all V8 positions (724 bytes, adds 32-byte ephemeral_pubkey)
+    const V8_POSITION_SIZE = 724;
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
-      filters: [{ dataSize: V7_POSITION_SIZE }],
+      filters: [{ dataSize: V8_POSITION_SIZE }],
     });
 
     const liquidatable: OpenPosition[] = [];

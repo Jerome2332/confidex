@@ -7,6 +7,9 @@ import { healthRouter, setCrankServiceRef } from './routes/health.js';
 import { blacklistRouter } from './routes/admin/blacklist.js';
 import { crankRouter, initializeCrankService } from './routes/admin/crank.js';
 import { metricsRouter, metricsMiddleware } from './routes/metrics.js';
+import { ordersRouter } from './routes/orders.js';
+import { orderbookRouter } from './routes/orderbook.js';
+import { statusRouter, initializeStatusService } from './routes/status.js';
 import { CrankService, loadCrankConfig } from './crank/index.js';
 import { validateEnv } from './config/env.js';
 import { logger, requestLogger } from './lib/logger.js';
@@ -150,6 +153,9 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 app.use('/health', healthRouter);
 app.use('/metrics', metricsRouter);
 app.use('/api/prove', proveRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/orderbook', orderbookRouter);
+app.use('/api/status', statusRouter);
 app.use('/api/admin/blacklist', blacklistRouter);
 app.use('/api/admin/crank', crankRouter);
 
@@ -276,6 +282,9 @@ httpServer.listen(PORT, async () => {
     health: `/health`,
     metrics: `/metrics`,
     prove: `/api/prove`,
+    orders: `/api/orders`,
+    orderbook: `/api/orderbook`,
+    status: `/api/status`,
     blacklist: `/api/admin/blacklist`,
     crank: `/api/admin/crank`,
     analytics: isAnalyticsEnabled() ? `/api/analytics` : 'disabled',
@@ -287,8 +296,9 @@ httpServer.listen(PORT, async () => {
   const crankService = new CrankService(crankConfig);
   initializeCrankService(crankService);
 
-  // Wire up crank service for health checks
+  // Wire up crank service for health checks and public status API
   setCrankServiceRef(crankService);
+  initializeStatusService(crankService);
 
   if (crankConfig.enabled) {
     try {

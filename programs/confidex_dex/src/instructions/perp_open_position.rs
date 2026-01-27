@@ -93,7 +93,7 @@ pub struct OpenPosition<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Parameters for opening a position (V2 - fully encrypted liquidation thresholds)
+/// Parameters for opening a position (V3 - with separate ephemeral pubkey for MPC)
 /// NOTE: ZK proof is verified separately via verify_eligibility instruction
 /// This keeps params small to avoid stack overflow (reduced from 4 to 2 encrypted fields)
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -116,6 +116,10 @@ pub struct OpenPositionParams {
     /// NOTE: encrypted_collateral derived from collateral_amount during settlement
     /// NOTE: encrypted_liq_threshold computed by MPC from entry_price + leverage
     pub encrypted_entry_price: [u8; 64],
+    /// Full 32-byte X25519 ephemeral public key used for encryption
+    /// MPC needs this to compute the shared secret for decryption.
+    /// V8: This field is required - without it MPC cannot decrypt the encrypted values.
+    pub ephemeral_pubkey: [u8; 32],
 }
 
 pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result<()> {
@@ -242,6 +246,16 @@ pub fn handler(ctx: Context<OpenPosition>, params: OpenPositionParams) -> Result
         position.pending_margin_amount = 0;
         position.pending_margin_is_add = false;
         position.is_liquidatable = false;
+
+        // V7: Initialize close position tracking fields
+        position.pending_close = false;
+        position.pending_close_exit_price = 0;
+        position.pending_close_full = false;
+        position.pending_close_size = [0u8; 64];
+
+        // V8: Store full ephemeral pubkey for MPC decryption
+        // MPC needs this to compute: shared_secret = X25519(mxe_private, ephemeral_pubkey)
+        position.ephemeral_pubkey = params.ephemeral_pubkey;
     }
 
     // Increment market position count

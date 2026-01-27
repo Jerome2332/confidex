@@ -228,7 +228,7 @@ export class MarginProcessor {
   private async fetchPendingMarginOperations(): Promise<PendingMarginOperation[]> {
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        { dataSize: 618 }, // V6 position size
+        { dataSize: 724 }, // V8 position size (V7 was 692, V6 was 618)
         // We can't filter on pending_margin_amount > 0 directly,
         // so we fetch all positions and filter in code
       ],

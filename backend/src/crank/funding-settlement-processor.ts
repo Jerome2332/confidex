@@ -302,11 +302,11 @@ export class FundingSettlementProcessor {
   private async fetchPendingFundingOperations(): Promise<PendingFundingOperation[]> {
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        { dataSize: 692 }, // V7 position size
+        { dataSize: 724 }, // V8 position size (V7 was 692)
         // Filter: threshold_verified = false
         {
           memcmp: {
-            offset: 492, // threshold_verified offset
+            offset: 530, // threshold_verified offset (same for V7/V8)
             bytes: bs58.encode(Buffer.from([0])), // false
           },
         },

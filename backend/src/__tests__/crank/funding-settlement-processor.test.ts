@@ -71,8 +71,8 @@ function createMockConfig(): CrankConfig {
   } as CrankConfig;
 }
 
-// Helper to create V7 position data for funding settlement testing
-function createMockPositionDataV7(options: {
+// Helper to create V8 position data for funding settlement testing (724 bytes)
+function createMockPositionDataV8(options: {
   market?: PublicKey;
   trader?: PublicKey;
   side?: number;
@@ -83,7 +83,7 @@ function createMockPositionDataV7(options: {
   fundingDelta?: bigint;
   currentCumulativeFunding?: bigint;
 } = {}): Buffer {
-  const data = Buffer.alloc(692);
+  const data = Buffer.alloc(724); // V8 position size
   let offset = 0;
 
   // Discriminator (8 bytes)
@@ -268,7 +268,7 @@ describe('FundingSettlementProcessor', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: 692 },
+            { dataSize: 724 },
           ]),
         })
       );
@@ -360,7 +360,7 @@ describe('FundingSettlementProcessor', () => {
       const marketPda = Keypair.generate().publicKey;
       const positionPda = Keypair.generate().publicKey;
 
-      const pendingFundingPosition = createMockPositionDataV7({
+      const pendingFundingPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: false, // Must be false for pending funding
         pendingMpcRequest: new Uint8Array(32).fill(1), // Non-zero
@@ -379,10 +379,10 @@ describe('FundingSettlementProcessor', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: 692 },
+            { dataSize: 724 },
             expect.objectContaining({
               memcmp: expect.objectContaining({
-                offset: 492, // threshold_verified offset
+                offset: 530, // threshold_verified offset in V7/V8
               }),
             }),
           ]),
@@ -391,7 +391,7 @@ describe('FundingSettlementProcessor', () => {
     });
 
     it('filters out positions with pending margin', async () => {
-      const positionWithMargin = createMockPositionDataV7({
+      const positionWithMargin = createMockPositionDataV8({
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
         pendingMarginAmount: 1000n, // Has pending margin - should be filtered
@@ -409,7 +409,7 @@ describe('FundingSettlementProcessor', () => {
     });
 
     it('filters out positions with pending close', async () => {
-      const positionWithClose = createMockPositionDataV7({
+      const positionWithClose = createMockPositionDataV8({
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
         pendingMarginAmount: 0n,
@@ -426,7 +426,7 @@ describe('FundingSettlementProcessor', () => {
     });
 
     it('filters out positions without pending MPC request', async () => {
-      const positionNoRequest = createMockPositionDataV7({
+      const positionNoRequest = createMockPositionDataV8({
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(0), // No request
         pendingMarginAmount: 0n,
@@ -443,7 +443,7 @@ describe('FundingSettlementProcessor', () => {
     });
 
     it('filters out positions with zero funding delta', async () => {
-      const positionZeroDelta = createMockPositionDataV7({
+      const positionZeroDelta = createMockPositionDataV8({
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
         pendingMarginAmount: 0n,
@@ -465,7 +465,7 @@ describe('FundingSettlementProcessor', () => {
     it('triggers MPC calculation', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const pendingPosition = createMockPositionDataV7({
+      const pendingPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
@@ -488,7 +488,7 @@ describe('FundingSettlementProcessor', () => {
       const marketPda = Keypair.generate().publicKey;
       const requestId = new Uint8Array(32).fill(1);
 
-      const pendingPosition = createMockPositionDataV7({
+      const pendingPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: false,
         pendingMpcRequest: requestId,
@@ -523,7 +523,7 @@ describe('FundingSettlementProcessor', () => {
     it('polls for MPC result with timeout', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const pendingPosition = createMockPositionDataV7({
+      const pendingPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
@@ -550,7 +550,7 @@ describe('FundingSettlementProcessor', () => {
       const trader = Keypair.generate().publicKey;
       const market = Keypair.generate().publicKey;
 
-      const positionData = createMockPositionDataV7({
+      const positionData = createMockPositionDataV8({
         trader,
         market,
         side: 1, // Short
@@ -649,7 +649,7 @@ describe('FundingSettlementProcessor', () => {
 
   describe('side-specific handling', () => {
     it('handles long position funding', async () => {
-      const longPosition = createMockPositionDataV7({
+      const longPosition = createMockPositionDataV8({
         side: 0, // Long
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
@@ -666,7 +666,7 @@ describe('FundingSettlementProcessor', () => {
     });
 
     it('handles short position funding', async () => {
-      const shortPosition = createMockPositionDataV7({
+      const shortPosition = createMockPositionDataV8({
         side: 1, // Short
         thresholdVerified: false,
         pendingMpcRequest: new Uint8Array(32).fill(1),
@@ -1233,7 +1233,7 @@ describe('FundingSettlementProcessor', () => {
       const positionPda = Keypair.generate().publicKey;
       const requestId = new Uint8Array(32).fill(8);
 
-      const pendingPosition = createMockPositionDataV7({
+      const pendingPosition = createMockPositionDataV8({
         thresholdVerified: false,
         pendingMpcRequest: requestId,
         pendingMarginAmount: 0n,
@@ -1261,7 +1261,7 @@ describe('FundingSettlementProcessor', () => {
       const positionPda = Keypair.generate().publicKey;
       const requestId = new Uint8Array(32).fill(9);
 
-      const pendingPosition = createMockPositionDataV7({
+      const pendingPosition = createMockPositionDataV8({
         thresholdVerified: false,
         pendingMpcRequest: requestId,
         pendingMarginAmount: 0n,

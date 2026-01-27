@@ -47,6 +47,12 @@ vi.mock('../../lib/logger.js', () => ({
       debug: vi.fn(),
     },
   },
+  createLogger: vi.fn(() => ({
+    info: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+    debug: vi.fn(),
+  })),
 }));
 
 vi.mock('../../lib/alerts.js', () => ({
@@ -69,8 +75,8 @@ function createMockConfig(): CrankConfig {
   } as CrankConfig;
 }
 
-// Helper to create V6 position account data (618 bytes)
-function createMockPositionDataV6(options: {
+// Helper to create V8 position account data (724 bytes - V7 was 692, V6 was 618)
+function createMockPositionDataV8(options: {
   market?: PublicKey;
   side?: number;
   leverage?: number;
@@ -78,7 +84,7 @@ function createMockPositionDataV6(options: {
   isLiquidatable?: boolean;
   status?: number;
 } = {}): Buffer {
-  const data = Buffer.alloc(618);
+  const data = Buffer.alloc(724);
   let offset = 0;
 
   // Discriminator (8 bytes)
@@ -145,76 +151,7 @@ function createMockPositionDataV6(options: {
   return data;
 }
 
-// Helper to create V7 position account data (692 bytes)
-function createMockPositionDataV7(options: {
-  market?: PublicKey;
-  side?: number;
-  leverage?: number;
-  thresholdVerified?: boolean;
-  isLiquidatable?: boolean;
-  status?: number;
-} = {}): Buffer {
-  const data = Buffer.alloc(692);
-  let offset = 0;
-
-  // Discriminator (8 bytes)
-  offset += 8;
-
-  // Trader (32 bytes)
-  const trader = Keypair.generate().publicKey;
-  data.set(trader.toBytes(), offset);
-  offset += 32;
-
-  // Market (32 bytes)
-  const market = options.market || Keypair.generate().publicKey;
-  data.set(market.toBytes(), offset);
-  offset += 32;
-
-  // Position ID (16 bytes)
-  offset += 16;
-
-  // Created at hour (8 bytes)
-  offset += 8;
-
-  // Last updated hour (8 bytes)
-  offset += 8;
-
-  // Side (1 byte)
-  data.writeUInt8(options.side ?? 0, offset);
-  offset += 1;
-
-  // Leverage (1 byte)
-  data.writeUInt8(options.leverage ?? 10, offset);
-  offset += 1;
-
-  // Encrypted fields (6 x 64 = 384 bytes)
-  offset += 64 * 6;
-
-  // Threshold commitment (32 bytes)
-  offset += 32;
-
-  // Last threshold update hour (8 bytes)
-  offset += 8;
-
-  // Threshold verified (1 byte)
-  data.writeUInt8(options.thresholdVerified !== false ? 1 : 0, offset);
-  offset += 1;
-
-  // Entry cumulative funding (16 bytes)
-  offset += 16;
-
-  // Status (1 byte)
-  data.writeUInt8(options.status ?? 0, offset);
-  offset += 1;
-
-  // Additional V6/V7 fields to reach is_liquidatable
-  offset += 1 + 1 + 8 + 8 + 1 + 1 + 8 + 32 + 8 + 1;
-
-  // is_liquidatable (1 byte)
-  data.writeUInt8(options.isLiquidatable ? 1 : 0, offset);
-
-  return data;
-}
+// V7 helper removed - use createMockPositionDataV8 instead
 
 // Helper to create mock market account data
 function createMockMarketData(): Buffer {
@@ -350,7 +287,7 @@ describe('LiquidationChecker', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: 618 },
+            { dataSize: 724 },
           ]),
         })
       );
@@ -408,7 +345,7 @@ describe('LiquidationChecker', () => {
       const marketPda = Keypair.generate().publicKey;
       const positionPda = Keypair.generate().publicKey;
 
-      const mockPositionData = createMockPositionDataV6({
+      const mockPositionData = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: false,
@@ -426,7 +363,7 @@ describe('LiquidationChecker', () => {
         expect.any(PublicKey),
         expect.objectContaining({
           filters: expect.arrayContaining([
-            { dataSize: 618 },
+            { dataSize: 724 },
             expect.objectContaining({
               memcmp: expect.objectContaining({
                 offset: 8 + 32,
@@ -441,14 +378,14 @@ describe('LiquidationChecker', () => {
     it('filters out positions that are already liquidatable', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const eligiblePosition = createMockPositionDataV6({
+      const eligiblePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: false,
         status: 0,
       });
 
-      const alreadyLiquidatable = createMockPositionDataV6({
+      const alreadyLiquidatable = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -470,7 +407,7 @@ describe('LiquidationChecker', () => {
     it('filters out positions with unverified thresholds', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const unverifiedPosition = createMockPositionDataV6({
+      const unverifiedPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: false,
         isLiquidatable: false,
@@ -490,7 +427,7 @@ describe('LiquidationChecker', () => {
     it('filters out closed positions', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const closedPosition = createMockPositionDataV6({
+      const closedPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: false,
@@ -510,7 +447,7 @@ describe('LiquidationChecker', () => {
 
   describe('fetchAllOpenPositions', () => {
     it('fetches all positions when no markets configured', async () => {
-      const positionData = createMockPositionDataV6({
+      const positionData = createMockPositionDataV8({
         thresholdVerified: true,
         isLiquidatable: false,
         status: 0,
@@ -525,7 +462,7 @@ describe('LiquidationChecker', () => {
       expect(mockConnection.getProgramAccounts).toHaveBeenCalledWith(
         expect.any(PublicKey),
         expect.objectContaining({
-          filters: [{ dataSize: 618 }],
+          filters: [{ dataSize: 724 }],
         })
       );
     });
@@ -534,8 +471,8 @@ describe('LiquidationChecker', () => {
       const market1 = Keypair.generate().publicKey;
       const market2 = Keypair.generate().publicKey;
 
-      const pos1 = createMockPositionDataV6({ market: market1, thresholdVerified: true });
-      const pos2 = createMockPositionDataV6({ market: market2, thresholdVerified: true });
+      const pos1 = createMockPositionDataV8({ market: market1, thresholdVerified: true });
+      const pos2 = createMockPositionDataV8({ market: market2, thresholdVerified: true });
 
       (mockConnection.getProgramAccounts as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
         { pubkey: Keypair.generate().publicKey, account: { data: pos1 } },
@@ -558,7 +495,7 @@ describe('LiquidationChecker', () => {
         positions.push({
           pubkey: Keypair.generate().publicKey,
           account: {
-            data: createMockPositionDataV6({
+            data: createMockPositionDataV8({
               market: marketPda,
               thresholdVerified: true,
               isLiquidatable: false,
@@ -579,7 +516,7 @@ describe('LiquidationChecker', () => {
     it('does not process duplicate batches', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const positionData = createMockPositionDataV6({
+      const positionData = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: false,
@@ -610,7 +547,7 @@ describe('LiquidationChecker', () => {
       expect(mockConnection.getProgramAccounts).toHaveBeenCalledWith(
         expect.any(PublicKey),
         expect.objectContaining({
-          filters: [{ dataSize: 692 }], // V7 position size
+          filters: [{ dataSize: 724 }], // V7 position size
         })
       );
     });
@@ -636,7 +573,7 @@ describe('LiquidationChecker', () => {
       expect(mockConnection.getProgramAccounts).toHaveBeenCalledWith(
         expect.any(PublicKey),
         expect.objectContaining({
-          filters: [{ dataSize: 692 }],
+          filters: [{ dataSize: 724 }],
         })
       );
       expect(result).toBe(0);
@@ -752,7 +689,7 @@ describe('LiquidationChecker', () => {
     it('handles long positions correctly', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const longPosition = createMockPositionDataV6({
+      const longPosition = createMockPositionDataV8({
         market: marketPda,
         side: 0, // Long
         thresholdVerified: true,
@@ -773,7 +710,7 @@ describe('LiquidationChecker', () => {
     it('handles short positions correctly', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const shortPosition = createMockPositionDataV6({
+      const shortPosition = createMockPositionDataV8({
         market: marketPda,
         side: 1, // Short
         thresholdVerified: true,
@@ -797,14 +734,14 @@ describe('LiquidationChecker', () => {
       const targetMarket = Keypair.generate().publicKey;
       const otherMarket = Keypair.generate().publicKey;
 
-      const targetPosition = createMockPositionDataV7({
+      const targetPosition = createMockPositionDataV8({
         market: targetMarket,
         thresholdVerified: true,
         isLiquidatable: true,
         status: 0,
       });
 
-      const otherPosition = createMockPositionDataV7({
+      const otherPosition = createMockPositionDataV8({
         market: otherMarket,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -825,14 +762,14 @@ describe('LiquidationChecker', () => {
     it('filters out positions that are not liquidatable', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
         status: 0,
       });
 
-      const notLiquidatablePosition = createMockPositionDataV7({
+      const notLiquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: false,
@@ -852,7 +789,7 @@ describe('LiquidationChecker', () => {
     it('filters out positions that are not verified', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const unverifiedPosition = createMockPositionDataV7({
+      const unverifiedPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: false,
         isLiquidatable: true,
@@ -871,7 +808,7 @@ describe('LiquidationChecker', () => {
     it('filters out positions with non-Open status', async () => {
       const marketPda = Keypair.generate().publicKey;
 
-      const closedPosition = createMockPositionDataV7({
+      const closedPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -891,7 +828,7 @@ describe('LiquidationChecker', () => {
       const marketPda = Keypair.generate().publicKey;
 
       // Mix of valid and invalid data
-      const validPosition = createMockPositionDataV7({
+      const validPosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -953,7 +890,7 @@ describe('LiquidationChecker', () => {
       const batchRequestData = createBatchRequestData(marketPda, positionPda, true);
       const batchRequestPda = Keypair.generate().publicKey;
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -981,7 +918,7 @@ describe('LiquidationChecker', () => {
       const marketPda = Keypair.generate().publicKey;
       const positionPda = Keypair.generate().publicKey;
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -1006,7 +943,7 @@ describe('LiquidationChecker', () => {
 
       const batchRequestData = createBatchRequestData(otherMarket, positionPda, true);
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: targetMarket,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -1032,7 +969,7 @@ describe('LiquidationChecker', () => {
 
       const batchRequestData = createBatchRequestData(marketPda, positionPda, false);
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -1058,7 +995,7 @@ describe('LiquidationChecker', () => {
 
       const invalidBatchData = Buffer.alloc(50);
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -1082,7 +1019,7 @@ describe('LiquidationChecker', () => {
       const marketPda = Keypair.generate().publicKey;
       const positionPda = Keypair.generate().publicKey;
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -1126,7 +1063,7 @@ describe('LiquidationChecker', () => {
 
       const batchRequestData = createBatchRequestData(marketPda, positionPda, true);
 
-      const liquidatablePosition = createMockPositionDataV7({
+      const liquidatablePosition = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true,
@@ -1154,21 +1091,21 @@ describe('LiquidationChecker', () => {
       const market1 = Keypair.generate().publicKey;
       const market2 = Keypair.generate().publicKey;
 
-      const pos1 = createMockPositionDataV6({
+      const pos1 = createMockPositionDataV8({
         market: market1,
         thresholdVerified: true,
         isLiquidatable: false,
         status: 0,
       });
 
-      const pos2 = createMockPositionDataV6({
+      const pos2 = createMockPositionDataV8({
         market: market2,
         thresholdVerified: true,
         isLiquidatable: false,
         status: 0,
       });
 
-      const pos3 = createMockPositionDataV6({
+      const pos3 = createMockPositionDataV8({
         market: market1, // Same as pos1
         thresholdVerified: true,
         isLiquidatable: false,
@@ -1192,7 +1129,7 @@ describe('LiquidationChecker', () => {
       const market2 = Keypair.generate().publicKey;
 
       // Market 1 has eligible position
-      const eligiblePos = createMockPositionDataV6({
+      const eligiblePos = createMockPositionDataV8({
         market: market1,
         thresholdVerified: true,
         isLiquidatable: false,
@@ -1200,7 +1137,7 @@ describe('LiquidationChecker', () => {
       });
 
       // Market 2 has only ineligible (already liquidatable)
-      const ineligiblePos = createMockPositionDataV6({
+      const ineligiblePos = createMockPositionDataV8({
         market: market2,
         thresholdVerified: true,
         isLiquidatable: true, // Already liquidatable
@@ -1251,7 +1188,7 @@ describe('LiquidationChecker', () => {
       const marketPda = Keypair.generate().publicKey;
 
       // All positions are ineligible (already liquidatable)
-      const ineligiblePos = createMockPositionDataV6({
+      const ineligiblePos = createMockPositionDataV8({
         market: marketPda,
         thresholdVerified: true,
         isLiquidatable: true, // Already liquidatable

@@ -29,6 +29,14 @@ pub mod mpc_callback;
 pub mod settle_order_callback;
 pub mod cancel_order_callback;
 
+// ShadowWire settlement (Layer 4 - private transfer)
+pub mod finalize_settlement;
+pub mod initiate_settlement;
+pub mod record_shadowwire_transfer;
+pub mod register_shadowwire;
+pub mod fail_settlement;
+pub mod expire_settlement;
+
 pub use admin::*;
 pub use cancel_order::*;
 pub use create_pair::*;
@@ -59,3 +67,11 @@ pub use check_liquidation_batch::*;
 pub use mpc_callback::*;
 pub use settle_order_callback::*;
 pub use cancel_order_callback::*;
+
+// ShadowWire settlement exports
+pub use finalize_settlement::*;
+pub use initiate_settlement::*;
+pub use record_shadowwire_transfer::*;
+pub use register_shadowwire::*;
+pub use fail_settlement::*;
+pub use expire_settlement::*;

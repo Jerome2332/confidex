@@ -451,7 +451,16 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
         const tradingPair = TRADING_PAIRS[0];
         const quoteMint = new PublicKey(tradingPair.quoteMint);
 
-        // Build the open_position transaction (V3: two-instruction pattern - eligibility verified separately)
+        // Get the full ephemeral pubkey for MPC decryption (V8)
+        const ephemeralPubkey = getEphemeralPublicKey();
+        if (!ephemeralPubkey || ephemeralPubkey.length !== 32) {
+          throw new Error(
+            'Encryption context not initialized or ephemeral pubkey missing. ' +
+            'V8 requires the full 32-byte ephemeral pubkey for MPC decryption.'
+          );
+        }
+
+        // Build the open_position transaction (V8: includes ephemeral pubkey for MPC)
         // Returns both transaction and the derived position PDA for store sync
         const { transaction, positionPda } = await buildOpenPositionTransaction({
           connection,
@@ -464,6 +473,7 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           encryptedEntryPrice,
           positionNonce,
           collateralAmount: collateralMicros,  // Plaintext USDC for SPL transfer (C-SPL fallback)
+          ephemeralPubkey,  // V8: Full 32-byte X25519 pubkey for MPC decryption
         });
 
         log.debug('Position PDA derived', { positionPda: positionPda.toString() });

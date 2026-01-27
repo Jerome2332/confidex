@@ -13,6 +13,10 @@ pub mod liquidation;
 // MPC state
 pub mod pending_match;
 
+// ShadowWire settlement state
+pub mod settlement_request;
+pub mod user_shadowwire;
+
 pub use exchange::*;
 pub use order::*;
 pub use pair::*;
@@ -27,3 +31,7 @@ pub use liquidation::*;
 
 // MPC exports
 pub use pending_match::*;
+
+// ShadowWire exports
+pub use settlement_request::*;
+pub use user_shadowwire::*;

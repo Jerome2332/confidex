@@ -155,11 +155,22 @@ pub struct ConfidentialPosition {
 
     /// Encrypted close size for partial closes (ignored for full close)
     pub pending_close_size: [u8; 64],
+
+    // === V8: EPHEMERAL PUBLIC KEY FOR MPC DECRYPTION ===
+
+    /// Full 32-byte X25519 ephemeral public key used for encryption
+    /// MPC needs this to compute: shared_secret = X25519(mxe_private, ephemeral_pubkey)
+    /// Without the full key, MPC cannot derive the shared secret for decryption.
+    ///
+    /// NOTE: Prior to V8, the ephemeral pubkey was truncated to 16 bytes and embedded
+    /// in each 64-byte encrypted blob. This caused MPC decryption failures.
+    /// Now we store the full 32-byte key once per position.
+    pub ephemeral_pubkey: [u8; 32],
 }
 
 impl ConfidentialPosition {
-    /// V7 account size - includes async close position tracking fields
-    /// Increased from 618 bytes to 692 bytes (+74 for close tracking)
+    /// V8 account size - includes ephemeral pubkey for MPC decryption
+    /// Increased from 692 bytes (V7) to 724 bytes (+32 for ephemeral_pubkey)
     pub const SIZE: usize = 8 +   // discriminator
         32 +  // trader
         32 +  // market
@@ -195,8 +206,10 @@ impl ConfidentialPosition {
         1 +   // pending_close
         8 +   // pending_close_exit_price
         1 +   // pending_close_full
-        64;   // pending_close_size
-    // Total: 692 bytes
+        64 +  // pending_close_size
+        // V8 fields (MPC decryption fix):
+        32;   // ephemeral_pubkey
+    // Total: 724 bytes
 
     pub const SEED: &'static [u8] = b"position";
 
@@ -418,28 +431,45 @@ impl ConfidentialPosition {
     }
 
     // =========================================================================
-    // LEGACY POSITION DETECTION (V7)
+    // LEGACY/BROKEN POSITION DETECTION (V7)
     // =========================================================================
 
-    /// Check if this position has legacy hackathon-mode data (plaintext in first 8 bytes)
+    /// Check if this position cannot use MPC and must use admin/legacy close.
     ///
-    /// Legacy positions have:
-    /// - Plaintext values in bytes 0-8 of encrypted fields
-    /// - Zeros in bytes 16-48 (the ciphertext region of V2 format)
+    /// Returns true for positions that should use admin_force_close or legacy close
+    /// instead of MPC-based close. This includes:
     ///
-    /// V2 encrypted format is: [nonce(16) | ciphertext(32) | ephemeral_pubkey(16)]
-    /// The MPC extracts bytes 16-48 as ciphertext, so legacy positions with zeros
-    /// there will fail with "PlaintextU64(0) for parameter Ciphertext".
+    /// 1. **Hackathon plaintext positions**: Created before encryption was added.
+    ///    - Bytes 0-8 contain plaintext values
+    ///    - Bytes 16-48 (ciphertext region) are zeros
     ///
-    /// This method allows detection of legacy positions to route them through
-    /// the plaintext close fallback instead of the MPC flow.
+    /// 2. **Broken V2 positions**: Created with frontend encryption that stored
+    ///    a truncated 16-byte ephemeral public key instead of the full 32 bytes.
+    ///    - Bytes 0-16 contain nonce
+    ///    - Bytes 16-48 contain valid RescueCipher ciphertext
+    ///    - Bytes 48-64 contain truncated ephemeral pubkey (only 16 of 32 bytes)
+    ///    - MPC CANNOT decrypt because it needs the full 32-byte ephemeral pubkey
+    ///      to compute: shared_secret = X25519(mxe_private, user_ephemeral_public)
+    ///
+    /// Detection logic:
+    /// - If threshold_verified is false → MPC hasn't successfully processed this position
+    /// - If ciphertext region is zeros AND plaintext region has data → hackathon format
+    ///
+    /// Positions with threshold_verified=true have been successfully processed by MPC
+    /// and can use the normal MPC close flow.
     pub fn is_legacy_plaintext_position(&self) -> bool {
-        // Check if bytes 16-48 (ciphertext region) are all zeros for both size and entry_price
-        // If they are, this is a legacy position with plaintext-only data
+        // PRIMARY CHECK: If MPC hasn't verified the threshold, this position cannot use MPC.
+        // This catches BOTH:
+        // - Hackathon positions (never had MPC processing)
+        // - Broken V2 positions (MPC failed due to truncated ephemeral pubkey)
+        if !self.threshold_verified {
+            return true;
+        }
+
+        // SECONDARY CHECK: Detect hackathon-era positions with plaintext in first 8 bytes
+        // These have zeros in ciphertext region but actual values in plaintext region
         let size_ciphertext_zeros = self.encrypted_size[16..48].iter().all(|&b| b == 0);
         let price_ciphertext_zeros = self.encrypted_entry_price[16..48].iter().all(|&b| b == 0);
-
-        // Also verify there IS some plaintext data (not a completely zeroed position)
         let has_plaintext_size = self.get_size_plaintext() > 0;
         let has_plaintext_price = self.get_entry_price_plaintext() > 0;
 
@@ -447,16 +477,55 @@ impl ConfidentialPosition {
         (size_ciphertext_zeros || price_ciphertext_zeros) && (has_plaintext_size || has_plaintext_price)
     }
 
-    /// Check if position has valid V2 encrypted data (ready for MPC)
+    /// Check if this position is a broken V2 encrypted position.
     ///
-    /// V2 positions have properly encrypted ciphertext in bytes 16-48.
-    /// This is the opposite of is_legacy_plaintext_position.
-    pub fn has_valid_mpc_encryption(&self) -> bool {
-        // For valid V2 encryption, the ciphertext region should NOT be all zeros
+    /// Broken V2 positions have:
+    /// - Valid ciphertext in bytes 16-48 (NOT zeros)
+    /// - threshold_verified = false (MPC decryption failed)
+    /// - Data in bytes 0-16 that doesn't look like reasonable plaintext values
+    ///
+    /// These positions were encrypted with frontend RescueCipher but stored only
+    /// 16 of 32 bytes of the ephemeral public key, making them permanently undecryptable.
+    pub fn is_broken_v2_position(&self) -> bool {
+        // Has ciphertext (not zeros)
         let size_has_ciphertext = !self.encrypted_size[16..48].iter().all(|&b| b == 0);
         let price_has_ciphertext = !self.encrypted_entry_price[16..48].iter().all(|&b| b == 0);
 
-        size_has_ciphertext && price_has_ciphertext
+        // MPC hasn't verified (decryption failed or never attempted)
+        let mpc_failed = !self.threshold_verified;
+
+        // First 8 bytes don't look like reasonable plaintext (nonce bytes interpreted as u64)
+        // A reasonable position size would be < 1 trillion lamports (< 1000 SOL)
+        let size_as_u64 = self.get_size_plaintext();
+        let not_reasonable_plaintext = size_as_u64 > 1_000_000_000_000; // > 1 trillion
+
+        size_has_ciphertext && price_has_ciphertext && mpc_failed && not_reasonable_plaintext
+    }
+
+    /// Check if position has valid MPC-compatible encryption (ready for MPC close).
+    ///
+    /// Only positions with threshold_verified=true have been successfully processed
+    /// by MPC and can use the normal async MPC close flow.
+    pub fn has_valid_mpc_encryption(&self) -> bool {
+        // The ONLY reliable indicator is threshold_verified
+        // If MPC successfully verified the threshold, the encryption is valid
+        self.threshold_verified
+    }
+
+    /// Check if position has a valid ephemeral pubkey (V8+).
+    ///
+    /// V8 positions store the full 32-byte ephemeral pubkey in a dedicated field.
+    /// Pre-V8 positions have this field as all zeros.
+    pub fn has_ephemeral_pubkey(&self) -> bool {
+        !self.ephemeral_pubkey.iter().all(|&b| b == 0)
+    }
+
+    /// Check if position is V8 format (has dedicated ephemeral pubkey field).
+    ///
+    /// V8 positions can use MPC decryption because the full 32-byte ephemeral
+    /// pubkey is stored, allowing the shared secret to be computed.
+    pub fn is_v8_format(&self) -> bool {
+        self.has_ephemeral_pubkey()
     }
 }
 

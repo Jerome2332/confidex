@@ -68,13 +68,24 @@ async function main() {
   priceBuf.writeBigUInt64LE(price);
   encryptedPrice.set(priceBuf, 0);
 
-  // Real Groth16 ZK proof for empty tree (everyone eligible)
-  // Generated: Jan 21 2026 using Sunspot with Jan 17 PK/VK
-  const REAL_PROOF_HEX = '05658bdf0b36f28cc76ed405af210b96aec06122ced12a8a7c61526c8025413d16dec5fb09b4281cb14d9e0717cbe2d6800946998cce0e5db4f9e058552036e308b44b7ad9c14c51e4a141c1668d04bc0b36851844d65bbec979ca5b86571bff2e6645241dad7836d75561cbef38e4f3cec7badc4368fe31119e8448540cada70d40c9b41b23fe2f8e528f3fb32d553d5bf4d326058e20379d69d7f0f93582a70c0a7811ea0573c2e5f4ce67547ecb220edbb14e8c8a1b094e189c3b4379865b2288ab2c5ceb0841a50c8a8301cf346b31c23f7705060792bf196ea2b89eb8f206fd2fa7a32949d0478bb138ec6b78d75395f9b913a22028a89ad9df556a8f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
+  // ============================================================================
+  // DEVNET TEST SCRIPT - Hardcoded proof for local testing only
+  // ============================================================================
+  // In production, proofs MUST be generated dynamically via the proof server.
+  // This script is for devnet testing where the blacklist is always empty.
+  //
+  // To generate a fresh proof:
+  //   cd circuits/eligibility && nargo execute && sunspot prove
+  //
+  // Or use the proof server:
+  //   PROOF_SERVER_URL=http://localhost:3001 npx ts-node place-sell-order.ts
+  // ============================================================================
+  const DEVNET_EMPTY_TREE_PROOF_HEX = '05658bdf0b36f28cc76ed405af210b96aec06122ced12a8a7c61526c8025413d16dec5fb09b4281cb14d9e0717cbe2d6800946998cce0e5db4f9e058552036e308b44b7ad9c14c51e4a141c1668d04bc0b36851844d65bbec979ca5b86571bff2e6645241dad7836d75561cbef38e4f3cec7badc4368fe31119e8448540cada70d40c9b41b23fe2f8e528f3fb32d553d5bf4d326058e20379d69d7f0f93582a70c0a7811ea0573c2e5f4ce67547ecb220edbb14e8c8a1b094e189c3b4379865b2288ab2c5ceb0841a50c8a8301cf346b31c23f7705060792bf196ea2b89eb8f206fd2fa7a32949d0478bb138ec6b78d75395f9b913a22028a89ad9df556a8f6b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
   const eligibilityProof = new Uint8Array(
-    REAL_PROOF_HEX.match(/.{2}/g)!.map(b => parseInt(b, 16))
+    DEVNET_EMPTY_TREE_PROOF_HEX.match(/.{2}/g)!.map(b => parseInt(b, 16))
   );
-  console.log('Using real ZK proof (324 bytes):', eligibilityProof.length);
+  console.log('[DEVNET TEST] Using pre-generated ZK proof (324 bytes):', eligibilityProof.length);
+  console.log('[DEVNET TEST] WARNING: This script is for devnet testing only!');
 
   // Ephemeral X25519 public key (simulated - random for dev testing)
   // In production, this comes from the encryption context

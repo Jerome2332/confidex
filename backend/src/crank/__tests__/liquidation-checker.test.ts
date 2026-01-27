@@ -11,7 +11,8 @@ import { describe, it, expect } from 'vitest';
 import { PublicKey, Keypair } from '@solana/web3.js';
 
 // Constants matching liquidation-checker.ts
-const V7_POSITION_SIZE = 692;
+// V8 position size: 724 bytes (adds 32-byte ephemeral_pubkey at end of V7's 692)
+const V8_POSITION_SIZE = 724;
 const MAX_BATCH_SIZE = 10;
 
 // Position status enum (must match programs/confidex_dex/src/state/perp_position.rs)
@@ -32,8 +33,8 @@ enum PositionSide {
 
 describe('LiquidationChecker Logic', () => {
   describe('Constants', () => {
-    it('should use V7 position size of 692 bytes', () => {
-      expect(V7_POSITION_SIZE).toBe(692);
+    it('should use V8 position size of 724 bytes', () => {
+      expect(V8_POSITION_SIZE).toBe(724);
     });
 
     it('should limit batch size to 10 positions', () => {
