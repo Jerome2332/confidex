@@ -36,6 +36,20 @@ The following metrics are now recorded and exported at `/metrics`:
 | `crankStatus` | Gauge | Service status (1=running, 0=stopped, -1=paused) |
 | `walletBalance` | Gauge | Crank wallet SOL balance |
 
+### Order Cache Metrics (Phase 6)
+
+Added in Phase 6 for real-time cache monitoring:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `orderCacheSize` | Gauge | Current number of orders in cache |
+| `orderCacheHits` | Counter | Cache hit count |
+| `orderCacheMisses` | Counter | Cache miss count |
+| `orderCacheInvalidations` | Counter | Cache invalidation events from WebSocket |
+| `batchFetchDuration` | Histogram | Duration of batch fetch operations |
+| `batchFetchAccountsTotal` | Counter | Total accounts fetched via batch operations |
+| `batchFetchErrors` | Counter | Batch fetch error count |
+
 ### RPC Health Monitoring
 
 New `getRpcHealth()` method on `CrankService` exposes:

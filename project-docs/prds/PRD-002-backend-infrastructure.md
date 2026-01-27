@@ -25,6 +25,33 @@ All items in this PRD have been implemented. Key additions:
 | Startup Recovery | Complete | `CrankService.recoverPendingOperations()` |
 | MPC State Persistence | Complete | `mpc_processed_requests` table + repository |
 
+### Phase 6 Performance & Polish (January 2026)
+
+| Feature | Status | Implementation |
+|---------|--------|----------------|
+| Order Cache Subscriber | Complete | `backend/src/crank/order-cache-subscriber.ts` |
+| Batch Account Fetcher | Complete | `backend/src/crank/batch-fetcher.ts` |
+| Database Migrations | Complete | `backend/src/db/migrations/index.ts` |
+
+**Order Cache Subscriber** - WebSocket-based real-time cache invalidation:
+- Subscribes to on-chain order account changes via `onProgramAccountChange`
+- Automatic cache invalidation when orders are modified
+- Auto-reconnection with exponential backoff on WebSocket disconnect
+- Prometheus metrics: `orderCacheSize`, `orderCacheHits`, `orderCacheMisses`, `orderCacheInvalidations`
+
+**Batch Account Fetcher** - Optimized RPC calls with batching:
+- Uses `getMultipleAccountsInfo` to fetch up to 100 accounts per call
+- Controlled concurrency (configurable, default 3 parallel batches)
+- Automatic retry with exponential backoff
+- Type-safe parsing for Order and Position accounts
+- Prometheus metrics: `batchFetchDuration`, `batchFetchAccountsTotal`
+
+**Database Migration System** - Versioned schema management:
+- 5 migrations: initial schema, settlement_requests, order_cache_metrics, position_state_cache, batch_queue
+- Rollback support with `down` migrations
+- Migration tracking via `schema_migrations` table
+- Automatic migration on startup via `runMigrationsOnStartup()`
+
 ### Additional Production Hardening (January 2026)
 
 The following production gaps were also addressed:

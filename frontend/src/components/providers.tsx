@@ -19,11 +19,37 @@ import { WebSocketProvider } from '@/hooks/streaming';
 // Import wallet adapter styles
 import '@solana/wallet-adapter-react-ui/styles.css';
 
+/**
+ * React Query Configuration
+ *
+ * Optimized for:
+ * - Reducing unnecessary refetches
+ * - Graceful error handling
+ * - Memory efficiency with garbage collection
+ * - Smooth user experience with stale-while-revalidate
+ */
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 10_000,
+      // Data considered fresh for 30 seconds
+      staleTime: 30_000,
+      // Keep unused data for 5 minutes before garbage collection
+      gcTime: 5 * 60 * 1000,
+      // Disable refetch on window focus (user must explicitly refresh)
       refetchOnWindowFocus: false,
+      // Disable refetch on reconnect (handled by WebSocket)
+      refetchOnReconnect: false,
+      // Retry failed requests 2 times with exponential backoff
+      retry: 2,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+      // Network mode: always fetch, even when offline (for local caching)
+      networkMode: 'offlineFirst',
+    },
+    mutations: {
+      // Retry mutations once
+      retry: 1,
+      // Network mode for mutations
+      networkMode: 'offlineFirst',
     },
   },
 });
