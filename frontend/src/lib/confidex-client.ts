@@ -25,6 +25,7 @@ import {
   LIGHT_PROTOCOL_ENABLED,
   REGULAR_TOKEN_ACCOUNT_RENT_LAMPORTS,
   COMPRESSED_ACCOUNT_COST_LAMPORTS,
+  ZK_PROOFS_ENABLED,
 } from './constants';
 import { getCompressionRpcSafe, isCompressionAvailable } from './light-rpc';
 import {
@@ -1164,12 +1165,23 @@ export async function buildVerifyEligibilityTransaction(
 
 /**
  * Check if trader has valid eligibility on-chain
+ *
+ * In demo mode (ZK_PROOFS_ENABLED=false), this always returns true
+ * to allow the UI flow to work without real ZK proof verification.
  */
 export async function checkTraderEligibility(
   connection: Connection,
   trader: PublicKey
-): Promise<{ isVerified: boolean; eligibilityPda: PublicKey }> {
+): Promise<{ isVerified: boolean; eligibilityPda: PublicKey; isDemo?: boolean }> {
   const [eligibilityPda] = deriveTraderEligibilityPda(trader);
+
+  // In demo mode, skip on-chain verification entirely
+  // The simulated proofs won't pass the on-chain Sunspot verifier
+  if (!ZK_PROOFS_ENABLED) {
+    log.info('[Demo Mode] Skipping on-chain eligibility check - ZK proofs disabled');
+    return { isVerified: true, eligibilityPda, isDemo: true };
+  }
+
   const accountInfo = await connection.getAccountInfo(eligibilityPda);
 
   if (!accountInfo) {

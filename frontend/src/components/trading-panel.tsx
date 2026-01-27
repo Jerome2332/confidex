@@ -8,7 +8,7 @@ import { PublicKey, ComputeBudgetProgram } from '@solana/web3.js';
 import { useProof } from '@/hooks/use-proof';
 import { useEncryption } from '@/hooks/use-encryption';
 import { useOrderStore } from '@/stores/order-store';
-import { TRADING_PAIRS, SOL_PERP_MARKET_PDA } from '@/lib/constants';
+import { TRADING_PAIRS, SOL_PERP_MARKET_PDA, ZK_PROOFS_ENABLED } from '@/lib/constants';
 
 import { createLogger } from '@/lib/logger';
 
@@ -355,9 +355,13 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       log.debug('Perp market initialized', { ready: perpMarketReady });
 
       // Check if trader already has verified eligibility on-chain
-      const { isVerified: hasEligibility } = await checkTraderEligibility(connection, publicKey);
+      const { isVerified: hasEligibility, isDemo } = await checkTraderEligibility(connection, publicKey);
 
-      if (!hasEligibility) {
+      if (isDemo) {
+        // Demo mode: skip on-chain verification entirely
+        log.info('[Demo Mode] Skipping eligibility verification - ZK proofs disabled');
+        toast.info('Demo Mode: Skipping ZK verification', { id: 'verify-elig' });
+      } else if (!hasEligibility) {
         // Generate eligibility proof and verify on-chain first
         toast.info('Generating eligibility proof...', { id: 'proof-gen' });
         const proofResult = await generateProof();
@@ -827,6 +831,43 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
       }
 
       console.log('[Trading] Order nonce for PDA:', orderNonce.toString());
+
+      // Demo mode: Skip on-chain transaction (simulated proofs won't pass the verifier)
+      if (!ZK_PROOFS_ENABLED) {
+        log.info('[Demo Mode] Skipping on-chain transaction - ZK proofs disabled');
+        toast.info('Demo Mode: Order simulated (not sent to chain)', {
+          id: 'demo-order',
+          description: 'ZK proofs are disabled. Enable ZK_PROOFS_ENABLED to submit real orders.',
+        });
+
+        setOrderStep('mpc-queued');
+
+        // Add to local order store for UI demonstration
+        const orderId = Date.now();
+        addOrder({
+          id: orderId.toString(),
+          orderNonce,
+          maker: publicKey,
+          pair: 'SOL/USDC',
+          baseMint: baseMint.toString(),
+          quoteMint: quoteMint.toString(),
+          side,
+          type: orderType,
+          encryptedAmount,
+          encryptedPrice,
+          timestamp: Date.now(),
+          status: 'demo', // Mark as demo order
+        });
+
+        toast.success('Demo order created (local only)', {
+          id: 'demo-success',
+          description: 'This order was not submitted to the blockchain.',
+        });
+
+        setOrderStep('complete');
+        setIsPlacingOrder(false);
+        return;
+      }
 
       // Add compute budget instructions for ZK proof verification
       // Groth16 verification requires ~500K compute units
