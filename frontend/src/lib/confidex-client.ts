@@ -2377,8 +2377,8 @@ export enum PositionStatusEnum {
 }
 
 /**
- * ConfidentialPosition account layout (576 bytes total)
- * V2 with encrypted liquidation thresholds and position_seed for PDA derivation
+ * ConfidentialPosition account layout (692 bytes total)
+ * V7 with async MPC close position tracking fields
  */
 export interface ConfidentialPositionAccount {
   trader: PublicKey;
@@ -2413,12 +2413,22 @@ export interface ConfidentialPositionAccount {
   bump: number;
   // PDA seed (position_count used during creation)
   positionSeed: bigint;
+  // V6 async MPC tracking fields
+  pendingMpcRequest: Uint8Array;      // 32 bytes
+  pendingMarginAmount: bigint;        // u64
+  pendingMarginIsAdd: boolean;
+  isLiquidatable: boolean;
+  // V7 async close position tracking fields
+  pendingClose: boolean;
+  pendingCloseExitPrice: bigint;      // u64
+  pendingCloseFull: boolean;
+  pendingCloseSize: Uint8Array;       // 64 bytes
 }
 
 /**
  * Parse ConfidentialPosition from on-chain account data
  * Layout matches programs/confidex_dex/src/state/position.rs
- * Total size: 576 bytes (8 discriminator + 568 data)
+ * Total size: 692 bytes (8 discriminator + 684 data) - V7 with async close tracking
  */
 export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAccount {
   // Skip 8-byte Anchor discriminator
@@ -2526,6 +2536,42 @@ export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAcc
 
   // position_seed: u64 (8 bytes) - the position_count used in PDA creation
   const positionSeed = data.readBigUInt64LE(offset);
+  offset += 8;
+
+  // === V6 async MPC tracking fields ===
+
+  // pending_mpc_request: [u8; 32]
+  const pendingMpcRequest = new Uint8Array(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  // pending_margin_amount: u64 (8 bytes)
+  const pendingMarginAmount = data.readBigUInt64LE(offset);
+  offset += 8;
+
+  // pending_margin_is_add: bool (1 byte)
+  const pendingMarginIsAdd = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // is_liquidatable: bool (1 byte)
+  const isLiquidatable = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // === V7 async close position tracking fields ===
+
+  // pending_close: bool (1 byte)
+  const pendingClose = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // pending_close_exit_price: u64 (8 bytes)
+  const pendingCloseExitPrice = data.readBigUInt64LE(offset);
+  offset += 8;
+
+  // pending_close_full: bool (1 byte)
+  const pendingCloseFull = data.readUInt8(offset) === 1;
+  offset += 1;
+
+  // pending_close_size: [u8; 64]
+  const pendingCloseSize = new Uint8Array(data.subarray(offset, offset + 64));
 
   return {
     trader,
@@ -2553,6 +2599,16 @@ export function parseConfidentialPosition(data: Buffer): ConfidentialPositionAcc
     marginAddCount,
     bump,
     positionSeed,
+    // V6 fields
+    pendingMpcRequest,
+    pendingMarginAmount,
+    pendingMarginIsAdd,
+    isLiquidatable,
+    // V7 fields
+    pendingClose,
+    pendingCloseExitPrice,
+    pendingCloseFull,
+    pendingCloseSize,
   };
 }
 
@@ -2568,9 +2624,9 @@ export async function fetchUserPositions(
   connection: Connection,
   trader: PublicKey
 ): Promise<{ pda: PublicKey; position: ConfidentialPositionAccount }[]> {
-  // Note: On-chain account size is 576 bytes (8 discriminator + 568 data fields)
-  // Includes position_seed field for PDA derivation
-  const POSITION_ACCOUNT_SIZE = 576;
+  // Note: On-chain account size is 692 bytes (8 discriminator + 684 data fields)
+  // V7: Includes async MPC tracking and close position fields
+  const POSITION_ACCOUNT_SIZE = 692;
 
   try {
     log.debug('Fetching user positions for', { trader: trader.toString() });
