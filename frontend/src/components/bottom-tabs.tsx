@@ -14,12 +14,12 @@ import { useSolPrice } from '@/hooks/use-pyth-price';
 import { usePositions } from '@/hooks/use-positions';
 import { usePerpetualStore, PerpPosition } from '@/stores/perpetuals-store';
 import {
-  buildClosePositionTransaction,
+  buildInitiateClosePositionTransaction,
   createHybridEncryptedValue,
   derivePerpMarketPda,
   fetchPerpMarketData,
 } from '@/lib/confidex-client';
-import { PYTH_SOL_USD_FEED, ARCIUM_PROGRAM_ID } from '@/lib/constants';
+import { PYTH_SOL_USD_FEED, getMxePublicKeyBytes } from '@/lib/constants';
 import { toast } from 'sonner';
 
 import { createLogger } from '@/lib/logger';
@@ -379,18 +379,8 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
       // Get current oracle price for exit (convert to micro-dollars: 6 decimals)
       const exitPrice = solPrice ? BigInt(Math.floor(solPrice * 1_000_000)) : BigInt(0);
 
-      // Use position's encrypted size directly, create encrypted exit price
+      // Use position's encrypted size directly for full close
       const encryptedCloseSize = position.encryptedSize;
-      const encryptedExitPrice = createHybridEncryptedValue(exitPrice);
-
-      // Extract collateral amount from encrypted_collateral (plaintext in first 8 bytes - fallback mode)
-      // In production with MPC, this would be computed from encrypted payout
-      const collateralBuffer = Buffer.from(position.encryptedCollateral.slice(0, 8));
-      const payoutAmount = collateralBuffer.readBigUInt64LE(0);
-      log.debug('Extracted payout amount from encrypted collateral', {
-        payoutAmount: payoutAmount.toString(),
-        rawBytes: Array.from(position.encryptedCollateral.slice(0, 8)).map(b => b.toString(16).padStart(2, '0')).join(' '),
-      });
 
       // Validate position.id is a valid base58 string before creating PublicKey
       log.debug('Creating PublicKey from position.id', {
@@ -410,29 +400,32 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
         throw new Error(`Invalid position ID format: ${position.id}`);
       }
 
-      // Build close position transaction with actual market data
-      const transaction = await buildClosePositionTransaction({
+      // Get MXE public key for encryption
+      const mxePubKey = getMxePublicKeyBytes();
+
+      // Generate a unique nonce for this computation
+      const nonce = BigInt(Date.now()) * BigInt(1000000) + BigInt(Math.floor(Math.random() * 1000000));
+
+      // Build initiate close position transaction (V7 async MPC flow)
+      // Phase 1: User calls initiate_close_position -> queues MPC PnL computation
+      // Phase 2: Backend crank detects event, waits for MPC, calls close_position_callback
+      const transaction = await buildInitiateClosePositionTransaction({
         connection,
         trader: publicKey,
         perpMarketPda,
-        positionPda, // Position PDA validated above
+        positionPda,
         encryptedCloseSize,
-        encryptedExitPrice,
         fullClose: true,
-        payoutAmount,
         oraclePriceFeed: marketData.oraclePriceFeed,
-        collateralVault: marketData.collateralVault,
-        feeRecipient: marketData.feeRecipient,
-        arciumProgram: ARCIUM_PROGRAM_ID,
+        mxePubKey,
+        nonce,
       });
 
       // Log transaction details for debugging
-      log.debug('Close position transaction details', {
+      log.debug('Initiate close position transaction details (V7 async MPC)', {
         positionPda: position.id,
         perpMarket: perpMarketPda.toBase58(),
         oracle: marketData.oraclePriceFeed.toBase58(),
-        collateralVault: marketData.collateralVault.toBase58(),
-        feeRecipient: marketData.feeRecipient.toBase58(),
       });
 
       // Simulate first to get better error messages
@@ -453,16 +446,24 @@ const PositionsTab: FC<{ connected: boolean }> = ({ connected }) => {
 
       // Send transaction
       const signature = await sendTransaction(transaction, connection);
-      log.info('Close position transaction sent', { signature });
+      log.info('Initiate close position transaction sent', { signature });
 
       // Wait for confirmation
       await connection.confirmTransaction(signature, 'confirmed');
 
-      // Remove from local state
-      removePosition(positionId);
-      toast.success('Position closed successfully');
+      // NOTE: Position is NOT closed yet! This is V7 async MPC flow:
+      // 1. initiate_close_position sets pending_close = true
+      // 2. MPC computes PnL in the background
+      // 3. Backend crank calls close_position_callback when MPC completes
+      // 4. Position is actually closed with correct payout
+      // For now, show "pending" message - position will disappear after MPC callback
+      toast.success('Position close initiated - awaiting MPC settlement');
 
-      log.info('Position closed', { positionId, signature });
+      log.info('Position close initiated (V7 async MPC)', { positionId, signature });
+
+      // Refresh positions to show pending_close status
+      // Don't remove from local state - let the MPC callback handle that
+      refreshPositions();
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error('Failed to close position:', { error: errorMessage });

@@ -101,6 +101,21 @@ export const SHADOWWIRE_ENABLED = true; // Production-ready
 export const MXE_CONFIG_PDA = 'GqZ3v32aFzr1s5N4vSo6piur8pHuWw4jZpKW5xEy31qK';
 export const MXE_AUTHORITY_PDA = '9WH1PNEpvHQDLTUm1W3MuwSdsbTtLMK8eoy2SyNBLnyn';
 
+// MXE X25519 Public Key for encryption (from arcium mxe-info)
+// Used for encrypting values before sending to MPC
+export const MXE_X25519_PUBKEY = process.env.NEXT_PUBLIC_MXE_X25519_PUBKEY ||
+  '113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c';
+
+// Parse hex string to Uint8Array
+export function getMxePublicKeyBytes(): Uint8Array {
+  const hex = MXE_X25519_PUBKEY;
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
+}
+
 // Pyth Oracle Price Feeds (devnet)
 // See: https://pyth.network/developers/price-feed-ids
 export const PYTH_SOL_USD_FEED = new PublicKey(
