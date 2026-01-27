@@ -2259,15 +2259,26 @@ export async function buildInitiateClosePositionTransaction(
   nonceBuf.copy(instructionData, 113);
 
   // Build account keys - must match InitiateClosePosition struct in Rust
-  // Order: perp_market, position, oracle, trader, + 11 MXE accounts + system_program
+  // Order: perp_market, position, oracle, trader, 9 MXE accounts, system_program, arcium_program, mxe_program
   const keys: Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }> = [
     { pubkey: perpMarketPda, isSigner: false, isWritable: true },
     { pubkey: positionPda, isSigner: false, isWritable: true },
     { pubkey: oraclePriceFeed, isSigner: false, isWritable: false },
     { pubkey: trader, isSigner: true, isWritable: true },
-    // MXE CPI accounts (11 total)
-    ...arciumAccountsToAccountMetas(mxeAccounts),
+    // MXE CPI accounts (9 core accounts)
+    { pubkey: mxeAccounts.signPdaAccount, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.mxeAccount, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.mempoolAccount, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.executingPool, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.computationAccount, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.compDefAccount, isSigner: false, isWritable: false },
+    { pubkey: mxeAccounts.clusterAccount, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.poolAccount, isSigner: false, isWritable: true },
+    { pubkey: mxeAccounts.clockAccount, isSigner: false, isWritable: true },
+    // Programs (system_program must come BEFORE arcium_program and mxe_program)
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: mxeAccounts.arciumProgram, isSigner: false, isWritable: false },
+    { pubkey: mxeAccounts.mxeProgram, isSigner: false, isWritable: false },
   ];
 
   const instruction = new TransactionInstruction({
