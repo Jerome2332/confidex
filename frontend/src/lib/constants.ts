@@ -97,6 +97,12 @@ export const PNP_DEVNET_COLLATERAL = 'Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtK
 export const CSPL_ENABLED = false; // Flip to true when C-SPL SDK releases
 export const SHADOWWIRE_ENABLED = true; // Production-ready
 
+// ZK Proofs feature flag
+// When disabled, the app works in demo mode with simulated proofs
+// Set NEXT_PUBLIC_ZK_PROOFS_ENABLED=false to disable ZK proof generation
+// Useful for demos/hackathons without ZK infrastructure (nargo, sunspot)
+export const ZK_PROOFS_ENABLED = process.env.NEXT_PUBLIC_ZK_PROOFS_ENABLED !== 'false';
+
 // MXE Configuration (from init-mxe.ts)
 export const MXE_CONFIG_PDA = 'GqZ3v32aFzr1s5N4vSo6piur8pHuWw4jZpKW5xEy31qK';
 export const MXE_AUTHORITY_PDA = '9WH1PNEpvHQDLTUm1W3MuwSdsbTtLMK8eoy2SyNBLnyn';

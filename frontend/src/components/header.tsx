@@ -8,6 +8,7 @@ import { WalletButton } from '@/components/wallet-button';
 import { SettingsPanel } from '@/components/settings-panel';
 import { MarketTicker } from '@/components/market-ticker';
 import { Logo } from '@/components/logo';
+import { DemoBanner } from '@/components/demo-banner';
 
 interface HeaderProps {
   showMarketTicker?: boolean;
@@ -25,6 +26,9 @@ export const Header: FC<HeaderProps> = ({ showMarketTicker = false }) => {
 
   return (
     <>
+      {/* Demo Mode Banner - shows when ZK proofs are disabled */}
+      <DemoBanner />
+
       <header className="border-b border-white/10 bg-black/95 backdrop-blur supports-[backdrop-filter]:bg-black/60 sticky top-0 z-50">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between">
           {/* Logo */}

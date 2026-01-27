@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import bs58 from 'bs58';
 
 import { createLogger } from '@/lib/logger';
+import { ZK_PROOFS_ENABLED } from '@/lib/constants';
 
 const log = createLogger('proof');
 
@@ -16,6 +17,9 @@ const GROTH16_PROOF_SIZE = 324;
 // In production (or when explicitly set), don't allow fallback to stale proofs
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 const STRICT_PROOF_MODE = IS_PRODUCTION || process.env.NEXT_PUBLIC_STRICT_PROOFS === 'true';
+
+// Demo blacklist root (empty tree - all zeros)
+const DEMO_BLACKLIST_ROOT = new Uint8Array(32);
 
 interface ProofResult {
   proof: Uint8Array;
@@ -31,6 +35,10 @@ interface UseProofReturn {
   checkEligibility: () => Promise<boolean>;
   /** Error message if proof generation failed */
   error: string | null;
+  /** Whether ZK proofs are enabled (false = demo mode with simulated proofs) */
+  zkEnabled: boolean;
+  /** Whether the last proof was simulated (demo mode) */
+  isSimulated: boolean;
 }
 
 const PROOF_SERVER_URL = process.env.NEXT_PUBLIC_PROOF_SERVER_URL || 'http://localhost:3001';
@@ -50,7 +58,15 @@ export function useProof(): UseProofReturn {
   const [proofReady, setProofReady] = useState(false);
   const [lastProof, setLastProof] = useState<ProofResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isSimulated, setIsSimulated] = useState(false);
   const proofCache = useRef<Map<string, ProofResult>>(new Map());
+
+  // Log ZK mode on mount
+  useEffect(() => {
+    if (!ZK_PROOFS_ENABLED) {
+      log.warn('ZK proofs DISABLED - running in demo mode');
+    }
+  }, []);
 
   const generateProof = useCallback(async (): Promise<ProofResult> => {
     if (!publicKey || !signMessage) {
@@ -71,8 +87,36 @@ export function useProof(): UseProofReturn {
     setIsGenerating(true);
     setProofReady(false);
     setError(null);
+    setIsSimulated(false);
 
     try {
+      // If ZK proofs are disabled, generate a simulated proof immediately
+      if (!ZK_PROOFS_ENABLED) {
+        log.info('Generating simulated proof (ZK disabled)');
+
+        // Create a deterministic demo proof
+        const simulatedProof = new Uint8Array(GROTH16_PROOF_SIZE);
+        // Add "DEMO" marker at the start
+        const demoMarker = new TextEncoder().encode('DEMO');
+        simulatedProof.set(demoMarker, 0);
+
+        const result: ProofResult = {
+          proof: simulatedProof,
+          blacklistRoot: DEMO_BLACKLIST_ROOT,
+          publicInputs: DEMO_BLACKLIST_ROOT,
+        };
+
+        // Cache and return
+        proofCache.current.set(cacheKey, result);
+        setLastProof(result);
+        setProofReady(true);
+        setIsSimulated(true);
+        setError(null);
+
+        log.info('Simulated proof generated (demo mode)');
+        return result;
+      }
+
       log.info('Generating proof via backend server...');
       log.debug('Proof server URL:', { url: PROOF_SERVER_URL });
 
@@ -132,10 +176,14 @@ export function useProof(): UseProofReturn {
         publicInputs: blacklistRoot, // For Sunspot, public input is the root
       };
 
+      // Check if server returned a simulated proof
+      const serverSimulated = data.simulated === true || data.zkEnabled === false;
+
       log.info('Proof generated successfully', {
         durationMs: requestDuration,
         serverLatency: data.durationMs,
         proofSize: proof.length,
+        simulated: serverSimulated,
       });
 
       // Cache the result
@@ -143,6 +191,7 @@ export function useProof(): UseProofReturn {
 
       setLastProof(result);
       setProofReady(true);
+      setIsSimulated(serverSimulated);
       setError(null);
 
       return result;
@@ -197,5 +246,7 @@ export function useProof(): UseProofReturn {
     generateProof,
     checkEligibility,
     error,
+    zkEnabled: ZK_PROOFS_ENABLED,
+    isSimulated,
   };
 }

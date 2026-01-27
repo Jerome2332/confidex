@@ -418,6 +418,61 @@ fn main(
                 </ol>
               </ExpandableSection>
             </div>
+
+            {/* ZK Infrastructure Status */}
+            <div className="mt-8 bg-white/5 border border-white/10 rounded-xl p-6">
+              <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <CodeIcon size={20} />
+                ZK Infrastructure Status
+              </h3>
+              <p className="text-sm text-white/60 mb-4">
+                The complete ZK proving infrastructure is built and tested. Production deployment requires a dedicated prover service
+                with the following components installed:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle size={16} className="text-emerald-400" />
+                    <span className="text-white font-medium text-sm">Noir Circuit</span>
+                  </div>
+                  <div className="text-xs text-white/50 font-mono">v1.0.0-beta.13</div>
+                  <p className="text-xs text-white/60 mt-1">Eligibility verification circuit with Poseidon2 hash and SMT depth 20</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle size={16} className="text-emerald-400" />
+                    <span className="text-white font-medium text-sm">Sunspot Prover</span>
+                  </div>
+                  <div className="text-xs text-white/50 font-mono">gnark v0.14.0 (Groth16)</div>
+                  <p className="text-xs text-white/60 mt-1">Generates Solana-compatible Groth16 proofs in 3-5 seconds</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle size={16} className="text-emerald-400" />
+                    <span className="text-white font-medium text-sm">On-Chain Verifier</span>
+                  </div>
+                  <div className="text-xs text-white/50 font-mono">9op573D8GuuMAL2...tSNi</div>
+                  <p className="text-xs text-white/60 mt-1">Deployed verifier program validates proofs during order placement</p>
+                </div>
+                <div className="bg-black/30 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle size={16} className="text-emerald-400" />
+                    <span className="text-white font-medium text-sm">Circuit Artifacts</span>
+                  </div>
+                  <div className="text-xs text-white/50 font-mono">pk: 1.9MB, vk: 716B</div>
+                  <p className="text-xs text-white/60 mt-1">Proving/verification keys and compiled constraint system ready</p>
+                </div>
+              </div>
+              <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+                <div className="flex items-start gap-2 text-sm">
+                  <span className="text-amber-400 flex-shrink-0">Note:</span>
+                  <span className="text-amber-400/80">
+                    ZK proofs are currently disabled in the demo to reduce infrastructure costs. The technology is fully implemented
+                    and can be enabled by deploying a prover service (VM with nargo + sunspot) and setting <code className="bg-black/30 px-1 rounded">ZK_PROOFS_ENABLED=true</code>.
+                  </span>
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* MPC Layer Section */}
