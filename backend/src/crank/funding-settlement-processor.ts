@@ -434,11 +434,12 @@ export class FundingSettlementProcessor {
     // Generate nonce
     const nonce = BigInt(Date.now()) * 1000000n + BigInt(Math.floor(Math.random() * 1000000));
 
-    // Derive Arcium accounts
+    // Derive Arcium accounts with calculate_funding comp def offset
     const arciumAccounts = deriveArciumAccounts(
       this.mxeProgramId,
       DEFAULT_CLUSTER_OFFSET,
-      new BN(computationOffset.toString())
+      new BN(computationOffset.toString()),
+      getCalculateFundingCompDefOffset()
     );
 
     // Build instruction data

@@ -362,12 +362,13 @@ export class ClosePositionProcessor {
   private async pollMpcResult(
     requestId: Uint8Array
   ): Promise<{ encryptedPnl: Uint8Array; isProfit: boolean } | null> {
-    // Get computation account address
+    // Get computation account address with calculate_pnl comp def offset
     const computationOffset = new BN(requestId.slice(0, 8), 'le');
     const accounts = deriveArciumAccounts(
       this.mxeProgramId,
       DEFAULT_CLUSTER_OFFSET,
-      computationOffset
+      computationOffset,
+      getCalculatePnlCompDefOffset()
     );
 
     try {

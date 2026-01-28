@@ -2,9 +2,9 @@
  * Arcium Account Derivation Module
  *
  * Centralized derivation of all 11 Arcium MXE infrastructure accounts required
- * for the match_orders instruction. Uses the official @arcium-hq/client SDK.
+ * for queue_computation instructions. Uses the official @arcium-hq/client SDK.
  *
- * Account Order (must match match_orders.rs remaining_accounts[0..10]):
+ * Account Order (matches Rust #[queue_computation_accounts] macro, after payer):
  *   0. sign_pda_account    - [b"ArciumSignerAccount"] @ MXE program
  *   1. mxe_account         - getMXEAccAddress(mxeProgramId)
  *   2. mempool_account     - getMempoolAccAddress(clusterOffset)
@@ -14,11 +14,11 @@
  *   6. cluster_account     - getClusterAccAddress(clusterOffset)
  *   7. pool_account        - getFeePoolAccAddress()
  *   8. clock_account       - getClockAccAddress()
- *   9. arcium_program      - ARCIUM_ADDR
- *  10. mxe_program         - mxeProgramId
+ *   9. system_program      - SystemProgram.programId (for init_if_needed)
+ *  10. arcium_program      - ARCIUM_ADDR
  */
 
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 import BN from 'bn.js';
 
 // Arcium SDK imports
@@ -36,7 +36,20 @@ import {
 } from '@arcium-hq/client';
 
 /**
- * All 11 Arcium MXE accounts required for match_orders remaining_accounts
+ * All 11 Arcium MXE accounts required for queue_computation instructions
+ *
+ * Account order matches Rust #[queue_computation_accounts] macro (after payer):
+ *   0. sign_pda_account    - [b"ArciumSignerAccount"] @ MXE program
+ *   1. mxe_account         - getMXEAccAddress(mxeProgramId)
+ *   2. mempool_account     - getMempoolAccAddress(clusterOffset)
+ *   3. executing_pool      - getExecutingPoolAccAddress(clusterOffset)
+ *   4. computation_account - getComputationAccAddress(clusterOffset, offset)
+ *   5. comp_def_account    - getCompDefAccAddress(mxeProgramId, compDefOffset)
+ *   6. cluster_account     - getClusterAccAddress(clusterOffset)
+ *   7. pool_account        - getFeePoolAccAddress()
+ *   8. clock_account       - getClockAccAddress()
+ *   9. system_program      - SystemProgram.programId (required for init_if_needed)
+ *  10. arcium_program      - ARCIUM_ADDR
  */
 export interface ArciumMxeAccounts {
   /** Index 0: Signer PDA for MXE program [b"ArciumSignerAccount"] */
@@ -57,10 +70,10 @@ export interface ArciumMxeAccounts {
   poolAccount: PublicKey;
   /** Index 8: Arcium clock account */
   clockAccount: PublicKey;
-  /** Index 9: Arcium core program */
+  /** Index 9: System program (required for init_if_needed on sign_pda_account) */
+  systemProgram: PublicKey;
+  /** Index 10: Arcium core program */
   arciumProgram: PublicKey;
-  /** Index 10: MXE program (confidex_mxe) */
-  mxeProgram: PublicKey;
 }
 
 /**
@@ -116,20 +129,24 @@ export function deriveSignPdaAccount(mxeProgramId: PublicKey): PublicKey {
 export function deriveArciumAccounts(
   mxeProgramId: PublicKey,
   clusterOffset: number,
-  computationOffset: BN
+  computationOffset: BN,
+  compDefOffset?: number
 ): ArciumMxeAccounts {
+  // Use provided compDefOffset or default to compare_prices
+  const offset = compDefOffset ?? getComparePricesCompDefOffset();
+
   return {
     signPdaAccount: deriveSignPdaAccount(mxeProgramId),
     mxeAccount: getMXEAccAddress(mxeProgramId),
     mempoolAccount: getMempoolAccAddress(clusterOffset),
     executingPool: getExecutingPoolAccAddress(clusterOffset),
     computationAccount: getComputationAccAddress(clusterOffset, computationOffset),
-    compDefAccount: getCompDefAccAddress(mxeProgramId, getComparePricesCompDefOffset()),
+    compDefAccount: getCompDefAccAddress(mxeProgramId, offset),
     clusterAccount: getClusterAccAddress(clusterOffset),
     poolAccount: getFeePoolAccAddress(),
     clockAccount: getClockAccAddress(),
+    systemProgram: SystemProgram.programId,
     arciumProgram: ARCIUM_PROGRAM_ID,
-    mxeProgram: mxeProgramId,
   };
 }
 
@@ -151,8 +168,8 @@ export function arciumAccountsToRemainingAccounts(
     { pubkey: accounts.clusterAccount, isSigner: false, isWritable: true },
     { pubkey: accounts.poolAccount, isSigner: false, isWritable: true },
     { pubkey: accounts.clockAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.systemProgram, isSigner: false, isWritable: false },
     { pubkey: accounts.arciumProgram, isSigner: false, isWritable: false },
-    { pubkey: accounts.mxeProgram, isSigner: false, isWritable: false },
   ];
 }
 
@@ -170,6 +187,6 @@ export function logArciumAccounts(accounts: ArciumMxeAccounts, prefix: string = 
   console.log(`${prefix}  [6] clusterAccount:     ${accounts.clusterAccount.toBase58()}`);
   console.log(`${prefix}  [7] poolAccount:        ${accounts.poolAccount.toBase58()}`);
   console.log(`${prefix}  [8] clockAccount:       ${accounts.clockAccount.toBase58()}`);
-  console.log(`${prefix}  [9] arciumProgram:      ${accounts.arciumProgram.toBase58()}`);
-  console.log(`${prefix}  [10] mxeProgram:        ${accounts.mxeProgram.toBase58()}`);
+  console.log(`${prefix}  [9] systemProgram:      ${accounts.systemProgram.toBase58()}`);
+  console.log(`${prefix}  [10] arciumProgram:     ${accounts.arciumProgram.toBase58()}`);
 }
