@@ -3,17 +3,22 @@
 
 # ============================================
 # Stage 1: Build nargo and sunspot
+# Force amd64 because Noir doesn't have ARM64 Linux binaries
 # ============================================
-FROM ubuntu:22.04 AS builder
+FROM --platform=linux/amd64 ubuntu:22.04 AS builder
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies
+# Install build dependencies (excluding golang - we'll install newer version)
 RUN apt-get update && apt-get install -y \
     curl git build-essential pkg-config libssl-dev \
-    golang-go ca-certificates \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Go 1.24 (required by Sunspot)
+RUN curl -fsSL https://go.dev/dl/go1.24.0.linux-amd64.tar.gz | tar -C /usr/local -xzf -
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -24,20 +29,20 @@ RUN curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | ba
 ENV PATH="/root/.nargo/bin:${PATH}"
 RUN noirup -v 1.0.0-beta.13
 
-# Build sunspot from source
+# Build sunspot from source (reilabs/sunspot is the correct repo)
 WORKDIR /tmp/sunspot
-RUN git clone --depth 1 https://github.com/Sunspot-Labs/sunspot.git . \
-    && cd go && go build -o /usr/local/bin/sunspot
+RUN git clone --depth 1 https://github.com/reilabs/sunspot.git . \
+    && cd go && go build -o /usr/local/bin/sunspot .
 
 # ============================================
 # Stage 2: Production
 # ============================================
-FROM node:20-slim
+FROM --platform=linux/amd64 node:20-slim
 
 WORKDIR /app
 
-# Install runtime deps
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# Install runtime deps (curl needed for health check)
+RUN apt-get update && apt-get install -y ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
 # Copy binaries from builder
 COPY --from=builder /root/.nargo/bin/nargo /usr/local/bin/nargo
