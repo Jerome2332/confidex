@@ -4,6 +4,30 @@
 
 services:
   # ===========================================
+  # ZK Prover Service (nargo + sunspot)
+  # ===========================================
+  - type: web
+    name: confidex-prover
+    runtime: docker
+    dockerfilePath: ./prover-service/Dockerfile
+    dockerContext: .
+    region: oregon
+    plan: starter
+    branch: main
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "3002"
+      - key: STRICT_PROOFS
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        value: "https://confidex-uflk.onrender.com,https://www.confidex.xyz,https://confidex.xyz"
+      - key: PROVER_API_KEY
+        generateValue: true
+
+  # ===========================================
   # Backend API + Crank Service
   # ===========================================
   - type: web
@@ -19,7 +43,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 3001
+        value: "3001"
       - key: REDIS_URL
         fromService:
           name: confidex-redis
@@ -57,6 +81,18 @@ services:
         value: "https://www.confidex.xyz"
       - key: ALLOWED_ORIGINS
         value: "https://confidex-theta.vercel.app,https://www.confidex.xyz,https://confidex.xyz"
+      # ZK Prover Service
+      - key: PROVER_SERVICE_URL
+        value: "https://confidex-prover.onrender.com"
+      - key: ZK_PROOFS_ENABLED
+        value: "true"
+      - key: STRICT_PROOFS
+        value: "true"
+      - key: PROVER_API_KEY
+        fromService:
+          name: confidex-prover
+          type: web
+          envVarKey: PROVER_API_KEY
     disk:
       name: crank-data
       mountPath: /app/data

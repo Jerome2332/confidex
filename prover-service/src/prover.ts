@@ -32,6 +32,10 @@ const SUNSPOT_BIN = process.env.SUNSPOT_BINARY_PATH ||
 const CIRCUIT_DIR = process.env.CIRCUIT_DIR ||
                     join(dirname(dirname(__dirname)), 'circuits', 'eligibility');
 
+// Temp directory for proof generation (separate from CIRCUIT_DIR for container permissions)
+const TEMP_DIR = process.env.PROVER_TEMP_DIR ||
+  (IS_PRODUCTION ? '/tmp/confidex-proofs' : join(CIRCUIT_DIR, 'temp'));
+
 // LRU Cache for proofs
 interface CacheEntry {
   proof: Buffer;
@@ -126,7 +130,7 @@ export async function generateEligibilityProof(inputs: ProofInputs): Promise<Buf
   console.log(`[Prover] Circuit: ${CIRCUIT_DIR}`);
 
   const tempId = randomBytes(8).toString('hex');
-  const tempDir = join(CIRCUIT_DIR, 'temp', tempId);
+  const tempDir = join(TEMP_DIR, tempId);
 
   try {
     // Create temp directory
