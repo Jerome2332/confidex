@@ -1049,3 +1049,272 @@ pub fn admin_force_close_v7_handler(
 
     Ok(())
 }
+
+// ============================================================================
+// Admin Reset Order Matching (for stuck orders in MPC flow)
+// ============================================================================
+// This instruction allows the admin to reset the is_matching flag and clear
+// the pending_match_request when an MPC callback never arrived (stuck flow).
+// ============================================================================
+
+use crate::state::ConfidentialOrder;
+
+#[derive(Accounts)]
+pub struct AdminResetOrderMatching<'info> {
+    #[account(
+        seeds = [ExchangeState::SEED],
+        bump = exchange.bump,
+        has_one = authority @ ConfidexError::Unauthorized
+    )]
+    pub exchange: Account<'info, ExchangeState>,
+
+    #[account(
+        mut,
+        seeds = [
+            ConfidentialOrder::SEED,
+            order.maker.as_ref(),
+            &order.order_nonce
+        ],
+        bump = order.bump,
+        // Order must be stuck in matching (is_matching = true)
+        constraint = order.is_matching @ ConfidexError::OrderNotMatching
+    )]
+    pub order: Account<'info, ConfidentialOrder>,
+
+    pub authority: Signer<'info>,
+}
+
+/// Admin reset order matching status
+///
+/// This is an EMERGENCY function for orders that got stuck in the MPC matching
+/// flow due to:
+/// 1. MPC callback never arrived (network issues, MXE problems)
+/// 2. Computation failed but no failure callback was received
+///
+/// After reset, the order can be:
+/// - Cancelled by the user
+/// - Re-entered into matching
+///
+/// SECURITY NOTES:
+/// - Only exchange authority can call this
+/// - Order must have is_matching = true (otherwise already active)
+/// - Clears both is_matching flag and pending_match_request
+pub fn admin_reset_order_matching_handler(
+    ctx: Context<AdminResetOrderMatching>,
+) -> Result<()> {
+    // Capture keys before mutable borrow
+    let order_pda = ctx.accounts.order.key();
+    let authority_key = ctx.accounts.authority.key();
+
+    let order = &mut ctx.accounts.order;
+
+    // Capture values needed for event before mutable operations
+    let order_id = order.order_id;
+    let maker = order.maker;
+
+    msg!(
+        "Admin resetting matching for order {:?} (maker: {})",
+        order_id,
+        maker
+    );
+
+    // Log the stuck request for debugging
+    if order.has_pending_match() {
+        msg!(
+            "Clearing pending_match_request: {:?}",
+            order.pending_match_request
+        );
+    }
+
+    // Reset the matching state
+    order.is_matching = false;
+    order.pending_match_request = [0u8; 32];
+
+    emit!(AdminResetOrderMatchingEvent {
+        order_id,
+        order_pda,
+        maker,
+        authority: authority_key,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+
+    msg!("Order matching reset successfully - order can now be cancelled or re-matched");
+
+    Ok(())
+}
+
+/// Event emitted when admin resets order matching
+#[event]
+pub struct AdminResetOrderMatchingEvent {
+    pub order_id: [u8; 16],
+    pub order_pda: Pubkey,
+    pub maker: Pubkey,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+// ============================================================================
+// Admin Force Cancel Order (for demo/emergency when MPC is unavailable)
+// ============================================================================
+
+use crate::state::{OrderStatus, Side, UserConfidentialBalance};
+
+/// Accounts for admin force-cancelling an order
+/// This bypasses MPC when it's unavailable (demo mode, MXE issues, etc.)
+#[derive(Accounts)]
+pub struct AdminForceCancelOrder<'info> {
+    #[account(
+        seeds = [ExchangeState::SEED],
+        bump = exchange.bump,
+        has_one = authority @ ConfidexError::Unauthorized
+    )]
+    pub exchange: Account<'info, ExchangeState>,
+
+    #[account(
+        mut,
+        seeds = [
+            TradingPair::SEED,
+            pair.base_mint.as_ref(),
+            pair.quote_mint.as_ref()
+        ],
+        bump = pair.bump,
+        constraint = order.pair == pair.key() @ ConfidexError::InvalidOrder,
+    )]
+    pub pair: Account<'info, TradingPair>,
+
+    #[account(
+        mut,
+        seeds = [
+            ConfidentialOrder::SEED,
+            order.maker.as_ref(),
+            &order.order_nonce
+        ],
+        bump = order.bump,
+        // Order must be active (status=Active and not matching)
+        constraint = order.is_active() @ ConfidexError::OrderNotOpen
+    )]
+    pub order: Account<'info, ConfidentialOrder>,
+
+    /// User's base token balance - for sell order refunds
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            order.maker.as_ref(),
+            pair.base_mint.as_ref()
+        ],
+        bump = user_base_balance.bump,
+    )]
+    pub user_base_balance: Account<'info, UserConfidentialBalance>,
+
+    /// User's quote token balance - for buy order refunds
+    #[account(
+        mut,
+        seeds = [
+            UserConfidentialBalance::SEED,
+            order.maker.as_ref(),
+            pair.quote_mint.as_ref()
+        ],
+        bump = user_quote_balance.bump,
+    )]
+    pub user_quote_balance: Account<'info, UserConfidentialBalance>,
+
+    pub authority: Signer<'info>,
+}
+
+/// Admin force cancel order handler
+///
+/// This is an EMERGENCY/DEMO function for cancelling orders when MPC is unavailable.
+/// The refund_amount is specified by admin based on off-chain computation or inspection.
+///
+/// Use cases:
+/// 1. Demo mode - MPC not set up, need to cancel for UX
+/// 2. MXE down - Users can't cancel via normal flow
+/// 3. Legacy orders - Old format that MPC can't process
+///
+/// SECURITY NOTES:
+/// - Only exchange authority can call this
+/// - Admin specifies refund amount (trust required)
+/// - Should only be used when MPC is genuinely unavailable
+pub fn admin_force_cancel_order_handler(
+    ctx: Context<AdminForceCancelOrder>,
+    refund_amount: u64,
+) -> Result<()> {
+    // Capture keys before mutable borrows
+    let order_pda = ctx.accounts.order.key();
+    let authority_key = ctx.accounts.authority.key();
+
+    let order = &mut ctx.accounts.order;
+    let pair = &mut ctx.accounts.pair;
+    let user_base_balance = &mut ctx.accounts.user_base_balance;
+    let user_quote_balance = &mut ctx.accounts.user_quote_balance;
+    let clock = Clock::get()?;
+
+    msg!(
+        "Admin force-cancelling order {:?} with refund {}",
+        order.order_id,
+        refund_amount
+    );
+
+    // Perform the refund based on order side
+    if refund_amount > 0 {
+        match order.side {
+            Side::Buy => {
+                // Buy orders escrow quote tokens (USDC)
+                let current_balance = user_quote_balance.get_balance();
+                user_quote_balance.set_balance(
+                    current_balance.checked_add(refund_amount)
+                        .ok_or(ConfidexError::ArithmeticOverflow)?
+                );
+                msg!("Refunded {} quote tokens to user", refund_amount);
+            }
+            Side::Sell => {
+                // Sell orders escrow base tokens (SOL)
+                let current_balance = user_base_balance.get_balance();
+                user_base_balance.set_balance(
+                    current_balance.checked_add(refund_amount)
+                        .ok_or(ConfidexError::ArithmeticOverflow)?
+                );
+                msg!("Refunded {} base tokens to user", refund_amount);
+            }
+        }
+    }
+
+    // Mark order as Inactive (cancelled - privacy preserving, no separate Cancelled variant)
+    order.status = OrderStatus::Inactive;
+
+    // Clear any matching state
+    order.is_matching = false;
+    order.pending_match_request = [0u8; 32];
+
+    // Decrement open order count
+    pair.open_order_count = pair.open_order_count.checked_sub(1)
+        .ok_or(ConfidexError::ArithmeticOverflow)?;
+
+    // Coarse timestamp for event (hour precision for privacy)
+    let coarse_time = ConfidentialOrder::coarse_timestamp(clock.unix_timestamp);
+
+    emit!(AdminForceCancelOrderEvent {
+        order_id: order.order_id,
+        order_pda,
+        maker: order.maker,
+        authority: authority_key,
+        refund_amount,
+        timestamp: coarse_time,
+    });
+
+    msg!("Order force-cancelled successfully");
+
+    Ok(())
+}
+
+/// Event emitted when admin force-cancels an order
+#[event]
+pub struct AdminForceCancelOrderEvent {
+    pub order_id: [u8; 16],
+    pub order_pda: Pubkey,
+    pub maker: Pubkey,
+    pub authority: Pubkey,
+    pub refund_amount: u64,
+    pub timestamp: i64,
+}

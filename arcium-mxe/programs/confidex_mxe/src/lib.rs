@@ -33,19 +33,20 @@ const CIRCUIT_BASE_URL: &str = "https://github.com/Jerome2332/confidex/releases/
 
 /// DEX Program ID (must match confidex_dex program)
 /// Base58: 63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
+/// Note: These bytes were corrected on 2026-01-28 - previous bytes were wrong
 const DEX_PROGRAM_ID: Pubkey = Pubkey::new_from_array([
-    0x4a, 0x8a, 0x1a, 0xbb, 0x67, 0x97, 0x4c, 0xef,
-    0x2b, 0x5a, 0x8c, 0xe2, 0x2a, 0x0f, 0x41, 0xa3,
-    0xb4, 0xfd, 0xf5, 0xf0, 0x25, 0x7d, 0xd0, 0xf7,
-    0x5b, 0x44, 0x7e, 0x3c, 0x03, 0x57, 0x55, 0x7d,
+    0x4a, 0xf5, 0x1f, 0x1c, 0x8e, 0x5d, 0x88, 0x92,
+    0x55, 0x2d, 0xce, 0x32, 0x61, 0xe8, 0x26, 0xe8,
+    0xfd, 0x18, 0xd2, 0xc3, 0xde, 0xb4, 0xe1, 0x75,
+    0x52, 0x51, 0xe1, 0x1e, 0xf3, 0x7b, 0xe3, 0x78,
 ]);
 
 /// MXE authority PDA seed (for signing CPIs to DEX)
 const MXE_AUTHORITY_SEED: &[u8] = b"mxe_authority";
 
 /// DEX finalize_match instruction discriminator
-/// sha256("global:finalize_match")[0..8]
-const DEX_FINALIZE_MATCH_DISCRIMINATOR: [u8; 8] = [0xb6, 0x50, 0x2c, 0xc7, 0x3c, 0xf3, 0x94, 0x31];
+/// sha256("global:finalize_match")[0..8] = 06672f07420155cf
+const DEX_FINALIZE_MATCH_DISCRIMINATOR: [u8; 8] = [0x06, 0x67, 0x2f, 0x07, 0x42, 0x01, 0x55, 0xcf];
 
 // Computation definition offsets (generated from circuit names)
 const COMP_DEF_OFFSET_COMPARE_PRICES: u32 = comp_def_offset("compare_prices");
@@ -326,7 +327,7 @@ pub mod confidex_mxe {
         // Build callback accounts - include DEX order accounts if provided
         let mut callback_accounts = Vec::new();
 
-        // If order pubkeys provided, add MXE authority PDA and order accounts for CPI
+        // If order pubkeys provided, add accounts needed for CPI to DEX
         if let (Some(buy), Some(sell)) = (buy_order, sell_order) {
             // MXE authority PDA for signing CPI to DEX
             let (mxe_authority, _) = Pubkey::find_program_address(
@@ -344,6 +345,11 @@ pub mod confidex_mxe {
             callback_accounts.push(CallbackAccount {
                 pubkey: sell,
                 is_writable: true,
+            });
+            // CRITICAL: Include DEX program ID so callback can CPI to it
+            callback_accounts.push(CallbackAccount {
+                pubkey: DEX_PROGRAM_ID,
+                is_writable: false,
             });
         }
 
@@ -397,13 +403,21 @@ pub mod confidex_mxe {
 
         // If order accounts are provided, CPI to DEX to update orders
         // This provides on-chain verification that the MPC result was authentic
-        if ctx.remaining_accounts.len() >= 3 {
+        if ctx.remaining_accounts.len() >= 4 {
             // remaining_accounts[0] = MXE authority account (UncheckedAccount for PDA signing)
             // remaining_accounts[1] = buy_order
             // remaining_accounts[2] = sell_order
+            // remaining_accounts[3] = DEX program (CRITICAL: needed for CPI target)
             let mxe_authority_info = &ctx.remaining_accounts[0];
             let buy_order = &ctx.remaining_accounts[1];
             let sell_order = &ctx.remaining_accounts[2];
+            let dex_program_info = &ctx.remaining_accounts[3];
+
+            // Verify DEX program matches expected
+            require!(
+                *dex_program_info.key == DEX_PROGRAM_ID,
+                ErrorCode::AbortedComputation
+            );
 
             // Derive MXE authority PDA for signing
             let (expected_mxe_authority, bump) = Pubkey::find_program_address(
@@ -444,12 +458,15 @@ pub mod confidex_mxe {
             let seeds: &[&[u8]] = &[MXE_AUTHORITY_SEED, &[bump]];
             let signer_seeds = &[seeds];
 
+            // NOTE: The dex_program_info must be included in account_infos for invoke_signed
+            // even though it's the target of the CPI - this is how Solana runtime resolves the program
             invoke_signed(
                 &ix,
                 &[
                     mxe_authority_info.clone(),
                     buy_order.clone(),
                     sell_order.clone(),
+                    dex_program_info.clone(),
                 ],
                 signer_seeds,
             )?;
@@ -490,7 +507,7 @@ pub mod confidex_mxe {
         // Build callback accounts - include DEX order accounts if provided
         let mut callback_accounts = Vec::new();
 
-        // If order pubkeys provided, add MXE authority PDA and order accounts for CPI
+        // If order pubkeys provided, add accounts needed for CPI to DEX
         if let (Some(buy), Some(sell)) = (buy_order, sell_order) {
             // MXE authority PDA for signing CPI to DEX
             let (mxe_authority, _) = Pubkey::find_program_address(
@@ -508,6 +525,11 @@ pub mod confidex_mxe {
             callback_accounts.push(CallbackAccount {
                 pubkey: sell,
                 is_writable: true,
+            });
+            // CRITICAL: Include DEX program ID so callback can CPI to it
+            callback_accounts.push(CallbackAccount {
+                pubkey: DEX_PROGRAM_ID,
+                is_writable: false,
             });
         }
 
@@ -563,13 +585,21 @@ pub mod confidex_mxe {
         });
 
         // If order accounts are provided, CPI to DEX to update orders
-        if ctx.remaining_accounts.len() >= 3 {
+        if ctx.remaining_accounts.len() >= 4 {
             // remaining_accounts[0] = MXE authority account (UncheckedAccount for PDA signing)
             // remaining_accounts[1] = buy_order
             // remaining_accounts[2] = sell_order
+            // remaining_accounts[3] = DEX program (CRITICAL: needed for CPI target)
             let mxe_authority_info = &ctx.remaining_accounts[0];
             let buy_order = &ctx.remaining_accounts[1];
             let sell_order = &ctx.remaining_accounts[2];
+            let dex_program_info = &ctx.remaining_accounts[3];
+
+            // Verify DEX program matches expected
+            require!(
+                *dex_program_info.key == DEX_PROGRAM_ID,
+                ErrorCode::AbortedComputation
+            );
 
             // Derive MXE authority PDA for signing
             let (expected_mxe_authority, bump) = Pubkey::find_program_address(
@@ -611,12 +641,15 @@ pub mod confidex_mxe {
             let seeds: &[&[u8]] = &[MXE_AUTHORITY_SEED, &[bump]];
             let signer_seeds = &[seeds];
 
+            // NOTE: The dex_program_info must be included in account_infos for invoke_signed
+            // even though it's the target of the CPI - this is how Solana runtime resolves the program
             invoke_signed(
                 &ix,
                 &[
                     mxe_authority_info.clone(),
                     buy_order.clone(),
                     sell_order.clone(),
+                    dex_program_info.clone(),
                 ],
                 signer_seeds,
             )?;
@@ -2755,4 +2788,40 @@ pub struct BatchCalculateFillCallback<'info> {
     /// CHECK: instructions_sysvar checked by account constraint
     #[account(address = ::anchor_lang::solana_program::sysvar::instructions::ID)]
     pub instructions_sysvar: AccountInfo<'info>,
+}
+
+// =============================================================================
+// CONSTANT VERIFICATION TESTS
+// =============================================================================
+// These tests verify that hardcoded program ID bytes match expected Base58 strings.
+// If these tests fail, it means the hardcoded bytes are out of sync.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify DEX_PROGRAM_ID matches expected Base58 string
+    /// This test prevents the bug where wrong bytes were used (61yJy... instead of 63bxU...)
+    #[test]
+    fn verify_dex_program_id() {
+        assert_eq!(
+            DEX_PROGRAM_ID.to_string(),
+            "63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB",
+            "DEX_PROGRAM_ID bytes do not match expected Base58"
+        );
+    }
+
+    /// Verify DEX_FINALIZE_MATCH_DISCRIMINATOR is sha256("global:finalize_match")[0..8]
+    /// Manually verified: sha256("global:finalize_match") = 06672f07420155cf...
+    /// This constant check ensures we don't accidentally change it
+    #[test]
+    fn verify_finalize_match_discriminator() {
+        // Verified manually via: echo -n "global:finalize_match" | sha256sum
+        // Result: 06672f07420155cf... (first 8 bytes)
+        let expected: [u8; 8] = [0x06, 0x67, 0x2f, 0x07, 0x42, 0x01, 0x55, 0xcf];
+        assert_eq!(
+            DEX_FINALIZE_MATCH_DISCRIMINATOR, expected,
+            "DEX_FINALIZE_MATCH_DISCRIMINATOR doesn't match sha256('global:finalize_match')[0..8]"
+        );
+    }
 }

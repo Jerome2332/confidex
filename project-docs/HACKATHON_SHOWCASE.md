@@ -371,6 +371,46 @@ enum SettlementMethod {
 
 ---
 
+## ZK Proof Verification (Verified January 28, 2026)
+
+Real Groth16 proof generation has been verified working with the following test results:
+
+### Infrastructure Status
+
+| Component | Status |
+|-----------|--------|
+| Nargo | v1.0.0-beta.13 ✅ |
+| Sunspot Binary | Found ✅ |
+| Circuit Artifacts | json, ccs, pk, vk ✅ |
+| Prover Mode | `real` (not simulated) ✅ |
+
+### Proof Generation Test Results
+
+```
+Test Wallet: A4rKenXZS3hJwgRAMnmKGohgXMteq5evqH5DPQuiovkF
+Proof Generation Time: 167ms (server-side)
+Proof Size: 324 bytes (exact Groth16 format)
+
+Groth16 Proof Structure:
+  Point A (G1): 11a3630895ac4972... (64 bytes)
+  Point B (G2): 24ea208b2a3955d8... (128 bytes)
+  Point C (G1): 15faa31b2be0bfc1... (64 bytes)
+  Commitments: 0
+
+Blacklist Root: 0x3039bcb20f03fd9c8650138ef2cfe643edeed152f9c20999f43aeed54d79e387
+  (Empty tree - Poseidon2 hash matches circuit)
+```
+
+### Run Verification Test
+
+```bash
+cd frontend && pnpm tsx scripts/test-zk-flow.ts
+```
+
+Expected output: `✅ ALL TESTS PASSED`
+
+---
+
 ## Running the Tests
 
 ```bash
@@ -385,6 +425,9 @@ cd tests && npx vitest run --reporter=verbose
 
 # Specific test suite
 cd tests && npx vitest run e2e/order-flow.spec.ts
+
+# ZK Proof flow verification
+cd frontend && pnpm tsx scripts/test-zk-flow.ts
 ```
 
 ### Sample Test Output

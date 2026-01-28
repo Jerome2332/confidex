@@ -212,4 +212,9 @@ pub enum ConfidexError {
 
     #[msg("Settlement cannot be failed in current state")]
     CannotFailSettlement,
+
+    // === Admin Order Reset Errors ===
+
+    #[msg("Order is not in matching state")]
+    OrderNotMatching,
 }

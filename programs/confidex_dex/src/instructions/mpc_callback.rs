@@ -78,12 +78,15 @@ pub fn finalize_match(
     let sell_order = &mut ctx.accounts.sell_order;
     let clock = Clock::get()?;
 
-    // Security: Verify MXE authority is owned by the expected Arcium MXE program
-    // This prevents spoofed callbacks from malicious programs
-    require!(
-        ctx.accounts.mxe_authority.owner == &ARCIUM_MXE_PROGRAM_ID,
-        MpcCallbackError::UnauthorizedCallback
-    );
+    // Security: The mxe_authority PDA is verified via:
+    // 1. `seeds = [MXE_AUTHORITY_SEED]` - correct derivation
+    // 2. `seeds::program = ARCIUM_MXE_PROGRAM_ID` - from the MXE program
+    // 3. `signer` constraint - can only be signed via invoke_signed by MXE
+    //
+    // Note: We do NOT check .owner because PDAs used as signers via invoke_signed
+    // don't need to be initialized accounts. The owner of uninitialized PDAs is
+    // the System Program, not the signing program. The signer+seeds constraint
+    // is sufficient to prove this came from the authorized MXE.
 
     // Parse result: single byte indicating match (1) or no match (0)
     // Security: Exact length validation prevents malformed callback data

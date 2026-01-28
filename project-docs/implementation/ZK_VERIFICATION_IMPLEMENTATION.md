@@ -1,6 +1,6 @@
 # ZK Eligibility Verification Implementation
 
-> Last updated: January 20, 2026
+> Last updated: January 28, 2026
 
 This document describes the ZK eligibility verification system implemented for Confidex, including the two-instruction pattern to avoid stack overflow and the Sunspot Groth16 verifier integration.
 
@@ -285,6 +285,116 @@ Program log: Position opened successfully
 2. **Proof caching:** Frontend caches proofs per wallet to avoid re-generation
 3. **Verifier program:** Deployed separately, can be upgraded independently
 4. **Empty blacklist:** Currently using empty tree; production would have actual blacklist
+
+---
+
+## Verified Test Results (January 28, 2026)
+
+The following test results verify that the ZK proof infrastructure is fully operational:
+
+### Test Environment
+
+```
+Prover Server: http://localhost:3001
+Mode: local-prover (real Groth16 proofs)
+Nargo: v1.0.0-beta.13
+Sunspot: ~/sunspot/go/sunspot (20MB binary)
+```
+
+### Infrastructure Check
+
+| Component | Status |
+|-----------|--------|
+| ZK Proofs Enabled | ✅ `ZK_PROOFS_ENABLED=true` |
+| Prover Mode | ✅ `real` (not demo/simulated) |
+| Nargo Binary | ✅ v1.0.0-beta.13 |
+| Sunspot Binary | ✅ Found at configured path |
+| Circuit Artifacts | ✅ All present |
+
+**Artifact Verification:**
+```
+eligibility.json  ✅ (circuit definition)
+eligibility.ccs   ✅ (constraint system)
+eligibility.pk    ✅ (proving key)
+eligibility.vk    ✅ (verification key)
+```
+
+### Proof Generation Test
+
+```
+Test Wallet: A4rKenXZS3hJwgRAMnmKGohgXMteq5evqH5DPQuiovkF
+Message: "Confidex eligibility proof request: 1769589545443"
+Signature: 2mdUiyWbezqa...
+
+Proof Generation:
+  - Client-side request: 903ms
+  - Server-side generation: 167ms
+  - Proof size: 324 bytes (exact match)
+```
+
+### Proof Structure Validation
+
+```
+Groth16 Proof (324 bytes):
+┌─────────────┬─────────────┬─────────────┬──────────────┬─────────────────┐
+│    A (G1)   │    B (G2)   │    C (G1)   │ num_commits  │ commitment_pok  │
+│   64 bytes  │  128 bytes  │   64 bytes  │   4 bytes    │    64 bytes     │
+└─────────────┴─────────────┴─────────────┴──────────────┴─────────────────┘
+
+Parsed Values:
+  Point A (G1): 11a3630895ac4972...
+  Point B (G2): 24ea208b2a3955d8...
+  Point C (G1): 15faa31b2be0bfc1...
+  Commitments:  0
+  POK:          0000000000000000...
+
+Blacklist Root: 0x3039bcb20f03fd9c8650138ef2cfe643edeed152f9c20999f43aeed54d79e387
+  (Empty tree root - matches circuit's Poseidon2 computation)
+```
+
+### Test Script
+
+Run the verification test:
+
+```bash
+cd frontend && pnpm tsx scripts/test-zk-flow.ts
+```
+
+**Expected Output:**
+```
+═══════════════════════════════════════════════════════════════
+           CONFIDEX - ZK ELIGIBILITY PROOF TEST
+═══════════════════════════════════════════════════════════════
+
+📊 Step 1: Checking prover status...
+   ✅ Prover infrastructure ready
+
+🔐 Step 2: Generating ZK eligibility proof...
+   ✅ Proof received in ~900ms
+
+🔍 Step 3: Validating proof...
+   ✅ Proof format is valid
+
+═══════════════════════════════════════════════════════════════
+                      ✅ ALL TESTS PASSED
+═══════════════════════════════════════════════════════════════
+```
+
+### Configuration for ZK-Enabled Demo
+
+**Backend (`backend/.env`):**
+```bash
+ZK_PROOFS_ENABLED=true
+SUNSPOT_BINARY_PATH=/Users/jmoney/sunspot/go/sunspot
+CIRCUIT_DIR=/Users/jmoney/Desktop/Dev/confidex/circuits/eligibility
+VERIFIER_PROGRAM_ID=9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W
+```
+
+**Frontend (`frontend/.env.local`):**
+```bash
+NEXT_PUBLIC_ZK_PROOFS_ENABLED=true
+NEXT_PUBLIC_PROOF_SERVER_URL=http://localhost:3001
+```
 
 ---
 

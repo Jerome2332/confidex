@@ -211,6 +211,26 @@ pub mod confidex_dex {
         instructions::admin::admin_force_close_v7_handler(ctx, params)
     }
 
+    /// Admin reset order matching status (admin only)
+    ///
+    /// EMERGENCY function for orders stuck in MPC matching flow where the
+    /// callback never arrived. Resets is_matching flag and clears
+    /// pending_match_request so the order can be cancelled or re-matched.
+    pub fn admin_reset_order_matching(ctx: Context<AdminResetOrderMatching>) -> Result<()> {
+        instructions::admin::admin_reset_order_matching_handler(ctx)
+    }
+
+    /// Admin force-cancel order (admin only)
+    ///
+    /// Emergency function for cancelling orders when MPC is unavailable.
+    /// Admin specifies refund amount based on off-chain computation.
+    pub fn admin_force_cancel_order(
+        ctx: Context<AdminForceCancelOrder>,
+        refund_amount: u64,
+    ) -> Result<()> {
+        instructions::admin::admin_force_cancel_order_handler(ctx, refund_amount)
+    }
+
     // === ZK Verification (Layer 1 of Three-Layer Privacy) ===
 
     /// Verify trader eligibility via ZK proof (blacklist non-membership)

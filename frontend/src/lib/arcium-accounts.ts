@@ -83,6 +83,7 @@ export const CIRCUIT_OFFSETS = {
   calculate_fill: () => getCircuitCompDefOffset('calculate_fill'),
   calculate_pnl: () => getCircuitCompDefOffset('calculate_pnl'),
   calculate_funding: () => getCircuitCompDefOffset('calculate_funding'),
+  calculate_refund: () => getCircuitCompDefOffset('calculate_refund'),
   add_encrypted: () => getCircuitCompDefOffset('add_encrypted'),
   sub_encrypted: () => getCircuitCompDefOffset('sub_encrypted'),
   check_liquidation: () => getCircuitCompDefOffset('check_liquidation'),

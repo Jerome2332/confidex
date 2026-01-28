@@ -31,7 +31,7 @@ interface OpenOrder {
   status: 'open' | 'partial' | 'pending';
   mpcStatus?: 'queued' | 'comparing' | 'matched' | 'settling' | 'complete';
   createdAt: Date;
-  isLegacyBroken?: boolean; // Legacy orders that can't be cancelled
+  isEncrypted?: boolean; // Orders use MPC-based cancellation
 }
 
 interface OpenOrdersProps {
@@ -54,8 +54,9 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
     lastUpdate,
   } = useUserOrders();
 
-  // Convert store orders to display format, filtering out legacy broken orders
-  const allOrders: OpenOrder[] = openOrders.map(order => ({
+  // Convert store orders to display format
+  // All orders can be cancelled via MPC cancel_order_callback flow
+  const orders: OpenOrder[] = openOrders.map(order => ({
     id: order.id,
     side: order.side,
     pair: order.pair,
@@ -66,12 +67,8 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
     status: order.status === 'partial' ? 'partial' : order.status === 'pending' ? 'pending' : 'open',
     mpcStatus: order.status === 'pending' ? 'comparing' : order.status === 'filled' ? 'complete' : undefined,
     createdAt: order.createdAt,
-    isLegacyBroken: order.isLegacyBroken,
+    isEncrypted: order.isLegacyBroken, // Flag for UI display (MPC required)
   }));
-
-  // Filter out legacy broken orders (can't be cancelled without overflow)
-  const orders = allOrders.filter(o => !o.isLegacyBroken);
-  const legacyOrderCount = allOrders.length - orders.length;
 
   const handleCancel = async (orderId: string) => {
     if (!publicKey || !sendTransaction) {
@@ -245,12 +242,6 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
           </div>
         )}
 
-        {legacyOrderCount > 0 && (
-          <div className="mb-2 text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded">
-            {legacyOrderCount} legacy order{legacyOrderCount > 1 ? 's' : ''} hidden (incompatible format)
-          </div>
-        )}
-
         {isLoadingOnChain && orders.length === 0 ? (
           <div className="flex items-center justify-center py-8">
             <SpinnerGap size={24} className="animate-spin text-muted-foreground" />
@@ -355,12 +346,6 @@ export const OpenOrders: FC<OpenOrdersProps> = ({ variant = 'default' }) => {
       {onChainError && (
         <div className="mb-2 text-xs text-amber-400/80 bg-amber-500/10 px-2 py-1 rounded">
           {onChainError}
-        </div>
-      )}
-
-      {legacyOrderCount > 0 && (
-        <div className="mb-2 text-xs text-muted-foreground bg-secondary/50 px-2 py-1 rounded">
-          {legacyOrderCount} legacy order{legacyOrderCount > 1 ? 's' : ''} hidden (incompatible format)
         </div>
       )}
 

@@ -1,8 +1,8 @@
 /**
- * Place Test Sell Order
+ * Place Test Buy Order
  *
- * Places a sell order to test production MPC matching.
- * Run with: pnpm tsx scripts/place-test-sell-order.ts
+ * Places a buy order to test production MPC matching.
+ * Run with: pnpm tsx scripts/place-test-buy-order.ts
  */
 
 import {
@@ -216,17 +216,17 @@ async function fetchEligibilityProof(wallet: Keypair): Promise<Uint8Array> {
 
 async function main() {
   console.log('============================================================');
-  console.log('   Place Test SELL Order (MPC Matching Test)');
+  console.log('   Place Test BUY Order (MPC Matching Test)');
   console.log('============================================================\n');
 
-  // Load keypair (devnet.json)
-  const keypairPath = path.join(process.env.HOME || '~', '.config', 'solana', 'devnet.json');
-  let seller: Keypair;
+  // Load keypair (id.json - main wallet)
+  const keypairPath = path.join(process.env.HOME || '~', '.config', 'solana', 'id.json');
+  let buyer: Keypair;
 
   try {
     const keypairData = JSON.parse(fs.readFileSync(keypairPath, 'utf-8'));
-    seller = Keypair.fromSecretKey(Uint8Array.from(keypairData));
-    console.log(`Seller address: ${seller.publicKey.toString()}`);
+    buyer = Keypair.fromSecretKey(Uint8Array.from(keypairData));
+    console.log(`Buyer address: ${buyer.publicKey.toString()}`);
   } catch (e) {
     console.error(`Could not read keypair from ${keypairPath}`);
     return;
@@ -242,15 +242,16 @@ async function main() {
   console.log(`MXE X25519 key: ${MXE_X25519_PUBKEY.slice(0, 16)}...`);
 
   // Order parameters
-  // Sell order: selling 0.1 SOL at price 150 USDC per SOL
-  // (This should match with buy orders at price >= 150)
+  // Buy order: buying 0.1 SOL at price 160 USDC per SOL
+  // (This should match with sell orders at price <= 160)
   const amount = BigInt(100_000_000); // 0.1 SOL in lamports
-  const price = BigInt(150_000_000);  // $150 USDC (6 decimals)
+  const price = BigInt(160_000_000);  // $160 USDC (6 decimals)
 
   console.log(`\nOrder details:`);
-  console.log(`  Side: SELL`);
+  console.log(`  Side: BUY`);
   console.log(`  Amount: ${Number(amount) / 1e9} SOL`);
   console.log(`  Price: $${Number(price) / 1e6} USDC per SOL`);
+  console.log(`  Total cost: $${(Number(amount) * Number(price)) / 1e15} USDC`);
 
   // Encrypt values
   console.log(`\nEncrypting order values...`);
@@ -266,7 +267,7 @@ async function main() {
 
   // Generate real ZK eligibility proof from backend
   console.log(`\nGenerating ZK eligibility proof...`);
-  const eligibilityProof = await fetchEligibilityProof(seller);
+  const eligibilityProof = await fetchEligibilityProof(buyer);
   console.log(`  Eligibility proof: ${eligibilityProof.length} bytes`);
 
   // Get current order count
@@ -276,22 +277,22 @@ async function main() {
   // Derive PDAs
   const [exchangePda] = deriveExchangePda();
   const [pairPda] = derivePairPda(WSOL_MINT, USDC_MINT);
-  const [orderPda] = deriveOrderPda(seller.publicKey, orderCount);
+  const [orderPda] = deriveOrderPda(buyer.publicKey, orderCount);
 
-  // Sell orders spend base token (SOL)
-  const spendMint = WSOL_MINT;
-  const [userBalancePda] = deriveUserBalancePda(seller.publicKey, spendMint);
+  // Buy orders spend quote token (USDC)
+  const spendMint = USDC_MINT;
+  const [userBalancePda] = deriveUserBalancePda(buyer.publicKey, spendMint);
 
   console.log(`  Exchange PDA: ${exchangePda.toString()}`);
   console.log(`  Pair PDA: ${pairPda.toString()}`);
   console.log(`  Order PDA: ${orderPda.toString()}`);
   console.log(`  User balance PDA: ${userBalancePda.toString()}`);
 
-  // Check if user has confidential SOL balance
+  // Check if user has confidential USDC balance
   const balanceInfo = await connection.getAccountInfo(userBalancePda);
   if (!balanceInfo) {
-    console.error('\n❌ No confidential SOL balance found!');
-    console.error('   Run `pnpm tsx scripts/wrap-sol-for-seller.ts` first to wrap SOL.');
+    console.error('\nNo confidential USDC balance found!');
+    console.error('   Run `pnpm tsx scripts/wrap-usdc-for-buyer.ts` first to wrap USDC.');
     return;
   }
 
@@ -304,8 +305,8 @@ async function main() {
   Buffer.from(PLACE_ORDER_DISCRIMINATOR).copy(instructionData, offset);
   offset += 8;
 
-  // Side (SELL = 1)
-  instructionData[offset++] = Side.Sell;
+  // Side (BUY = 0)
+  instructionData[offset++] = Side.Buy;
 
   // OrderType (Limit = 0)
   instructionData[offset++] = OrderType.Limit;
@@ -342,7 +343,7 @@ async function main() {
       { pubkey: orderPda, isSigner: false, isWritable: true },
       { pubkey: userBalancePda, isSigner: false, isWritable: true },
       { pubkey: VERIFIER_PROGRAM_ID, isSigner: false, isWritable: false },
-      { pubkey: seller.publicKey, isSigner: true, isWritable: true },
+      { pubkey: buyer.publicKey, isSigner: true, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     programId: CONFIDEX_PROGRAM_ID,
@@ -353,23 +354,23 @@ async function main() {
   try {
     const { blockhash } = await connection.getLatestBlockhash();
     tx.recentBlockhash = blockhash;
-    tx.feePayer = seller.publicKey;
+    tx.feePayer = buyer.publicKey;
 
     console.log('\nSending place_order transaction...');
-    const sig = await sendAndConfirmTransaction(connection, tx, [seller], {
+    const sig = await sendAndConfirmTransaction(connection, tx, [buyer], {
       commitment: 'confirmed',
       skipPreflight: false,
     });
 
-    console.log(`\n✅ SELL order placed successfully!`);
+    console.log(`\nBUY order placed successfully!`);
     console.log(`   Order ID: ${orderCount}`);
     console.log(`   Signature: ${sig}`);
     console.log(`   Explorer: https://explorer.solana.com/tx/${sig}?cluster=devnet`);
-    console.log(`\n🔄 The crank service should now attempt MPC matching with existing buy orders.`);
+    console.log(`\nThe crank service should now attempt MPC matching with existing sell orders.`);
     console.log(`   Watch backend logs for: "[MpcPoller] Real MPC result: prices_match=..."`);
 
   } catch (e: any) {
-    console.error('\n❌ Place order failed:', e.message);
+    console.error('\nPlace order failed:', e.message);
     if (e.logs) {
       console.error('Transaction logs:');
       e.logs.forEach((log: string) => console.error('  ', log));

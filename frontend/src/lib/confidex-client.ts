@@ -1979,7 +1979,7 @@ export function getPlaintextFromEncrypted(encrypted: Uint8Array): bigint {
 }
 
 // ============================================================================
-// CANCEL ORDER
+// CANCEL ORDER (MPC-based flow)
 // ============================================================================
 
 export interface CancelOrderParams {
@@ -1990,8 +1990,18 @@ export interface CancelOrderParams {
   quoteMint: PublicKey;
 }
 
+// MXE calculate_refund discriminator: sha256("global:calculate_refund")[0..8]
+const MXE_CALCULATE_REFUND_DISCRIMINATOR = new Uint8Array([0x1d, 0xbc, 0x15, 0xfc, 0x14, 0x52, 0x4f, 0x78]);
+
 /**
- * Build a transaction to cancel an open order
+ * Build a transaction to cancel an open order via MPC
+ *
+ * This initiates the MPC-based cancel flow:
+ * 1. User signs transaction calling MXE calculate_refund
+ * 2. MXE queues MPC computation: refund = encrypted_amount - encrypted_filled
+ * 3. MPC nodes compute and reveal refund_amount
+ * 4. MXE callback calls DEX cancel_order_callback with refund_amount
+ * 5. DEX cancels order and credits user balance
  *
  * @param params - Cancel order parameters
  * @returns Transaction to sign and send
@@ -2001,7 +2011,7 @@ export async function buildCancelOrderTransaction(
 ): Promise<Transaction> {
   const { connection, maker, orderId, baseMint, quoteMint } = params;
 
-  log.debug('Building cancel order transaction', {
+  log.debug('Building MPC cancel order transaction', {
     maker: maker.toBase58(),
     orderId: orderId.toString(),
     baseMint: baseMint.toBase58(),
@@ -2013,7 +2023,7 @@ export async function buildCancelOrderTransaction(
   const [pairPda] = derivePairPda(baseMint, quoteMint);
   const [orderPda] = deriveOrderPda(maker, orderId);
 
-  // User balance PDAs - required for refund on cancel
+  // User balance PDAs - required for refund on cancel (passed to MXE for callback)
   const [userBaseBalancePda] = deriveUserBalancePda(maker, baseMint);
   const [userQuoteBalancePda] = deriveUserBalancePda(maker, quoteMint);
 
@@ -2025,25 +2035,151 @@ export async function buildCancelOrderTransaction(
     userQuoteBalance: userQuoteBalancePda.toBase58(),
   });
 
-  // Build cancel instruction
-  // Account order must match CancelOrder struct in cancel_order.rs:
-  // 1. exchange (read)
-  // 2. pair (write)
-  // 3. order (write)
-  // 4. user_base_balance (write) - for sell order refunds
-  // 5. user_quote_balance (write) - for buy order refunds
-  // 6. maker (signer)
+  // Fetch order account to get encrypted amount, filled, and ephemeral pubkey
+  const orderAccount = await connection.getAccountInfo(orderPda);
+  if (!orderAccount) {
+    throw new Error(`Order account not found: ${orderPda.toBase58()}`);
+  }
+
+  // Parse order data - extract encrypted fields needed for MPC
+  // V5 Order layout (366 bytes):
+  //   0-8:    discriminator
+  //   8-40:   maker (32)
+  //   40-72:  pair (32)
+  //   72:     side (1)
+  //   73:     order_type (1)
+  //   74-138: encrypted_amount (64)
+  //   138-202: encrypted_price (64)
+  //   202-266: encrypted_filled (64)
+  //   266:    status (1)
+  //   267-275: created_at_hour (8)
+  //   275-291: order_id (16)
+  //   291-299: order_nonce (8)
+  //   299:    eligibility_proof_verified (1)
+  //   300-332: pending_match_request (32)
+  //   332:    is_matching (1)
+  //   333:    bump (1)
+  //   334-366: ephemeral_pubkey (32)
+  const data = orderAccount.data;
+
+  // Extract encrypted_amount first 32 bytes (ciphertext portion)
+  const encryptedAmount = data.slice(74, 74 + 32);
+  // Extract encrypted_filled first 32 bytes (ciphertext portion)
+  const encryptedFilled = data.slice(202, 202 + 32);
+  // Extract ephemeral_pubkey (32 bytes)
+  const ephemeralPubkey = data.slice(334, 366);
+
+  log.debug('Order encrypted data extracted', {
+    encryptedAmountLen: encryptedAmount.length,
+    encryptedFilledLen: encryptedFilled.length,
+    ephemeralPubkeyLen: ephemeralPubkey.length,
+  });
+
+  // Generate random computation offset and nonce for this MPC request
+  const computationOffset = generateComputationOffset();
+  const nonce = BigInt(Date.now()) * BigInt(1000000) + BigInt(Math.floor(Math.random() * 1000000));
+
+  // Derive Arcium MXE accounts for calculate_refund circuit
+  const mxeAccounts = deriveArciumAccounts(
+    'calculate_refund',
+    computationOffset,
+    MXE_PROGRAM_ID
+  );
+
+  log.debug('MXE accounts derived for calculate_refund', {
+    signPda: mxeAccounts.signPdaAccount.toBase58(),
+    mxeAccount: mxeAccounts.mxeAccount.toBase58(),
+    computationAccount: mxeAccounts.computationAccount.toBase58(),
+    compDefAccount: mxeAccounts.compDefAccount.toBase58(),
+  });
+
+  // Build instruction data for MXE calculate_refund:
+  // [discriminator(8) | computation_offset(8) | amount_ciphertext(32) |
+  //  filled_ciphertext(32) | pub_key(32) | nonce(16) |
+  //  order(32) | user_base_balance(32) | user_quote_balance(32) | pair(32) | exchange(32)]
+  const ixDataSize = 8 + 8 + 32 + 32 + 32 + 16 + 32 + 32 + 32 + 32 + 32;
+  const ixData = Buffer.alloc(ixDataSize);
+  let offset = 0;
+
+  // Discriminator
+  Buffer.from(MXE_CALCULATE_REFUND_DISCRIMINATOR).copy(ixData, offset);
+  offset += 8;
+
+  // computation_offset (u64)
+  ixData.writeBigUInt64LE(BigInt(computationOffset.toString()), offset);
+  offset += 8;
+
+  // amount_ciphertext (32 bytes)
+  Buffer.from(encryptedAmount).copy(ixData, offset);
+  offset += 32;
+
+  // filled_ciphertext (32 bytes)
+  Buffer.from(encryptedFilled).copy(ixData, offset);
+  offset += 32;
+
+  // pub_key (32 bytes) - ephemeral X25519 public key
+  Buffer.from(ephemeralPubkey).copy(ixData, offset);
+  offset += 32;
+
+  // nonce (u128 - 16 bytes)
+  const nonceBuf = Buffer.alloc(16);
+  // Write as two u64s (low, high) for u128
+  nonceBuf.writeBigUInt64LE(nonce & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
+  nonceBuf.writeBigUInt64LE(nonce >> BigInt(64), 8);
+  nonceBuf.copy(ixData, offset);
+  offset += 16;
+
+  // order pubkey (32 bytes)
+  orderPda.toBuffer().copy(ixData, offset);
+  offset += 32;
+
+  // user_base_balance pubkey (32 bytes)
+  userBaseBalancePda.toBuffer().copy(ixData, offset);
+  offset += 32;
+
+  // user_quote_balance pubkey (32 bytes)
+  userQuoteBalancePda.toBuffer().copy(ixData, offset);
+  offset += 32;
+
+  // pair pubkey (32 bytes)
+  pairPda.toBuffer().copy(ixData, offset);
+  offset += 32;
+
+  // exchange pubkey (32 bytes)
+  exchangePda.toBuffer().copy(ixData, offset);
+  offset += 32;
+
+  // Build MXE calculate_refund instruction
+  // Account order matches CalculateRefund struct in MXE:
+  // 1. payer (signer, mut)
+  // 2. sign_pda_account (mut)
+  // 3. mxe_account
+  // 4. mempool_account (mut)
+  // 5. executing_pool (mut)
+  // 6. computation_account (mut)
+  // 7. comp_def_account
+  // 8. cluster_account (mut)
+  // 9. pool_account (mut)
+  // 10. clock_account (mut)
+  // 11. system_program
+  // 12. arcium_program
   const instruction = new TransactionInstruction({
     keys: [
-      { pubkey: exchangePda, isSigner: false, isWritable: false },
-      { pubkey: pairPda, isSigner: false, isWritable: true },
-      { pubkey: orderPda, isSigner: false, isWritable: true },
-      { pubkey: userBaseBalancePda, isSigner: false, isWritable: true },
-      { pubkey: userQuoteBalancePda, isSigner: false, isWritable: true },
-      { pubkey: maker, isSigner: true, isWritable: false },
+      { pubkey: maker, isSigner: true, isWritable: true },
+      { pubkey: mxeAccounts.signPdaAccount, isSigner: false, isWritable: true },
+      { pubkey: mxeAccounts.mxeAccount, isSigner: false, isWritable: false },
+      { pubkey: mxeAccounts.mempoolAccount, isSigner: false, isWritable: true },
+      { pubkey: mxeAccounts.executingPool, isSigner: false, isWritable: true },
+      { pubkey: mxeAccounts.computationAccount, isSigner: false, isWritable: true },
+      { pubkey: mxeAccounts.compDefAccount, isSigner: false, isWritable: false },
+      { pubkey: mxeAccounts.clusterAccount, isSigner: false, isWritable: true },
+      { pubkey: mxeAccounts.poolAccount, isSigner: false, isWritable: true },
+      { pubkey: mxeAccounts.clockAccount, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: mxeAccounts.arciumProgram, isSigner: false, isWritable: false },
     ],
-    programId: CONFIDEX_PROGRAM_ID,
-    data: Buffer.from(CANCEL_ORDER_DISCRIMINATOR),
+    programId: MXE_PROGRAM_ID,
+    data: ixData,
   });
 
   // Build transaction
@@ -2052,7 +2188,7 @@ export async function buildCancelOrderTransaction(
   transaction.recentBlockhash = blockhash;
   transaction.feePayer = maker;
 
-  log.debug('Cancel order transaction built successfully');
+  log.debug('MPC cancel order transaction built successfully');
 
   return transaction;
 }

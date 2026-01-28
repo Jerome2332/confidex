@@ -855,7 +855,9 @@ export const TradingPanel: FC<TradingPanelProps> = ({ variant = 'default', showA
           type: orderType,
           encryptedAmount,
           encryptedPrice,
-          timestamp: Date.now(),
+          encryptedFilled: new Uint8Array(64), // Empty filled for demo
+          createdAt: new Date(),
+          filledPercent: 0,
           status: 'demo', // Mark as demo order
         });
 

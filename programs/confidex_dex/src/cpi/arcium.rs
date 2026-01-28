@@ -264,11 +264,13 @@ pub fn queue_compare_prices<'info>(
         ],
     )?;
 
-    // Generate request_id from computation_offset (deterministic)
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id
+    // This matches what MXE uses in compare_prices_callback:
+    //   let request_id = ctx.accounts.computation_account.key().to_bytes();
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (compare_prices), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (compare_prices), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -393,11 +395,11 @@ pub fn queue_calculate_fill<'info>(
         ],
     )?;
 
-    // Generate request_id from computation_offset (deterministic)
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id (matches MXE callback)
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (calculate_fill), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (calculate_fill), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -590,10 +592,11 @@ pub fn verify_position_params<'info>(
         ],
     )?;
 
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id (matches MXE callback)
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (verify_position_params), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (verify_position_params), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -691,10 +694,11 @@ pub fn check_liquidation<'info>(
         ],
     )?;
 
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id (matches MXE callback)
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (check_liquidation), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (check_liquidation), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -808,10 +812,11 @@ pub fn queue_batch_liquidation_check<'info>(
         ],
     )?;
 
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id (matches MXE callback)
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (batch_liquidation_check), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (batch_liquidation_check), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -880,10 +885,11 @@ pub fn calculate_pnl<'info>(
         ],
     )?;
 
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id (matches MXE callback)
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (calculate_pnl), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (calculate_pnl), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
@@ -975,10 +981,11 @@ pub fn calculate_funding<'info>(
         ],
     )?;
 
-    let mut request_id = [0u8; 32];
-    request_id[0..8].copy_from_slice(&computation_offset.to_le_bytes());
+    // Use computation account's public key as request_id (matches MXE callback)
+    let request_id = accounts.computation_account.key.to_bytes();
 
-    msg!("MXE CPI complete (calculate_funding), computation_offset={}", computation_offset);
+    msg!("MXE CPI complete (calculate_funding), computation_offset={}, request_id={:?}",
+        computation_offset, &request_id[0..8]);
 
     Ok(QueuedComputation { request_id })
 }
