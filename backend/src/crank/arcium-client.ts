@@ -179,11 +179,14 @@ export class ArciumClient {
 
     try {
       // Build raw instruction data
-      // Format: discriminator (8 bytes) + computation_offset (u64) + buy_price (32 bytes) + sell_price (32 bytes) + pub_key (32 bytes) + nonce (u128)
+      // Format: discriminator (8) + computation_offset (8) + buy_price (32) + sell_price (32) +
+      //         pub_key (32) + nonce (16) + buy_order Option (1) + sell_order Option (1)
+      // Total: 130 bytes
       const discriminator = this.computeDiscriminator('compare_prices');
 
-      // Serialize instruction data
-      const data = Buffer.alloc(8 + 8 + 32 + 32 + 32 + 16); // 128 bytes total
+      // Serialize instruction data - MUST include Option<Pubkey> discriminator bytes
+      // Without these, Anchor will fail with InstructionDidNotDeserialize (0x66)
+      const data = Buffer.alloc(8 + 8 + 32 + 32 + 32 + 16 + 1 + 1); // 130 bytes total
       let offset = 0;
 
       // Discriminator (8 bytes)
@@ -214,6 +217,15 @@ export class ArciumClient {
         n = n >> BigInt(8);
       }
       nonceBuf.copy(data, offset);
+      offset += 16;
+
+      // Option<Pubkey> for buy_order = None (discriminator 0)
+      // Anchor serializes Option::None as a single 0x00 byte
+      data.writeUInt8(0, offset);
+      offset += 1;
+
+      // Option<Pubkey> for sell_order = None (discriminator 0)
+      data.writeUInt8(0, offset);
 
       // Build instruction with explicit account metadata
       // IMPORTANT: signPdaAccount must be writable for init_if_needed

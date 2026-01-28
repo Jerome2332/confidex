@@ -517,7 +517,93 @@ Configuration:
 
 ---
 
+## Deployment & Operations
+
+### Circuit Deployment Checklist
+
+When deploying circuits to production, follow this checklist to avoid silent failures:
+
+1. **Build all circuits:**
+   ```bash
+   cd arcium-mxe/encrypted-ixs && arcup build
+   cp target/*.arcis ../build/
+   cp target/*.hash ../build/
+   ```
+
+2. **Upload to GitHub Release:**
+   ```bash
+   cd ../build
+   gh release upload v0.1.0-circuits *.arcis --clobber
+   ```
+
+3. **Verify all circuits are accessible (CRITICAL):**
+   ```bash
+   # Must return HTTP 200 for all circuits
+   for circuit in compare_prices calculate_fill calculate_refund decrypt_for_settlement \
+                  check_balance check_order_balance batch_compare_prices batch_calculate_fill; do
+     echo -n "$circuit: "
+     curl -sI "https://github.com/Jerome2332/confidex/releases/download/v0.1.0-circuits/${circuit}.arcis" | head -1
+   done
+   ```
+
+4. **Deploy computation definition accounts:**
+   ```bash
+   arcium deploy-comp-def <circuit_name> --url <circuit_url> -u devnet
+   ```
+
+5. **Register with MXE:**
+   ```bash
+   arcium mxe-add-comp-def <mxe_program_id> <comp_def_offset> -u devnet
+   ```
+
+6. **End-to-end test:**
+   ```bash
+   cd frontend && npx tsx scripts/test-mpc-compare-prices.ts
+   ```
+
+### Lessons Learned (January 2026)
+
+**Issue:** MPC callbacks not firing despite successful `QueueComputation`
+
+**Root Cause:** Missing circuit files in GitHub Release. Arcium nodes silently drop computations when they can't fetch the `.arcis` file.
+
+**Symptoms:**
+- Transaction logs show `QueueComputation` success
+- Computation account created on-chain
+- Computation disappears from mempool/execpool
+- Callback never invoked
+- No error returned anywhere
+
+**Key Insights:**
+1. **Silent failures are dangerous** - Always verify circuit URL accessibility before production deployment
+2. **HTTP 404 = silent drop** - Nodes don't retry or report errors for missing circuits
+3. **Keep releases in sync** - When adding new circuits to MXE, always upload to GitHub release
+4. **Test with direct MPC calls** - Use `test-mpc-compare-prices.ts` to isolate MPC from full order flow
+
+**Diagnostic Commands:**
+```bash
+# Check circuit accessibility
+curl -sI <circuit_url> | head -1
+# Should return: HTTP/2 200
+
+# Check cluster status
+arcium list-clusters -u devnet
+
+# Check mempool/execpool
+arcium mempool 456 -u devnet
+arcium execpool 456 -u devnet
+
+# Get MXE info
+arcium mxe-info 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi -u devnet
+```
+
+**Reference:** [ARCIUM_MPC_CALLBACK_ISSUE.md](../issues/ARCIUM_MPC_CALLBACK_ISSUE.md)
+
+---
+
 ## Troubleshooting
+
+For comprehensive troubleshooting, see [Arcium Troubleshooting Guide](../arcium/troubleshooting.md).
 
 ### Common Issues
 
@@ -532,6 +618,18 @@ Configuration:
 **"Prices did not match - cannot calculate fill"**
 - Cause: Attempting fill calculation without successful price comparison
 - Fix: Check `compare_result == Some(true)` before fill calculation
+
+**Callback never fires (no error)**
+- Cause: Circuit file not accessible (HTTP 404)
+- Fix: Upload missing circuit to GitHub release, verify with `curl -sI <url>`
+
+**InstructionDidNotDeserialize (0x66)**
+- Cause: Instruction data format mismatch
+- Fix: Ensure all `Option<T>` fields have discriminator bytes, correct byte order
+
+**ConstraintSeeds (0x7d6)**
+- Cause: Wrong PDA derivation seed
+- Fix: Use `ArciumSignerAccount` seed, not `ArciumSignerPDA`
 
 ### Logs
 
