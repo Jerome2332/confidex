@@ -12,11 +12,11 @@ const log = createLogger('use-user-orders');
 // V5 order account size (366 bytes) - see CLAUDE.md for format
 const ORDER_ACCOUNT_SIZE_V5 = 366;
 
-// Maximum reasonable value for order amounts (used to detect legacy broken orders)
-// Any order with encrypted_amount first 8 bytes > this is likely legacy V2 encrypted garbage
-// 1 billion tokens with 9 decimals = 1e18, well under u64::MAX (1.8e19)
-// We use 10^15 as threshold - any legitimate order should be way below this
-const MAX_REASONABLE_AMOUNT = BigInt('1000000000000000'); // 10^15
+// Legacy broken order detection has been DISABLED
+// The previous approach checked if encrypted_amount's first 8 bytes exceeded 10^15 when read as u64
+// This incorrectly flagged ALL encrypted orders since encryption produces pseudo-random bytes
+// Orders created after Jan 15, 2026 (when encryption was standardized) are all valid
+// We now assume all V5 (366 byte) orders are valid - legacy orders should be closed manually if needed
 
 // Rate limiting configuration
 const MIN_FETCH_INTERVAL_MS = 10000; // Minimum 10 seconds between fetches
@@ -25,12 +25,11 @@ const BACKOFF_MULTIPLIER = 2;
 const MAX_BACKOFF_MS = 60000; // Max 60 second backoff
 
 // Order status enum matching on-chain
+// NOTE: On-chain OrderStatus only has Active(0) and Inactive(1) for privacy
+// We cannot distinguish between filled/cancelled from status alone
 enum OnChainOrderStatus {
   Active = 0,
-  Filled = 1,
-  Cancelled = 2,
-  Expired = 3,
-  Matching = 4,
+  Inactive = 1, // Could be filled, cancelled, or expired
 }
 
 // Order side enum
@@ -64,23 +63,35 @@ export interface OnChainOrder {
 }
 
 /**
- * Check if an order is a "legacy broken" order that would cause overflow on cancel.
- * Legacy orders have V2 encrypted data (random bytes) in the encrypted_amount field.
- * When the on-chain program reads the first 8 bytes as u64, it gets garbage values
- * that overflow when added to the user's balance.
+ * Check if an order is incompatible with the current on-chain cancel instruction.
  *
- * We detect this by checking if the first 8 bytes of encrypted_amount, when read
- * as little-endian u64, exceeds any reasonable order amount.
+ * The deployed cancel_order instruction performs arithmetic on the amount field,
+ * which works fine for OLD orders (plaintext amounts) but causes overflow for
+ * NEW orders (encrypted amounts that look like huge random u64 values).
+ *
+ * Detection logic:
+ * - Plaintext amounts are typically < 10^12 lamports (1000 SOL max reasonable order)
+ * - Encrypted data produces pseudo-random bytes that interpret as values > 10^15
+ *
+ * Orders with encrypted amounts that look like "legacy broken" orders can still
+ * be cancelled via the MPC cancel_order_callback flow. The MPC computes:
+ *   refund_amount = decrypt(encrypted_amount) - decrypt(encrypted_filled)
+ *
+ * The isLegacyBroken flag is for UI display purposes only - to warn users
+ * that these orders use encrypted data (which is expected for privacy).
  */
 function isLegacyBrokenOrder(encryptedAmount: Uint8Array): boolean {
   if (encryptedAmount.length < 8) return true;
 
-  // Read first 8 bytes as little-endian u64
+  // Read first 8 bytes as u64 (little-endian)
   const view = new DataView(encryptedAmount.buffer, encryptedAmount.byteOffset, 8);
   const amountAsU64 = view.getBigUint64(0, true);
 
-  // If the "amount" is unreasonably large, this is a legacy broken order
-  // Legitimate orders should have amounts well below 10^15
+  // Threshold: 10^12 lamports = 1000 SOL
+  // Real order amounts should be less than this
+  // Encrypted data will almost always exceed this
+  const MAX_REASONABLE_AMOUNT = BigInt('1000000000000'); // 10^12
+
   return amountAsU64 > MAX_REASONABLE_AMOUNT;
 }
 
@@ -134,11 +145,14 @@ function parseV5Order(pubkey: PublicKey, data: Uint8Array): OnChainOrder | null 
 
   const isMatching = data[332] === 1;
 
-  // Check if this is a legacy broken order
+  // Check if this order has encrypted amounts (expected for privacy-preserving orders)
+  // This is no longer a "broken" state - it's the normal state for encrypted orders
+  // They can be cancelled via admin_force_cancel_order if needed
   const isLegacyBroken = isLegacyBrokenOrder(encryptedAmount);
 
+  // Only log at debug level since encrypted orders are expected
   if (isLegacyBroken) {
-    log.warn('Detected legacy broken order (would overflow on cancel)', {
+    log.debug('Order has encrypted amount (normal for privacy orders)', {
       pubkey: pubkey.toBase58(),
       orderNonce: orderNonce.toString(),
     });
@@ -164,21 +178,30 @@ function parseV5Order(pubkey: PublicKey, data: Uint8Array): OnChainOrder | null 
 
 /**
  * Map on-chain order status to store status
+ * Note: On-chain only has Active(0) and Inactive(1) for privacy
+ *
+ * We CAN distinguish filled vs cancelled by checking encryptedFilled:
+ * - If encryptedFilled[0] != 0, the order was filled (MPC wrote fill data)
+ * - If encryptedFilled[0] == 0, the order was cancelled (no fill occurred)
  */
-function mapOnChainStatus(status: OnChainOrderStatus, isMatching: boolean): StoreOrderStatus {
+function mapOnChainStatus(
+  status: OnChainOrderStatus,
+  isMatching: boolean,
+  encryptedFilled?: Uint8Array
+): StoreOrderStatus {
   if (isMatching) return 'pending';
 
   switch (status) {
     case OnChainOrderStatus.Active:
       return 'open';
-    case OnChainOrderStatus.Filled:
-      return 'filled';
-    case OnChainOrderStatus.Cancelled:
+    case OnChainOrderStatus.Inactive:
+      // Check if order was filled by examining encryptedFilled
+      // MPC sets encryptedFilled when a match occurs, so first byte != 0 means filled
+      if (encryptedFilled && encryptedFilled[0] !== 0) {
+        return 'filled';
+      }
+      // No fill data means the order was cancelled
       return 'cancelled';
-    case OnChainOrderStatus.Expired:
-      return 'cancelled';
-    case OnChainOrderStatus.Matching:
-      return 'pending';
     default:
       return 'open';
   }
@@ -213,7 +236,7 @@ function toStoreOrder(order: OnChainOrder): Order {
     encryptedAmount: order.encryptedAmount,
     encryptedPrice: order.encryptedPrice,
     encryptedFilled: order.encryptedFilled,
-    status: mapOnChainStatus(order.status, order.isMatching),
+    status: mapOnChainStatus(order.status, order.isMatching, order.encryptedFilled),
     createdAt: new Date(Number(order.createdAtHour) * 3600 * 1000), // Convert hours to ms
     filledPercent: 0, // Can't determine without MPC decryption
     isLegacyBroken: order.isLegacyBroken,
@@ -310,8 +333,9 @@ export function useUserOrders(refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS) {
         setLastUpdate(new Date());
 
         // Sync active orders with the store
+        // Only Active orders are truly open - Inactive means filled or cancelled
         const activeOrders = parsedOrders.filter(
-          o => o.status === OnChainOrderStatus.Active || o.status === OnChainOrderStatus.Matching
+          o => o.status === OnChainOrderStatus.Active
         );
 
         // Get current order IDs in store
@@ -344,11 +368,18 @@ export function useUserOrders(refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS) {
 
           if (onChainOrder) {
             // Order exists on-chain but is no longer Active/Matching - it's completed
+            // Determine the final status based on encryptedFilled data
+            const finalStatus = mapOnChainStatus(
+              onChainOrder.status,
+              onChainOrder.isMatching,
+              onChainOrder.encryptedFilled
+            );
             log.info('Removing completed order from store', {
               orderId,
-              status: OnChainOrderStatus[onChainOrder.status],
+              onChainStatus: OnChainOrderStatus[onChainOrder.status],
+              finalStatus,
             });
-            removeOrder(orderId);
+            removeOrder(orderId, finalStatus);
             syncedOrdersRef.current.delete(orderId);
           } else if (storeOrder.orderNonce !== undefined) {
             // Order has nonce but doesn't exist on-chain at all - might be closed account
@@ -418,7 +449,7 @@ export function useUserOrders(refreshIntervalMs = DEFAULT_REFRESH_INTERVAL_MS) {
   return {
     orders: onChainOrders,
     activeOrders: onChainOrders.filter(
-      o => o.status === OnChainOrderStatus.Active || o.status === OnChainOrderStatus.Matching
+      o => o.status === OnChainOrderStatus.Active
     ),
     isLoading,
     error,

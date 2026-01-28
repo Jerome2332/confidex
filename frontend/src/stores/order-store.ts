@@ -3,7 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 
 export type OrderSide = 'buy' | 'sell';
 export type OrderType = 'limit' | 'market';
-export type OrderStatus = 'pending' | 'open' | 'partial' | 'filled' | 'cancelled';
+export type OrderStatus = 'pending' | 'open' | 'partial' | 'filled' | 'cancelled' | 'demo';
 export type ProofStatus = 'idle' | 'generating' | 'ready' | 'failed';
 
 export interface Order {
@@ -46,7 +46,7 @@ interface OrderState {
   // Open orders
   openOrders: Order[];
   addOrder: (order: Order) => void;
-  removeOrder: (id: string) => void;
+  removeOrder: (id: string, finalStatus?: OrderStatus) => void;
   updateOrderStatus: (id: string, status: OrderStatus, filledPercent?: number) => void;
 
   // Order history
@@ -86,14 +86,19 @@ export const useOrderStore = create<OrderState>((set) => ({
     set((state) => ({
       openOrders: [order, ...state.openOrders],
     })),
-  removeOrder: (id) =>
+  removeOrder: (id, finalStatus) =>
     set((state) => ({
       openOrders: state.openOrders.filter((o) => o.id !== id),
       orderHistory: [
         ...state.orderHistory,
         ...state.openOrders
           .filter((o) => o.id === id)
-          .map((o) => ({ ...o, status: 'cancelled' as OrderStatus })),
+          .map((o) => ({
+            ...o,
+            // Use provided status, or preserve order's current status if already set,
+            // or default to 'cancelled' for backwards compatibility
+            status: finalStatus ?? o.status ?? ('cancelled' as OrderStatus),
+          })),
       ],
     })),
   updateOrderStatus: (id, status, filledPercent) =>
