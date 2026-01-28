@@ -341,6 +341,14 @@ export class FundingSettlementProcessor {
         // Skip if funding delta is 0 (shouldn't happen, but safety check)
         if (fundingDelta === 0n) continue;
 
+        // Skip if encrypted size is invalid (all zeros = no valid ciphertext)
+        // Arcium will reject PlaintextI64(0) when Ciphertext is expected
+        const hasValidEncryptedSize = position.encryptedSize.some(b => b !== 0);
+        if (!hasValidEncryptedSize) {
+          log.warn?.(`Skipping position ${pubkey.toBase58()} - encryptedSize is all zeros (invalid ciphertext)`);
+          continue;
+        }
+
         pendingOps.push({
           positionPda: pubkey,
           position,
@@ -413,8 +421,9 @@ export class FundingSettlementProcessor {
   ): Promise<TransactionInstruction> {
     const computationOffset = BigInt(getCalculateFundingCompDefOffset());
 
-    // Get first 32 bytes of encrypted_size as ciphertext
-    const sizeCiphertext = new Uint8Array(op.position.encryptedSize.slice(0, 32));
+    // V2 encryption format: [nonce(16) | ciphertext(32) | ephemeral_pubkey(16)]
+    // Arcium's encrypted_u64() expects the 32-byte ciphertext, which is at bytes 16-48
+    const sizeCiphertext = new Uint8Array(op.position.encryptedSize.slice(16, 48));
 
     // Convert funding delta to BPS and time delta
     // funding_rate_bps = funding_delta / position_size * 10000
