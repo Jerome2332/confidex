@@ -34,6 +34,14 @@ import { CrankConfig } from './config.js';
 import { logger } from '../lib/logger.js';
 import { getAlertManager, AlertManager } from '../lib/alerts.js';
 import bs58 from 'bs58';
+import BN from 'bn.js';
+import {
+  deriveArciumAccounts,
+  arciumAccountsForDirectMxeCall,
+  DEFAULT_CLUSTER_OFFSET,
+  DEFAULT_MXE_PROGRAM_ID,
+} from './arcium-accounts.js';
+import { getCompDefAccOffset } from '@arcium-hq/client';
 
 const log = logger.position || console;
 
@@ -326,40 +334,63 @@ export class PositionVerifier {
 
   /**
    * Build verify_position_params instruction for MXE
+   *
+   * Account order must match queue_computation_accounts macro in MXE lib.rs:
+   *   0: payer (signer, mut)
+   *   1: sign_pda_account (mut)
+   *   2: mxe_account
+   *   3: mempool_account (mut)
+   *   4: executing_pool (mut)
+   *   5: computation_account (mut)
+   *   6: comp_def_account
+   *   7: cluster_account (mut)
+   *   8: pool_account (mut)
+   *   9: clock_account (mut)
+   *  10: system_program
+   *  11: arcium_program
    */
   private async buildVerifyPositionParamsInstruction(
     positionPda: PublicKey,
     position: ConfidentialPosition
   ): Promise<TransactionInstruction> {
-    // Derive MXE accounts
-    const [mxeConfigPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('mxe_config')],
-      this.mxeProgramId
-    );
+    // Generate random computation offset for this MPC request
+    const computationOffset = new BN(Date.now()).mul(new BN(1000)).add(new BN(Math.floor(Math.random() * 1000)));
 
-    const [mxeAuthorityPda] = PublicKey.findProgramAddressSync(
-      [Buffer.from('mxe_authority')],
-      this.mxeProgramId
+    // Get the comp_def offset for verify_position_params
+    const compDefOffset = Buffer.from(getCompDefAccOffset('verify_position_params')).readUInt32LE(0);
+
+    // Derive all Arcium infrastructure accounts
+    const arciumAccounts = deriveArciumAccounts(
+      this.mxeProgramId,
+      DEFAULT_CLUSTER_OFFSET,
+      computationOffset,
+      compDefOffset
     );
 
     // Build instruction data
     // verify_position_params takes:
-    // - encrypted_entry_price (64 bytes)
-    // - leverage (1 byte)
-    // - maintenance_margin_bps (2 bytes)
-    // - is_long (1 byte)
+    // - computation_offset (u64)
+    // - entry_price_ciphertext ([u8; 32]) - first 32 bytes of encrypted entry price
+    // - leverage (u8)
+    // - mm_bps (u16)
+    // - is_long (bool)
     const isLong = position.side === PositionSide.Long;
 
-    const data = Buffer.alloc(8 + 64 + 1 + 2 + 1);
+    const data = Buffer.alloc(8 + 8 + 32 + 1 + 2 + 1);
     let offset = 0;
 
-    // Discriminator (placeholder - needs actual calculation)
+    // Discriminator
     data.set(VERIFY_POSITION_PARAMS_DISCRIMINATOR, offset);
     offset += 8;
 
-    // encrypted_entry_price
-    data.set(position.encryptedEntryPrice, offset);
-    offset += 64;
+    // computation_offset (u64)
+    const offsetBuf = computationOffset.toArrayLike(Buffer, 'le', 8);
+    data.set(offsetBuf, offset);
+    offset += 8;
+
+    // entry_price_ciphertext - first 32 bytes of encrypted entry price
+    data.set(position.encryptedEntryPrice.slice(0, 32), offset);
+    offset += 32;
 
     // leverage
     data.writeUInt8(position.leverage, offset);
@@ -372,13 +403,11 @@ export class PositionVerifier {
     // is_long
     data.writeUInt8(isLong ? 1 : 0, offset);
 
-    // Build accounts list
+    // Build accounts list for direct MXE call
+    // Position 10 must be system_program, position 11 must be arcium_program
     const keys = [
       { pubkey: this.crankKeypair.publicKey, isSigner: true, isWritable: true },
-      { pubkey: mxeConfigPda, isSigner: false, isWritable: false },
-      { pubkey: mxeAuthorityPda, isSigner: false, isWritable: false },
-      { pubkey: positionPda, isSigner: false, isWritable: true },
-      { pubkey: position.market, isSigner: false, isWritable: false },
+      ...arciumAccountsForDirectMxeCall(arciumAccounts),
     ];
 
     return new TransactionInstruction({

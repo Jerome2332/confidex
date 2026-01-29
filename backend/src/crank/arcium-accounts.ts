@@ -18,7 +18,7 @@
  *  10. mxe_program         - MXE Program ID (4pdgnqNQ...)
  */
 
-import { PublicKey } from '@solana/web3.js';
+import { PublicKey, SystemProgram } from '@solana/web3.js';
 import BN from 'bn.js';
 
 // Arcium SDK imports
@@ -181,6 +181,45 @@ export function arciumAccountsToRemainingAccounts(
     { pubkey: accounts.clockAccount, isSigner: false, isWritable: true },
     { pubkey: accounts.arciumProgram, isSigner: false, isWritable: false },
     { pubkey: accounts.mxeProgram, isSigner: false, isWritable: false },
+  ];
+}
+
+/**
+ * Convert ArciumMxeAccounts to account array for DIRECT MXE calls (not CPI)
+ *
+ * This is for perpetuals operations where backend calls MXE directly.
+ * The order matches the queue_computation_accounts macro in MXE lib.rs:
+ *
+ *   0: sign_pda_account (mut)
+ *   1: mxe_account (mut)
+ *   2: mempool_account (mut)
+ *   3: executing_pool (mut)
+ *   4: computation_account (mut)
+ *   5: comp_def_account (readonly)
+ *   6: cluster_account (mut)
+ *   7: pool_account (mut)
+ *   8: clock_account (mut)
+ *   9: system_program (readonly) - CRITICAL: Must be SystemProgram.programId
+ *  10: arcium_program (readonly) - Arcj82pX...
+ *
+ * NOTE: This differs from arciumAccountsToRemainingAccounts which is for
+ * CPI scenarios (DEX → MXE) where mxe_program is needed at position 10.
+ */
+export function arciumAccountsForDirectMxeCall(
+  accounts: ArciumMxeAccounts
+): Array<{ pubkey: PublicKey; isSigner: boolean; isWritable: boolean }> {
+  return [
+    { pubkey: accounts.signPdaAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.mxeAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.mempoolAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.executingPool, isSigner: false, isWritable: true },
+    { pubkey: accounts.computationAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.compDefAccount, isSigner: false, isWritable: false },
+    { pubkey: accounts.clusterAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.poolAccount, isSigner: false, isWritable: true },
+    { pubkey: accounts.clockAccount, isSigner: false, isWritable: true },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    { pubkey: accounts.arciumProgram, isSigner: false, isWritable: false },
   ];
 }
 

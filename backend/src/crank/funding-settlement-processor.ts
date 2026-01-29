@@ -40,7 +40,7 @@ import { CrankConfig } from './config.js';
 import { logger } from '../lib/logger.js';
 import {
   deriveArciumAccounts,
-  arciumAccountsToRemainingAccounts,
+  arciumAccountsForDirectMxeCall,
   DEFAULT_CLUSTER_OFFSET,
   DEFAULT_MXE_PROGRAM_ID,
 } from './arcium-accounts.js';
@@ -531,10 +531,11 @@ export class FundingSettlementProcessor {
     nonceBuf.writeBigUInt64LE(nonce >> 64n, 8);
     data.set(nonceBuf, offset);
 
-    // Build accounts
+    // Build accounts for direct MXE call (not CPI through DEX)
+    // Position 10 must be system_program, position 11 must be arcium_program
     const keys = [
       { pubkey: this.crankKeypair.publicKey, isSigner: true, isWritable: true },
-      ...arciumAccountsToRemainingAccounts(arciumAccounts),
+      ...arciumAccountsForDirectMxeCall(arciumAccounts),
     ];
 
     return new TransactionInstruction({
