@@ -425,6 +425,16 @@ export class FundingSettlementProcessor {
     // Arcium's encrypted_u64() expects the 32-byte ciphertext, which is at bytes 16-48
     const sizeCiphertext = new Uint8Array(op.position.encryptedSize.slice(16, 48));
 
+    // DEBUG: Log the ciphertext bytes to verify correct extraction
+    const ciphertextHex = Buffer.from(sizeCiphertext).toString('hex');
+    const fullEncryptedHex = Buffer.from(op.position.encryptedSize).toString('hex');
+    log.info?.({
+      position: op.positionPda.toBase58(),
+      fullEncryptedSizeHex: fullEncryptedHex.slice(0, 64) + '...',
+      extractedCiphertextHex: ciphertextHex,
+      isAllZeros: sizeCiphertext.every(b => b === 0),
+    }, 'DEBUG: Extracted ciphertext for calculate_funding');
+
     // Convert funding delta to BPS and time delta
     // funding_rate_bps = funding_delta / position_size * 10000
     // For now, pass the delta directly and let MPC handle scaling
