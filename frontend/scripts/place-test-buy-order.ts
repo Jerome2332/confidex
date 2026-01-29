@@ -188,7 +188,10 @@ async function fetchEligibilityProof(wallet: Keypair): Promise<Uint8Array> {
 
   const response = await fetch(`${PROOF_SERVER_URL}/api/prove`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Origin': 'https://www.confidex.xyz',
+    },
     body: JSON.stringify({
       address,
       signature: signatureB58,
