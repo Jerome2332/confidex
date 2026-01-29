@@ -93,12 +93,25 @@ export interface SlackChannelConfig {
 export class SlackChannel implements AlertChannel {
   name = 'slack';
   private config: SlackChannelConfig;
+  private disabled: boolean = false;
 
   constructor(config: SlackChannelConfig) {
     this.config = config;
+    // Disable if webhook URL is empty or a placeholder
+    if (!config.webhookUrl ||
+        config.webhookUrl.includes('YOUR/WEBHOOK') ||
+        config.webhookUrl.includes('TXXXXX') ||
+        !config.webhookUrl.startsWith('https://hooks.slack.com/')) {
+      this.disabled = true;
+      console.log('[SlackChannel] Disabled - no valid webhook URL configured');
+    }
   }
 
   async send(alert: Alert): Promise<void> {
+    if (this.disabled) {
+      return; // Silently skip if disabled
+    }
+
     const color = this.getSeverityColor(alert.severity);
     const emoji = this.getSeverityEmoji(alert.severity);
 
@@ -397,14 +410,19 @@ export function getAlertManager(config?: AlertManagerEnvConfig): AlertManager {
     channels.push(new ConsoleChannel());
   }
 
-  // Slack channel
-  if (config?.slackWebhookUrl) {
+  // Slack channel - only add if URL looks valid
+  if (config?.slackWebhookUrl &&
+      config.slackWebhookUrl.startsWith('https://hooks.slack.com/') &&
+      !config.slackWebhookUrl.includes('YOUR/WEBHOOK') &&
+      !config.slackWebhookUrl.includes('TXXXXX')) {
     channels.push(
       new SlackChannel({
         webhookUrl: config.slackWebhookUrl,
         channel: config.slackChannel,
       })
     );
+  } else if (config?.slackWebhookUrl) {
+    console.log('[AlertManager] Slack disabled - webhook URL appears to be a placeholder');
   }
 
   // Webhook channel
