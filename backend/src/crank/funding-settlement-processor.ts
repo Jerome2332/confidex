@@ -445,9 +445,10 @@ export class FundingSettlementProcessor {
 
     const isLong = op.position.side === PositionSide.Long;
 
-    // Get MXE X25519 public key from environment or use default
+    // Get MXE X25519 public key from environment or use on-chain default
+    // Key verified from MXE account 7YyqgKvZaCCNVzgtdegpeK7SJpK9Wa6BscdDTMT5Vu7E at offset 0x5F
     const pubKeyHex = process.env.MXE_X25519_PUBKEY ||
-      '46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b';
+      '113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c';
     const pubKey = new Uint8Array(Buffer.from(pubKeyHex, 'hex'));
 
     // Generate nonce
