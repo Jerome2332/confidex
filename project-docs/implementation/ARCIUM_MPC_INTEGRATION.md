@@ -18,7 +18,7 @@ Confidex uses Arcium's MPC infrastructure to enable **true encrypted order match
 | **confidex_mxe** | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | Devnet |
 | **Arcium Core** | `Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ` | Devnet |
 
-**MXE X25519 Public Key:** `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b`
+**MXE X25519 Public Key:** `113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c`
 
 ## Architecture
 

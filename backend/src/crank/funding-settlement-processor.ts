@@ -157,6 +157,10 @@ export class FundingSettlementProcessor {
   private failedOperations: Map<string, number> = new Map();
   private maxRetries: number = 3;
 
+  // Track positions with encryption key mismatch (permanent skip)
+  // These positions were encrypted with a different MXE key than what's currently on-chain
+  private encryptionMismatchPositions: Set<string> = new Set();
+
   // Track MPC computation results by request ID
   private mpcResults: Map<string, {
     newEncryptedCollateral: Uint8Array;
@@ -271,6 +275,13 @@ export class FundingSettlementProcessor {
           continue;
         }
 
+        // Skip if position has encryption key mismatch (permanent)
+        const positionKey = op.positionPda.toBase58();
+        if (this.encryptionMismatchPositions.has(positionKey)) {
+          log.debug?.(`Skipping position ${positionKey} - encrypted with wrong MXE key`);
+          continue;
+        }
+
         // Skip if exceeded retries
         const retryCount = this.failedOperations.get(opKey) || 0;
         if (retryCount >= this.maxRetries) {
@@ -284,8 +295,25 @@ export class FundingSettlementProcessor {
           await this.processFundingOperation(op);
           this.failedOperations.delete(opKey);
         } catch (error) {
-          log.error?.({ error }, 'Failed to process funding operation');
-          this.failedOperations.set(opKey, retryCount + 1);
+          const errorMessage = String(error);
+
+          // Detect encryption key mismatch error from Arcium MPC
+          // Error 6301 with "PlaintextI64(0) for parameter Ciphertext" means the ciphertext
+          // was encrypted with a different X25519 key than what's currently in the MXE account
+          if (errorMessage.includes('PlaintextI64(0)') ||
+              errorMessage.includes('Invalid argument') && errorMessage.includes('Ciphertext')) {
+            log.error?.({
+              position: positionKey,
+              error: errorMessage,
+            }, 'Position encrypted with wrong MXE key - permanently skipping. ' +
+               'This position was created before MXE keygen completed or with a different MXE deployment. ' +
+               'The position owner needs to close it manually and create a new one.');
+            this.encryptionMismatchPositions.add(positionKey);
+            this.failedOperations.delete(opKey);
+          } else {
+            log.error?.({ error }, 'Failed to process funding operation');
+            this.failedOperations.set(opKey, retryCount + 1);
+          }
         } finally {
           this.processingOperations.delete(opKey);
         }

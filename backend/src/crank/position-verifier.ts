@@ -114,6 +114,9 @@ export class PositionVerifier {
   private failedPositions: Map<string, number> = new Map();
   private maxRetries: number = 3;
 
+  // Track positions with encryption key mismatch (permanent skip)
+  private encryptionMismatchPositions: Set<string> = new Set();
+
   // Alert manager for critical failures
   private alertManager: AlertManager;
 
@@ -185,6 +188,12 @@ export class PositionVerifier {
           continue;
         }
 
+        // Skip if position has encryption key mismatch (permanent)
+        if (this.encryptionMismatchPositions.has(pdaStr)) {
+          log.debug?.(`Skipping position ${pdaStr} - encrypted with wrong MXE key`);
+          continue;
+        }
+
         // Skip if exceeded retry limit
         const retryCount = this.failedPositions.get(pdaStr) || 0;
         if (retryCount >= this.maxRetries) {
@@ -201,23 +210,36 @@ export class PositionVerifier {
           this.failedPositions.delete(pdaStr);
         } catch (error) {
           const errorMsg = error instanceof Error ? error.message.split('\n')[0].slice(0, 80) : String(error);
-          log.error?.({ error: errorMsg }, `Failed to trigger verification for ${pdaStr}`);
-          this.failedPositions.set(pdaStr, retryCount + 1);
 
-          // Alert on verification failures (affects position safety)
-          const isMaxRetries = retryCount + 1 >= this.maxRetries;
-          if (isMaxRetries) {
-            await this.alertManager.error(
-              'Position Verification Failed Permanently',
-              `Position verification exceeded max retries: ${errorMsg}`,
-              {
-                position: pdaStr.slice(0, 16),
-                trader: position.trader.toBase58().slice(0, 16),
-                market: position.market.toBase58().slice(0, 16),
-                attempts: retryCount + 1,
-              },
-              `verification-failed-${pdaStr.slice(0, 16)}`
-            );
+          // Detect encryption key mismatch error from Arcium MPC
+          if (errorMsg.includes('PlaintextI64(0)') ||
+              (errorMsg.includes('Invalid argument') && errorMsg.includes('Ciphertext'))) {
+            log.error?.({
+              position: pdaStr,
+              error: errorMsg,
+            }, 'Position encrypted with wrong MXE key - permanently skipping. ' +
+               'This position was created before MXE keygen completed or with a different MXE deployment.');
+            this.encryptionMismatchPositions.add(pdaStr);
+            this.failedPositions.delete(pdaStr);
+          } else {
+            log.error?.({ error: errorMsg }, `Failed to trigger verification for ${pdaStr}`);
+            this.failedPositions.set(pdaStr, retryCount + 1);
+
+            // Alert on verification failures (affects position safety)
+            const isMaxRetries = retryCount + 1 >= this.maxRetries;
+            if (isMaxRetries) {
+              await this.alertManager.error(
+                'Position Verification Failed Permanently',
+                `Position verification exceeded max retries: ${errorMsg}`,
+                {
+                  position: pdaStr.slice(0, 16),
+                  trader: position.trader.toBase58().slice(0, 16),
+                  market: position.market.toBase58().slice(0, 16),
+                  attempts: retryCount + 1,
+                },
+                `verification-failed-${pdaStr.slice(0, 16)}`
+              );
+            }
           }
         } finally {
           this.processingPositions.delete(pdaStr);

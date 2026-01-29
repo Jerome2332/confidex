@@ -56,7 +56,7 @@ Configure these variables in GitHub Settings → Secrets and Variables → Actio
 |----------|---------|-------------|
 | `NEXT_PUBLIC_PROGRAM_ID` | `63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB` | DEX program ID |
 | `NEXT_PUBLIC_MXE_PROGRAM_ID` | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` | MXE program ID |
-| `NEXT_PUBLIC_MXE_X25519_PUBKEY` | `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b` | MXE encryption key |
+| `NEXT_PUBLIC_MXE_X25519_PUBKEY` | `113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c` | MXE encryption key |
 | `SOLANA_RPC_URL` | `https://api.devnet.solana.com` | RPC endpoint |
 | `VERCEL_PROJECT_ID` | - | Vercel project ID |
 
@@ -166,7 +166,7 @@ pnpm install
 cat > .env.production << EOF
 NEXT_PUBLIC_PROGRAM_ID=63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB
 NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
-NEXT_PUBLIC_MXE_X25519_PUBKEY=46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b
+NEXT_PUBLIC_MXE_X25519_PUBKEY=113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
 NEXT_PUBLIC_NETWORK=devnet
 NEXT_PUBLIC_ARCIUM_ENABLED=true
 EOF
@@ -548,7 +548,7 @@ arcium mxe-info <MXE_PROGRAM_ID> -u devnet
 ### MPC Configuration
 
 - [ ] MXE deployed and keygen complete (DKG auto-completes on deploy)
-- [ ] `NEXT_PUBLIC_MXE_X25519_PUBKEY` set to `46589a2f72e04b041864f84900632a8a017173ddc002f37d5ab3c7a69e1a1f1b`
+- [ ] `NEXT_PUBLIC_MXE_X25519_PUBKEY` set to `113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c`
 - [ ] Cluster 456 accessible (v0.6.3 with 2/2 nodes)
 - [ ] Computation definitions initialized (11 circuits)
 - [ ] Circuit files on GitHub Releases

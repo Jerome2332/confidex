@@ -17,7 +17,8 @@ import * as path from 'path';
 const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
 const MXE_PROGRAM_ID = new PublicKey('4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi');
 const ARCIUM_PROGRAM_ID = new PublicKey('Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ');
-const MXE_X25519_PUBKEY = '14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960';
+// MXE X25519 public key (verified from on-chain MXE account 7YyqgKvZaCCNVzgtdegpeK7SJpK9Wa6BscdDTMT5Vu7E)
+const MXE_X25519_PUBKEY = '113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c';
 
 function computeDiscriminator(name: string): Buffer {
   const hash = crypto.createHash('sha256').update('global:' + name).digest();

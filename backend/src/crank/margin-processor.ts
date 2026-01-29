@@ -91,6 +91,10 @@ export class MarginProcessor {
   private failedOperations: Map<string, number> = new Map();
   private maxRetries: number = 3;
 
+  // Track positions with encryption key mismatch (permanent skip)
+  // These positions were encrypted with a different MXE key than what's currently on-chain
+  private encryptionMismatchPositions: Set<string> = new Set();
+
   constructor(
     connection: Connection,
     crankKeypair: Keypair,
@@ -197,6 +201,13 @@ export class MarginProcessor {
           continue;
         }
 
+        // Skip if position has encryption key mismatch (permanent)
+        const positionKey = op.positionPda.toBase58();
+        if (this.encryptionMismatchPositions.has(positionKey)) {
+          log.debug?.(`Skipping position ${positionKey} - encrypted with wrong MXE key`);
+          continue;
+        }
+
         // Skip if exceeded retries
         const retryCount = this.failedOperations.get(opKey) || 0;
         if (retryCount >= this.maxRetries) {
@@ -210,8 +221,22 @@ export class MarginProcessor {
           await this.processMarginOperation(op);
           this.failedOperations.delete(opKey);
         } catch (error) {
-          log.error?.({ error }, 'Failed to process margin operation');
-          this.failedOperations.set(opKey, retryCount + 1);
+          const errorMessage = String(error);
+
+          // Detect encryption key mismatch error from Arcium MPC
+          if (errorMessage.includes('PlaintextI64(0)') ||
+              errorMessage.includes('Invalid argument') && errorMessage.includes('Ciphertext')) {
+            log.error?.({
+              position: positionKey,
+              error: errorMessage,
+            }, 'Position encrypted with wrong MXE key - permanently skipping. ' +
+               'This position was created before MXE keygen completed or with a different MXE deployment.');
+            this.encryptionMismatchPositions.add(positionKey);
+            this.failedOperations.delete(opKey);
+          } else {
+            log.error?.({ error }, 'Failed to process margin operation');
+            this.failedOperations.set(opKey, retryCount + 1);
+          }
         } finally {
           this.processingOperations.delete(opKey);
         }

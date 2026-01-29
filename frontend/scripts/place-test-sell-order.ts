@@ -28,8 +28,8 @@ const VERIFIER_PROGRAM_ID = new PublicKey('9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2s
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');
 const USDC_MINT = new PublicKey('Gh9ZwEmdLJ8DscKNTkTqPbNwLNNBjuSzaG9Vp2KGtKJr');
 
-// MXE X25519 public key from environment
-const MXE_X25519_PUBKEY = '14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960';
+// MXE X25519 public key (verified from on-chain MXE account 7YyqgKvZaCCNVzgtdegpeK7SJpK9Wa6BscdDTMT5Vu7E)
+const MXE_X25519_PUBKEY = '113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c';
 
 // PDA seeds
 const EXCHANGE_SEED = Buffer.from('exchange');

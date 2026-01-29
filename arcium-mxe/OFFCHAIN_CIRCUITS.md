@@ -14,7 +14,7 @@ Arcis-compiled circuits are large (14MB total for Confidex). Storing them on-cha
 | Upload circuits to public storage | ✅ Done | GitHub Releases v0.1.0-circuits |
 | Deploy updated MXE | ✅ Done | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` |
 | Initialize comp defs | ✅ Done | All 10 circuits registered |
-| MXE keygen complete | ✅ Done | X25519 key: `14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960` |
+| MXE keygen complete | ✅ Done | X25519 key: `113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c` |
 | Update program IDs in codebase | ✅ Done | Frontend + DEX updated |
 | DEX program redeployed | ✅ Done | Slot 436479951 |
 

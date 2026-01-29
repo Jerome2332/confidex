@@ -965,7 +965,7 @@ arcium requeue-mxe-keygen <MXE_PROGRAM_ID> \
 ```env
 # frontend/.env.local
 NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
-NEXT_PUBLIC_MXE_X25519_PUBKEY=14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
+NEXT_PUBLIC_MXE_X25519_PUBKEY=113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
 NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
 ```
 
@@ -1092,7 +1092,7 @@ NEXT_PUBLIC_ARCIUM_ENABLED=true
 | Item | Value |
 |------|-------|
 | MXE Program ID | `4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi` |
-| X25519 Public Key | `14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960` |
+| X25519 Public Key | `113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c` |
 | Cluster | 456 (Arcium v0.6.3) |
 | Recovery Set | 4 nodes |
 | Circuits | 10 (stored on GitHub Releases) |

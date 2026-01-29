@@ -35,9 +35,9 @@ import {
 // Configuration
 const RPC_URL = process.env.RPC_URL || 'https://api.devnet.solana.com';
 
-// Production MXE public key (from env or hardcoded)
+// MXE X25519 public key (verified from on-chain MXE account 7YyqgKvZaCCNVzgtdegpeK7SJpK9Wa6BscdDTMT5Vu7E)
 const MXE_X25519_PUBKEY = process.env.NEXT_PUBLIC_MXE_X25519_PUBKEY ||
-  '14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960';
+  '113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c';
 
 // Token mints (devnet)
 const WSOL_MINT = new PublicKey('So11111111111111111111111111111111111111112');

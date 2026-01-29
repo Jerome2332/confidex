@@ -802,7 +802,7 @@ arcium requeue-mxe-keygen 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi \
 
 # Verify keygen complete:
 arcium mxe-info 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
-# X25519 Public Key: 14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
+# X25519 Public Key: 113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
 ```
 
 **Key insight from Arcium team:**
@@ -816,7 +816,7 @@ arcium mxe-info 4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
 - Final working config:
   ```env
   NEXT_PUBLIC_MXE_PROGRAM_ID=4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi
-  NEXT_PUBLIC_MXE_X25519_PUBKEY=14706bf82ff9e9cebde9d7ad1cc35dc98ad11b08ac92b07ed0fe472333703960
+  NEXT_PUBLIC_MXE_X25519_PUBKEY=113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c
   NEXT_PUBLIC_ARCIUM_CLUSTER_OFFSET=456
   ```
 
