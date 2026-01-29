@@ -58,8 +58,14 @@ yarn-error.log*
 Cargo.lock
 **/*.rs.bk
 
-# Noir
+# Noir - exclude most build artifacts but keep compiled circuits for deployment
 circuits/**/target/
+!circuits/eligibility/target/
+circuits/eligibility/target/*.so
+circuits/eligibility/target/*.gz
+circuits/eligibility/target/*.proof
+circuits/eligibility/target/*.pw
+circuits/eligibility/target/*-keypair.json
 circuits/**/Prover.toml.bak
 
 # Test outputs
