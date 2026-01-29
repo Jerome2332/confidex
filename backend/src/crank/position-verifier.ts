@@ -61,10 +61,15 @@ enum PositionSide {
 }
 
 /**
- * ConfidentialPosition account layout (V8 - 724 bytes total)
+ * ConfidentialPosition account layout (V9 - 820 bytes total)
  *
- * V8 adds ephemeral_pubkey (32 bytes) for MPC decryption.
+ * V9 adds encrypted verification params (96 bytes) for correct MPC verification.
+ * V8 added ephemeral_pubkey (32 bytes) for MPC decryption.
  * V7 added pending_close fields (74 bytes).
+ *
+ * Per Arcium documentation: when `Enc<Shared, T>` wraps a struct,
+ * ALL fields must be encrypted with the SAME shared secret and nonce.
+ * V9 stores pre-encrypted leverage, mm_bps, is_long to satisfy this requirement.
  */
 interface ConfidentialPosition {
   trader: PublicKey;
@@ -104,6 +109,10 @@ interface ConfidentialPosition {
   pendingCloseSize: Uint8Array;     // 64 bytes
   // V8 fields
   ephemeralPubkey: Uint8Array;      // 32 bytes - X25519 public key for MPC
+  // V9 fields - encrypted verification params (all encrypted with same key/nonce)
+  encryptedLeverage: Uint8Array;    // 32 bytes - encrypted u8 for MPC
+  encryptedMmBps: Uint8Array;       // 32 bytes - encrypted u16 for MPC
+  encryptedIsLong: Uint8Array;      // 32 bytes - encrypted bool for MPC
 }
 
 interface PositionWithPda {
@@ -282,15 +291,15 @@ export class PositionVerifier {
   private async fetchPendingPositions(): Promise<PositionWithPda[]> {
     // Fetch all position accounts for the DEX program
     // Filter by: discriminator matches ConfidentialPosition, threshold_verified = false
-    // V8 position size: 724 bytes (V7 was 692, V6 was 618)
-    // V8 adds ephemeral_pubkey (32 bytes) at the end
-    const V8_POSITION_SIZE = 724;
-    const THRESHOLD_VERIFIED_OFFSET = 530; // Same offset as V7/V8
+    // V9 position size: 820 bytes (V8 was 724, V7 was 692, V6 was 618)
+    // V9 adds encrypted_leverage (32), encrypted_mm_bps (32), encrypted_is_long (32)
+    const V9_POSITION_SIZE = 820;
+    const THRESHOLD_VERIFIED_OFFSET = 530; // Same offset as V7/V8/V9
 
     const accounts = await this.connection.getProgramAccounts(this.dexProgramId, {
       filters: [
-        { dataSize: V8_POSITION_SIZE },
-        // threshold_verified = false (offset 530 in V7/V8 layout)
+        { dataSize: V9_POSITION_SIZE },
+        // threshold_verified = false (offset 530 in V7/V8/V9 layout)
         {
           memcmp: {
             offset: THRESHOLD_VERIFIED_OFFSET,
@@ -350,7 +359,11 @@ export class PositionVerifier {
   }
 
   /**
-   * Build verify_position_params instruction for MXE
+   * Build verify_position_params instruction for MXE (V9 - all params encrypted)
+   *
+   * Per Arcium documentation: when `Enc<Shared, T>` wraps a struct,
+   * ALL fields must be encrypted with the SAME shared secret and nonce.
+   * V9 positions store pre-encrypted leverage, mm_bps, is_long ciphertexts.
    *
    * Account order must match queue_computation_accounts macro in MXE lib.rs:
    *   0: payer (signer, mut)
@@ -384,21 +397,20 @@ export class PositionVerifier {
       compDefOffset
     );
 
-    // Build instruction data
-    // verify_position_params takes (from MXE lib.rs):
-    // - computation_offset (u64)         8 bytes
-    // - entry_price_ciphertext ([u8; 32]) 32 bytes
-    // - leverage (u8)                    1 byte
-    // - mm_bps (u16)                     2 bytes
-    // - is_long (bool)                   1 byte
-    // - pub_key ([u8; 32])               32 bytes - X25519 public key for encryption
-    // - nonce (u128)                     16 bytes - Rescue cipher nonce
-    const isLong = position.side === PositionSide.Long;
+    // Build instruction data (V9 - all params encrypted)
+    // verify_position_params takes (from MXE lib.rs V9):
+    // - computation_offset (u64)            8 bytes
+    // - entry_price_ciphertext ([u8; 32])   32 bytes
+    // - leverage_ciphertext ([u8; 32])      32 bytes (V9: now encrypted!)
+    // - mm_bps_ciphertext ([u8; 32])        32 bytes (V9: now encrypted!)
+    // - is_long_ciphertext ([u8; 32])       32 bytes (V9: now encrypted!)
+    // - pub_key ([u8; 32])                  32 bytes - X25519 public key for encryption
+    // - nonce (u128)                        16 bytes - Rescue cipher nonce
 
     // Extract nonce from encrypted entry price (first 16 bytes of 64-byte blob)
     const nonce = position.encryptedEntryPrice.slice(0, 16);
 
-    // Use the position's ephemeral pubkey (V8) for MPC decryption
+    // Use the position's ephemeral pubkey (V8+) for MPC decryption
     const pubKey = position.ephemeralPubkey;
 
     // Verify position has valid ephemeral pubkey
@@ -406,8 +418,13 @@ export class PositionVerifier {
       throw new Error('Position missing ephemeral pubkey (pre-V8 position) - cannot verify');
     }
 
-    // Total size: 8 (disc) + 8 (offset) + 32 (ciphertext) + 1 (leverage) + 2 (mm_bps) + 1 (is_long) + 32 (pubkey) + 16 (nonce) = 100 bytes
-    const data = Buffer.alloc(100);
+    // Verify position has V9 encrypted verification params
+    if (position.encryptedLeverage.every(b => b === 0)) {
+      throw new Error('Position missing encrypted verification params (pre-V9 position) - cannot verify with MPC');
+    }
+
+    // Total size: 8 (disc) + 8 (offset) + 32 (entry_price) + 32 (leverage) + 32 (mm_bps) + 32 (is_long) + 32 (pubkey) + 16 (nonce) = 192 bytes
+    const data = Buffer.alloc(192);
     let offset = 0;
 
     // Discriminator
@@ -424,19 +441,19 @@ export class PositionVerifier {
     data.set(position.encryptedEntryPrice.slice(16, 48), offset);
     offset += 32;
 
-    // leverage
-    data.writeUInt8(position.leverage, offset);
-    offset += 1;
+    // leverage_ciphertext (V9: encrypted, read from position)
+    data.set(position.encryptedLeverage, offset);
+    offset += 32;
 
-    // maintenance_margin_bps (default 500 = 5%)
-    data.writeUInt16LE(500, offset);
-    offset += 2;
+    // mm_bps_ciphertext (V9: encrypted, read from position)
+    data.set(position.encryptedMmBps, offset);
+    offset += 32;
 
-    // is_long
-    data.writeUInt8(isLong ? 1 : 0, offset);
-    offset += 1;
+    // is_long_ciphertext (V9: encrypted, read from position)
+    data.set(position.encryptedIsLong, offset);
+    offset += 32;
 
-    // pub_key - full 32-byte X25519 ephemeral public key from V8 position
+    // pub_key - full 32-byte X25519 ephemeral public key from V8+ position
     data.set(pubKey, offset);
     offset += 32;
 
@@ -570,6 +587,17 @@ export class PositionVerifier {
     const ephemeralPubkey = new Uint8Array(data.subarray(offset, offset + 32));
     offset += 32;
 
+    // V9 fields (encrypted verification params)
+    // These were encrypted at position creation with same key/nonce as entry_price
+    const encryptedLeverage = new Uint8Array(data.subarray(offset, offset + 32));
+    offset += 32;
+
+    const encryptedMmBps = new Uint8Array(data.subarray(offset, offset + 32));
+    offset += 32;
+
+    const encryptedIsLong = new Uint8Array(data.subarray(offset, offset + 32));
+    offset += 32;
+
     return {
       trader,
       market,
@@ -605,6 +633,9 @@ export class PositionVerifier {
       pendingCloseFull,
       pendingCloseSize,
       ephemeralPubkey,
+      encryptedLeverage,
+      encryptedMmBps,
+      encryptedIsLong,
     };
   }
 
