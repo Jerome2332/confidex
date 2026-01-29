@@ -61,7 +61,10 @@ enum PositionSide {
 }
 
 /**
- * ConfidentialPosition account layout (V6 - 618 bytes total)
+ * ConfidentialPosition account layout (V8 - 724 bytes total)
+ *
+ * V8 adds ephemeral_pubkey (32 bytes) for MPC decryption.
+ * V7 added pending_close fields (74 bytes).
  */
 interface ConfidentialPosition {
   trader: PublicKey;
@@ -94,6 +97,13 @@ interface ConfidentialPosition {
   pendingMarginAmount: bigint;
   pendingMarginIsAdd: boolean;
   isLiquidatable: boolean;
+  // V7 fields
+  pendingClose: boolean;
+  pendingCloseExitPrice: bigint;
+  pendingCloseFull: boolean;
+  pendingCloseSize: Uint8Array;     // 64 bytes
+  // V8 fields
+  ephemeralPubkey: Uint8Array;      // 32 bytes - X25519 public key for MPC
 }
 
 interface PositionWithPda {
@@ -375,15 +385,29 @@ export class PositionVerifier {
     );
 
     // Build instruction data
-    // verify_position_params takes:
-    // - computation_offset (u64)
-    // - entry_price_ciphertext ([u8; 32]) - first 32 bytes of encrypted entry price
-    // - leverage (u8)
-    // - mm_bps (u16)
-    // - is_long (bool)
+    // verify_position_params takes (from MXE lib.rs):
+    // - computation_offset (u64)         8 bytes
+    // - entry_price_ciphertext ([u8; 32]) 32 bytes
+    // - leverage (u8)                    1 byte
+    // - mm_bps (u16)                     2 bytes
+    // - is_long (bool)                   1 byte
+    // - pub_key ([u8; 32])               32 bytes - X25519 public key for encryption
+    // - nonce (u128)                     16 bytes - Rescue cipher nonce
     const isLong = position.side === PositionSide.Long;
 
-    const data = Buffer.alloc(8 + 8 + 32 + 1 + 2 + 1);
+    // Extract nonce from encrypted entry price (first 16 bytes of 64-byte blob)
+    const nonce = position.encryptedEntryPrice.slice(0, 16);
+
+    // Use the position's ephemeral pubkey (V8) for MPC decryption
+    const pubKey = position.ephemeralPubkey;
+
+    // Verify position has valid ephemeral pubkey
+    if (pubKey.every(b => b === 0)) {
+      throw new Error('Position missing ephemeral pubkey (pre-V8 position) - cannot verify');
+    }
+
+    // Total size: 8 (disc) + 8 (offset) + 32 (ciphertext) + 1 (leverage) + 2 (mm_bps) + 1 (is_long) + 32 (pubkey) + 16 (nonce) = 100 bytes
+    const data = Buffer.alloc(100);
     let offset = 0;
 
     // Discriminator
@@ -395,8 +419,9 @@ export class PositionVerifier {
     data.set(offsetBuf, offset);
     offset += 8;
 
-    // entry_price_ciphertext - first 32 bytes of encrypted entry price
-    data.set(position.encryptedEntryPrice.slice(0, 32), offset);
+    // entry_price_ciphertext - bytes 16-48 of encrypted entry price (ciphertext portion)
+    // V2 format: [nonce (16) | ciphertext (32) | ephemeral_pubkey_truncated (16)]
+    data.set(position.encryptedEntryPrice.slice(16, 48), offset);
     offset += 32;
 
     // leverage
@@ -409,6 +434,14 @@ export class PositionVerifier {
 
     // is_long
     data.writeUInt8(isLong ? 1 : 0, offset);
+    offset += 1;
+
+    // pub_key - full 32-byte X25519 ephemeral public key from V8 position
+    data.set(pubKey, offset);
+    offset += 32;
+
+    // nonce - 16-byte nonce as u128 (little-endian)
+    data.set(nonce, offset);
 
     // Build accounts list for direct MXE call
     // Position 10 must be system_program, position 11 must be arcium_program
@@ -518,6 +551,24 @@ export class PositionVerifier {
     offset += 1;
 
     const isLiquidatable = data.readUInt8(offset) === 1;
+    offset += 1;
+
+    // V7 fields (close position tracking)
+    const pendingClose = data.readUInt8(offset) === 1;
+    offset += 1;
+
+    const pendingCloseExitPrice = data.readBigUInt64LE(offset);
+    offset += 8;
+
+    const pendingCloseFull = data.readUInt8(offset) === 1;
+    offset += 1;
+
+    const pendingCloseSize = new Uint8Array(data.subarray(offset, offset + 64));
+    offset += 64;
+
+    // V8 fields (MPC decryption fix)
+    const ephemeralPubkey = new Uint8Array(data.subarray(offset, offset + 32));
+    offset += 32;
 
     return {
       trader,
@@ -549,6 +600,11 @@ export class PositionVerifier {
       pendingMarginAmount,
       pendingMarginIsAdd,
       isLiquidatable,
+      pendingClose,
+      pendingCloseExitPrice,
+      pendingCloseFull,
+      pendingCloseSize,
+      ephemeralPubkey,
     };
   }
 
