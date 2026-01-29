@@ -217,20 +217,27 @@ export class PositionVerifier {
           // Success - remove from failed tracking
           this.failedPositions.delete(pdaStr);
         } catch (error) {
-          const errorMsg = error instanceof Error ? error.message.split('\n')[0].slice(0, 80) : String(error);
+          // Extract full error message including simulation logs
+          const fullErrorMsg = error instanceof Error ? error.message : String(error);
+          const shortErrorMsg = fullErrorMsg.split('\n')[0].slice(0, 80);
 
           // Detect encryption key mismatch error from Arcium MPC
-          if (errorMsg.includes('PlaintextI64(0)') ||
-              (errorMsg.includes('Invalid argument') && errorMsg.includes('Ciphertext'))) {
+          if (fullErrorMsg.includes('PlaintextI64(0)') ||
+              (fullErrorMsg.includes('Invalid argument') && fullErrorMsg.includes('Ciphertext'))) {
             log.error?.({
               position: pdaStr,
-              error: errorMsg,
+              error: fullErrorMsg,
             }, 'Position encrypted with wrong MXE key - permanently skipping. ' +
                'This position was created before MXE keygen completed or with a different MXE deployment.');
             this.encryptionMismatchPositions.add(pdaStr);
             this.failedPositions.delete(pdaStr);
           } else {
-            log.error?.({ error: errorMsg }, `Failed to trigger verification for ${pdaStr}`);
+            // Log full error on first failure for debugging
+            if (retryCount === 0) {
+              log.error?.({ error: fullErrorMsg }, `Failed to trigger verification for ${pdaStr} (full error)`);
+            } else {
+              log.error?.({ error: shortErrorMsg }, `Failed to trigger verification for ${pdaStr}`);
+            }
             this.failedPositions.set(pdaStr, retryCount + 1);
 
             // Alert on verification failures (affects position safety)
@@ -238,7 +245,7 @@ export class PositionVerifier {
             if (isMaxRetries) {
               await this.alertManager.error(
                 'Position Verification Failed Permanently',
-                `Position verification exceeded max retries: ${errorMsg}`,
+                `Position verification exceeded max retries: ${shortErrorMsg}`,
                 {
                   position: pdaStr.slice(0, 16),
                   trader: position.trader.toBase58().slice(0, 16),
