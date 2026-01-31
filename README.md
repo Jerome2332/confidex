@@ -23,9 +23,10 @@
 |----------|-----|--------|
 | **Frontend** | [https://www.confidex.xyz](https://www.confidex.xyz) | Live |
 | **Backend API** | [https://confidex-uflk.onrender.com](https://confidex-uflk.onrender.com) | Live |
-| **DEX Program** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) | Deployed |
-| **MXE Program** | [`4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi`](https://explorer.solana.com/address/4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi?cluster=devnet) | Deployed |
-| **ZK Verifier** | [`9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`](https://explorer.solana.com/address/9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W?cluster=devnet) | Deployed |
+| **Spot Trading MXE** | [`AMm9J2fNYDBREvDZhQDniz7i6QyKwUZ6cFiQBi1P5SVS`](https://explorer.solana.com/address/AMm9J2fNYDBREvDZhQDniz7i6QyKwUZ6cFiQBi1P5SVS?cluster=devnet) | **Active** |
+| **Perpetuals MXE** | [`CSTs9KjTmnwu3Wg76kE49Mgud2GyAQeQjZ66zicTQKq9`](https://explorer.solana.com/address/CSTs9KjTmnwu3Wg76kE49Mgud2GyAQeQjZ66zicTQKq9?cluster=devnet) | **Active** |
+| **Legacy DEX** | [`63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB`](https://explorer.solana.com/address/63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB?cluster=devnet) | Legacy |
+| **ZK Verifier** | [`9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W`](https://explorer.solana.com/address/9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W?cluster=devnet) | Optional |
 | **Arcium Core** | [`Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ`](https://explorer.solana.com/address/Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ?cluster=devnet) | Active |
 
 ### Backend Services (Running 24/7)
@@ -52,14 +53,18 @@
 
 Confidex is a confidential order book DEX that enables private trading on Solana. Unlike traditional DEXs where order details are public, Confidex keeps your trade amounts and prices encrypted throughout the entire lifecycle.
 
-### Four-Layer Privacy Architecture
+### Two-Layer Privacy Architecture
 
 | Layer | Technology | Purpose |
 |-------|------------|---------|
-| **Compliance** | Noir/Groth16 ZK Proofs (via Sunspot) | Proves eligibility without revealing identity |
-| **Execution** | Arcium MPC (Cerberus protocol) | Encrypted order matching |
-| **Storage** | Light Protocol ZK Compression | Rent-free compressed accounts (~5000x cheaper) |
+| **Execution** | Arcium MPC (Cerberus protocol) | Encrypted order matching - all order data private |
 | **Settlement** | ShadowWire (Bulletproof) | Private token transfers with hidden amounts |
+
+**Optional layers:**
+| Layer | Technology | Purpose |
+|-------|------------|---------|
+| Compliance | Noir/Groth16 ZK Proofs | Blacklist eligibility (disabled by default) |
+| Storage | Light Protocol | Rent-free accounts (cost optimization, not privacy) |
 
 ## Documentation
 
@@ -76,11 +81,10 @@ Confidex is a confidential order book DEX that enables private trading on Solana
 ## Features
 
 ### Spot Trading
-- **Encrypted Orders**: Amount and price encrypted via Arcium MPC
-- **ZK Compliance**: Groth16 proofs verify blacklist non-membership
+- **Fully Encrypted Orders**: Amount, price, quantity, and trader identity encrypted via Arcium MPC
+- **MEV Protection**: Orders invisible until matched - no frontrunning possible
 - **Private Settlement**: Bulletproof-based transfers hide amounts
-- **MEV Protection**: Orders invisible until matched
-- **Institutional Ready**: Compliant trading with privacy
+- **Optional Compliance**: ZK proofs for blacklist verification (disabled by default)
 - **Real-Time Updates**: WebSocket streaming for instant order/trade notifications
 
 ### Private Perpetuals (NEW)
@@ -118,7 +122,9 @@ cd backend && pnpm install && cd ..
 anchor build
 ```
 
-### Build ZK Circuits (Optional)
+### Build ZK Circuits (Optional - Legacy Flow Only)
+
+> **Note:** ZK circuits are only needed for the legacy flow with `USE_SPOT_MXE=false`. The new Spot Trading MXE does not require ZK proofs.
 
 ```bash
 cd circuits/eligibility

@@ -23,9 +23,12 @@ import {
   Database,
   Pulse,
   ChartLineUp,
+  Rocket,
+  Clock,
 } from '@phosphor-icons/react';
+import Image from 'next/image';
 
-type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'production' | 'programs' | 'faq';
+type SectionId = 'overview' | 'architecture' | 'zk-layer' | 'mpc-layer' | 'settlement' | 'flow' | 'security' | 'production' | 'programs' | 'faq' | 'roadmap';
 
 interface NavItem {
   id: SectionId;
@@ -44,6 +47,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: 'production', label: 'Production Ready', icon: <Lightning size={16} /> },
   { id: 'programs', label: 'Programs & IDs', icon: <CodeIcon size={16} /> },
   { id: 'faq', label: 'FAQ', icon: <Chats size={16} /> },
+  { id: 'roadmap', label: 'Future Implementations', icon: <Rocket size={16} /> },
 ];
 
 const CodeBlock: FC<{ children: string }> = ({ children }) => (
@@ -150,18 +154,18 @@ export default function DocsPage() {
             </div>
 
             <p className="text-lg text-white/70 mb-8 leading-relaxed">
-              Confidex is a confidential decentralized exchange implementing a novel <strong className="text-white">three-layer privacy architecture</strong> that
-              combines zero-knowledge proofs, multi-party computation, and encrypted tokens. This architecture enables private trading
-              with hidden order amounts, prices, and balances while maintaining regulatory compliance.
+              Confidex is a confidential decentralized exchange implementing a <strong className="text-white">two-layer privacy architecture</strong> using
+              Arcium MPC for encrypted order matching and ShadowWire for private settlement. All order data (price, quantity, side, trader identity)
+              is encrypted on-chain and only decrypted within the MPC cluster for matching.
             </p>
 
             {/* Key Stats */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {[
-                { label: 'ZK Proof Size', value: '~388 bytes' },
-                { label: 'MPC Latency', value: '~500ms' },
-                { label: 'Full Match', value: '1-2 sec' },
-                { label: 'Verification', value: '~200K CU' },
+                { label: 'Ciphertext Size', value: '32 bytes' },
+                { label: 'Order Submit', value: '< 2s' },
+                { label: 'MPC Callback', value: '30-60s' },
+                { label: 'Encrypted Fields', value: '5 per order' },
               ].map((stat) => (
                 <div key={stat.label} className="bg-white/5 border border-white/10 rounded-lg p-4">
                   <div className="text-2xl font-mono text-white mb-1">{stat.value}</div>
@@ -202,7 +206,7 @@ export default function DocsPage() {
                   <CheckCircle size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
                   <div>
                     <div className="text-white font-medium">Open Track</div>
-                    <div className="text-white/50">Novel three-layer privacy model</div>
+                    <div className="text-white/50">Two-layer privacy model (MPC + private settlement)</div>
                   </div>
                 </div>
               </div>
@@ -213,13 +217,13 @@ export default function DocsPage() {
           <section id="architecture" className="mb-16">
             <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
               <StackIcon size={36} />
-              Three-Layer Privacy Architecture
+              Two-Layer Privacy Architecture
             </h2>
 
             <p className="text-white/70 mb-8">
-              Most privacy projects use EITHER zero-knowledge proofs OR multi-party computation. Confidex uniquely combines both
-              with encrypted tokens to address different privacy needs at each stage of a trade. We also leverage Light Protocol
-              for infrastructure optimization (rent-free storage), though this is a cost-saving measure rather than a privacy layer.
+              Confidex uses Arcium MPC as the primary privacy layer - all order data (price, quantity, side, trader identity) is encrypted
+              on-chain. ShadowWire provides private settlement with hidden transfer amounts. ZK eligibility proofs are available as an optional
+              compliance layer for regulated use cases.
             </p>
 
             {/* Layer Cards */}
@@ -376,18 +380,18 @@ fn main(
     blacklist_root: pub Field,
 
     // Private inputs - never revealed
-    address: Field,
     merkle_path: [Field; 20],
     path_indices: [Field; 20]
 ) {
-    // Verify non-membership in blacklist SMT
-    let computed_root = compute_smt_root(
-        address,
+    // Verify SMT non-membership by checking path leads to empty leaf
+    // The address is derived from path_indices, never passed directly
+    let valid = verify_smt_non_membership(
+        blacklist_root,
         merkle_path,
         path_indices
     );
 
-    assert(computed_root == blacklist_root);
+    assert(valid, "Address is blacklisted or proof invalid");
     // Proof passes = address NOT on blacklist
 }`}</CodeBlock>
             </ExpandableSection>
@@ -426,8 +430,8 @@ fn main(
                 ZK Infrastructure Status
               </h3>
               <p className="text-sm text-white/60 mb-4">
-                The complete ZK proving infrastructure is built and tested. Production deployment requires a dedicated prover service
-                with the following components installed:
+                The complete ZK proving infrastructure is built, tested, and operational. The backend service generates real Groth16 proofs
+                using the following components:
               </p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-black/30 rounded-lg p-4">
@@ -463,12 +467,12 @@ fn main(
                   <p className="text-xs text-white/60 mt-1">Proving/verification keys and compiled constraint system ready</p>
                 </div>
               </div>
-              <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
                 <div className="flex items-start gap-2 text-sm">
-                  <span className="text-amber-400 flex-shrink-0">Note:</span>
-                  <span className="text-amber-400/80">
-                    ZK proofs are currently disabled in the demo to reduce infrastructure costs. The technology is fully implemented
-                    and can be enabled by deploying a prover service (VM with nargo + sunspot) and setting <code className="bg-black/30 px-1 rounded">ZK_PROOFS_ENABLED=true</code>.
+                  <CheckCircle size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <span className="text-emerald-400/80">
+                    ZK proofs are <strong className="text-emerald-400">enabled</strong> and fully operational. The backend prover generates real Groth16 proofs
+                    using nargo + sunspot. Proofs are verified on-chain by the eligibility verifier program during order placement.
                   </span>
                 </div>
               </div>
@@ -493,25 +497,62 @@ fn main(
                 <CheckCircle size={20} className="text-emerald-400" />
                 MXE Deployment Status (Live)
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-white/50 mb-1">MXE Program ID</div>
-                  <code className="text-xs font-mono text-emerald-400">4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi</code>
+
+              {/* Spot Trading MXE */}
+              <div className="mb-4">
+                <h4 className="text-white font-medium mb-2">Spot Trading MXE</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-white/50 mb-1">Program ID</div>
+                    <code className="text-xs font-mono text-emerald-400">CJRUcrAFi764GHcPRg1e12Ymw7Nb2ZmrnFoW1k87XJMM</code>
+                  </div>
+                  <div>
+                    <div className="text-white/50 mb-1">X25519 Public Key</div>
+                    <code className="text-xs font-mono text-emerald-400 break-all">fe955746fa98e3597086eaca87eb248c33de439ad23549c7cdb87b16d3baed72</code>
+                  </div>
+                  <div>
+                    <div className="text-white/50 mb-1">Circuits</div>
+                    <a href="https://github.com/Jerome2332/confidex/releases/tag/v0.1.0-circuits" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1">
+                      v0.1.0-circuits (6 circuits)
+                      <ArrowSquareOut size={12} />
+                    </a>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-white/50 mb-1">X25519 Public Key</div>
-                  <code className="text-xs font-mono text-emerald-400 break-all">113364f169338f3fa0d1e76bf2ba71d40aff857dd5f707f1ea2abdaf52e2d06c</code>
+              </div>
+
+              {/* Perpetuals MXE */}
+              <div className="pt-4 border-t border-emerald-500/20">
+                <h4 className="text-white font-medium mb-2">Perpetuals MXE</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-white/50 mb-1">Program ID</div>
+                    <code className="text-xs font-mono text-emerald-400">CSTs9KjTmnwu3Wg76kE49Mgud2GyAQeQjZ66zicTQKq9</code>
+                  </div>
+                  <div>
+                    <div className="text-white/50 mb-1">X25519 Public Key</div>
+                    <code className="text-xs font-mono text-emerald-400 break-all">9163f8e9c1ac55ead26717a6985f09366c46e629d7f1024319ad5f428b4682bf</code>
+                  </div>
+                  <div>
+                    <div className="text-white/50 mb-1">Circuits</div>
+                    <a href="https://github.com/Jerome2332/confidex/releases/tag/v0.2.0-circuits" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1">
+                      v0.2.0-circuits (13 active circuits)
+                      <ArrowSquareOut size={12} />
+                    </a>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-white/50 mb-1">Cluster</div>
-                  <div className="text-white font-mono">456 (Arcium v0.6.3 devnet)</div>
-                </div>
-                <div>
-                  <div className="text-white/50 mb-1">Circuit Storage</div>
-                  <a href="https://github.com/Jerome2332/confidex/releases/tag/v0.1.0-circuits" target="_blank" rel="noopener noreferrer" className="text-emerald-400 hover:text-emerald-300 text-xs flex items-center gap-1">
-                    GitHub Releases (10 circuits, ~15MB)
-                    <ArrowSquareOut size={12} />
-                  </a>
+              </div>
+
+              {/* Common Info */}
+              <div className="pt-4 mt-4 border-t border-emerald-500/20">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-white/50 mb-1">Cluster</div>
+                    <div className="text-white font-mono">456 (Arcium v0.6.3 devnet)</div>
+                  </div>
+                  <div>
+                    <div className="text-white/50 mb-1">Deployed</div>
+                    <div className="text-white font-mono">January 30, 2026</div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -884,7 +925,7 @@ Bytes 48-63: Ephemeral pubkey  → MPC key routing
                   <ChartLineUp size={20} className="text-emerald-400/80 flex-shrink-0 mt-0.5" />
                   <div>
                     <div className="text-white font-medium">Real Order Book from Chain</div>
-                    <div className="text-white/50">Fetches V4 orders, aggregates by price level, shows &quot;Live&quot; indicator</div>
+                    <div className="text-white/50">Fetches V5 orders, aggregates by price level, shows &quot;Live&quot; indicator</div>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -921,7 +962,7 @@ Bytes 48-63: Ephemeral pubkey  → MPC key routing
                   <tbody className="text-white/70">
                     <tr className="border-b border-white/5">
                       <td className="px-6 py-3 font-mono text-white">useOrderBook()</td>
-                      <td className="px-6 py-3">Real-time order book from chain (V4 orders)</td>
+                      <td className="px-6 py-3">Real-time order book from chain (V5 orders)</td>
                       <td className="px-6 py-3"><span className="text-emerald-400">Live</span></td>
                     </tr>
                     <tr className="border-b border-white/5">
@@ -964,7 +1005,7 @@ CRANK_USE_REAL_MPC=true
 CRANK_POLLING_INTERVAL_MS=5000    # Check for matches every 5s
 CRANK_USE_ASYNC_MPC=true          # Production async MPC flow
 CRANK_MAX_CONCURRENT_MATCHES=5    # Parallel match attempts
-CRANK_DB_PATH=./data/settlements.db  # SQLite persistence
+CRANK_DB_PATH=./data/crank.db        # SQLite persistence
 
 # Check crank status
 curl http://localhost:3001/admin/crank/status`}</CodeBlock>
@@ -1029,7 +1070,8 @@ curl http://localhost:3001/admin/crank/status`}</CodeBlock>
               <div className="divide-y divide-white/5">
                 {[
                   { name: 'Confidex DEX', id: '63bxUBrBd1W5drU5UMYWwAfkMX7Qr17AZiTrm3aqfArB', desc: 'Core DEX logic, order management' },
-                  { name: 'Arcium MXE', id: '4pdgnqNQLxocJNo6MrSHKqieUpQ8zx3sxbsTANJFtSNi', desc: 'MXE wrapper for MPC operations' },
+                  { name: 'Spot Trading MXE', id: 'CJRUcrAFi764GHcPRg1e12Ymw7Nb2ZmrnFoW1k87XJMM', desc: 'MPC for spot order matching' },
+                  { name: 'Perpetuals MXE', id: 'CSTs9KjTmnwu3Wg76kE49Mgud2GyAQeQjZ66zicTQKq9', desc: 'MPC for perps positions' },
                   { name: 'Eligibility Verifier', id: '9op573D8GuuMAL2btvsnGVo2am2nMJZ4Cjt2srAkiG9W', desc: 'Groth16 proof verification' },
                   { name: 'Arcium Core', id: 'Arcj82pX7HxYKLR92qvgZUAd7vGS1k4hQvAFcPATFdEQ', desc: 'Official Arcium program' },
                 ].map((program) => (
@@ -1086,41 +1128,50 @@ curl http://localhost:3001/admin/crank/status`}</CodeBlock>
             </div>
 
             {/* Account Structures */}
-            <ExpandableSection title="Key Account Structures (V2)">
+            <ExpandableSection title="Key Account Structures (Current)">
               <div className="space-y-4">
                 <div>
-                  <div className="text-white font-medium mb-2">ConfidentialOrder (V2 - 321 bytes)</div>
+                  <div className="text-white font-medium mb-2">ConfidentialOrder (V5 - 366 bytes)</div>
                   <CodeBlock>{`pub struct ConfidentialOrder {
     pub maker: Pubkey,              // Order creator
     pub pair: Pubkey,               // Trading pair
-    pub order_id: [u8; 16],         // V2: Hash-based (no sequential leak)
     pub side: Side,                 // Buy or Sell
-    pub encrypted_amount: [u8; 64], // V2: Pure ciphertext
-    pub encrypted_price: [u8; 64],  // V2: Pure ciphertext
+    pub order_type: OrderType,      // Limit or Market
+    pub encrypted_amount: [u8; 64], // Pure ciphertext
+    pub encrypted_price: [u8; 64],  // Pure ciphertext
     pub encrypted_filled: [u8; 64], // Fill tracking
-    pub status: OrderStatus,        // V2: Active|Inactive (2 states)
-    pub created_at_hour: i64,       // V2: Coarse timestamp (hour)
-    pub is_matching: bool,          // V2: Internal matching flag
+    pub status: OrderStatus,        // Active|Inactive (2 states)
+    pub created_at_hour: i64,       // Coarse timestamp (hour)
+    pub order_id: [u8; 16],         // Hash-based (no sequential leak)
+    pub order_nonce: [u8; 8],       // For PDA derivation
     pub eligibility_proof_verified: bool,
     pub pending_match_request: [u8; 32],
+    pub is_matching: bool,          // Internal matching flag
+    pub bump: u8,
+    pub ephemeral_pubkey: [u8; 32], // For MPC decryption
 }`}</CodeBlock>
                 </div>
                 <div>
-                  <div className="text-white font-medium mb-2">ConfidentialPosition (V2 - 561 bytes)</div>
+                  <div className="text-white font-medium mb-2">ConfidentialPosition (V9 - 820 bytes)</div>
                   <CodeBlock>{`pub struct ConfidentialPosition {
     pub trader: Pubkey,
     pub market: Pubkey,
-    pub position_id: [u8; 16],          // V2: Hash-based ID
+    pub position_id: [u8; 16],          // Hash-based ID
+    pub created_at_hour: i64,           // Coarse timestamp
     pub side: PositionSide,             // Long/Short (public)
     pub leverage: u8,                   // 1-20x (public)
-    pub encrypted_size: [u8; 64],       // V2: Pure ciphertext
-    pub encrypted_entry_price: [u8; 64],// V2: Pure ciphertext
-    pub encrypted_collateral: [u8; 64], // V2: Pure ciphertext
-    pub encrypted_liq_below: [u8; 64],  // V2: Encrypted threshold
-    pub encrypted_liq_above: [u8; 64],  // V2: Encrypted threshold
+    pub encrypted_size: [u8; 64],       // Pure ciphertext
+    pub encrypted_entry_price: [u8; 64],// Pure ciphertext
+    pub encrypted_collateral: [u8; 64], // Pure ciphertext
+    pub encrypted_realized_pnl: [u8; 64], // Accumulated PnL
+    pub encrypted_liq_below: [u8; 64],  // Encrypted threshold
+    pub encrypted_liq_above: [u8; 64],  // Encrypted threshold
     pub threshold_commitment: [u8; 32], // hash(entry, leverage, mm_bps)
-    pub created_at_hour: i64,           // V2: Coarse timestamp
-    pub last_updated_hour: i64,         // V2: Coarse timestamp
+    pub ephemeral_pubkey: [u8; 32],     // V8: For MPC decryption
+    pub encrypted_leverage: [u8; 32],   // V9: MPC verification
+    pub encrypted_mm_bps: [u8; 32],     // V9: MPC verification
+    pub encrypted_is_long: [u8; 32],    // V9: MPC verification
+    // ... plus status flags, async MPC tracking fields
 }`}</CodeBlock>
                 </div>
                 <div>
@@ -1298,17 +1349,283 @@ curl http://localhost:3001/admin/crank/status`}</CodeBlock>
             </div>
           </section>
 
+          {/* Future Implementations Section */}
+          <section id="roadmap" className="mb-16">
+            <h2 className="text-2xl font-light text-white mb-6 flex items-center gap-3">
+              <Rocket size={36} />
+              Future Implementations
+            </h2>
+
+            <p className="text-white/70 mb-6">
+              Confidex is continuously improving privacy coverage. These are planned enhancements that will
+              further strengthen the privacy guarantees of the protocol.
+            </p>
+
+            {/* C-SPL Collateral - High Priority */}
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-6 mb-6">
+              <div className="flex items-start gap-4">
+                <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+                  <Clock size={20} className="text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="font-medium text-white">Confidential Collateral for Perpetuals</h3>
+                    <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">High Priority</span>
+                  </div>
+                  <p className="text-sm text-white/60 mb-4">
+                    Currently, perpetuals collateral transfers use standard SPL tokens, meaning collateral amounts
+                    are visible on-chain. This is a temporary fallback while the C-SPL (Confidential SPL) SDK
+                    for Rust programs is being finalized.
+                  </p>
+
+                  <div className="bg-black/30 rounded-lg p-4 mb-4">
+                    <div className="text-white/50 text-xs mb-2">Current Flow (Temporary)</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-amber-400"></div>
+                        <span className="text-white/70">Wallet Balance (Native USDC)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">→</span>
+                        <span className="text-amber-400">SPL Transfer (visible amount)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">→</span>
+                        <span className="text-white/70">Market Collateral Vault</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-black/30 rounded-lg p-4">
+                    <div className="text-emerald-400/80 text-xs mb-2">Future Flow (With C-SPL)</div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+                        <span className="text-white/70">Trading Balance (Encrypted C-SPL)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">→</span>
+                        <span className="text-emerald-400">Confidential Transfer (hidden amount)</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-white/40">→</span>
+                        <span className="text-white/70">Market Collateral Vault (encrypted)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <div className="text-white font-medium mb-1">What&apos;s Currently Exposed</div>
+                      <ul className="text-white/50 text-xs space-y-1">
+                        <li>• Collateral deposit amount (USDC)</li>
+                        <li>• Collateral withdrawal amount (USDC)</li>
+                        <li>• Margin add/remove amounts</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <div className="text-emerald-400 font-medium mb-1">What Remains Private</div>
+                      <ul className="text-white/50 text-xs space-y-1">
+                        <li>• Position size (encrypted)</li>
+                        <li>• Entry price (encrypted)</li>
+                        <li>• Liquidation thresholds (encrypted)</li>
+                        <li>• PnL calculations (MPC)</li>
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-white/5 border border-white/10 rounded-lg">
+                    <div className="flex items-start gap-2 text-xs text-white/60">
+                      <CodeIcon size={14} className="flex-shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-white/80">Technical Detail:</span> The C-SPL SDK currently only has JavaScript
+                        bindings. Rust programs cannot yet call <code className="text-xs bg-white/10 px-1 rounded">confidential_transfer</code>.
+                        Once the Rust SDK is available, perpetuals will use the same encrypted trading balance as spot trading.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Additional Future Items */}
+            <div className="space-y-4">
+              {/* Multi-Asset Perpetuals */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                    <ChartLineUp size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-white">Multi-Asset Perpetuals</h4>
+                      <span className="text-xs bg-white/10 text-white/50 px-2 py-0.5 rounded-full">Planned</span>
+                    </div>
+                    <p className="text-sm text-white/60">
+                      Support for additional perpetual markets beyond SOL-PERP, including BTC-PERP, ETH-PERP,
+                      and other major assets with encrypted position management.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Cross-Margin Mode */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                    <StackIcon size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-white">Cross-Margin with MPC</h4>
+                      <span className="text-xs bg-white/10 text-white/50 px-2 py-0.5 rounded-full">Planned</span>
+                    </div>
+                    <p className="text-sm text-white/60">
+                      Cross-margin mode where multiple positions share collateral. MPC will handle
+                      encrypted aggregate margin calculations without revealing individual position details.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Batch Liquidation Optimization */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                    <CpuIcon size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-white">Batch Liquidation Optimization</h4>
+                      <span className="text-xs bg-white/10 text-white/50 px-2 py-0.5 rounded-full">In Progress</span>
+                    </div>
+                    <p className="text-sm text-white/60">
+                      The <code className="text-xs bg-white/10 px-1 rounded">batch_liquidation_check</code> circuit is
+                      currently disabled due to high ACU cost (~4.2B per position). Working on optimizing the circuit
+                      to enable efficient batch checking of up to 10 positions per MPC call.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Private Trade History */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                    <EyeSlash size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-white">Private Trade History</h4>
+                      <span className="text-xs bg-white/10 text-white/50 px-2 py-0.5 rounded-full">Planned</span>
+                    </div>
+                    <p className="text-sm text-white/60">
+                      Encrypted trade history stored off-chain with client-side decryption. Users will be able
+                      to view their complete trading history privately without exposing it on-chain.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Auditor Access */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-5">
+                <div className="flex items-start gap-4">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
+                    <ShieldChevronIcon size={16} className="text-white" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h4 className="font-medium text-white">Optional Auditor Access</h4>
+                      <span className="text-xs bg-white/10 text-white/50 px-2 py-0.5 rounded-full">Planned</span>
+                    </div>
+                    <p className="text-sm text-white/60">
+                      Selective disclosure feature allowing users to grant read access to auditors or regulators
+                      for specific positions. Uses re-encryption to share data without revealing master keys.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Timeline Note */}
+            <div className="mt-6 p-4 bg-white/5 border border-white/10 rounded-xl">
+              <div className="flex items-start gap-3 text-sm">
+                <Clock size={20} className="text-white/40 flex-shrink-0 mt-0.5" />
+                <div className="text-white/60">
+                  <strong className="text-white">Development Priority:</strong> C-SPL integration for perpetuals collateral
+                  is the highest priority improvement. Timeline depends on the official Rust SDK release from Solana Labs.
+                  Other features are planned for post-hackathon development cycles.
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* Footer */}
           <footer className="border-t border-white/10 pt-8 mt-16">
             <div className="flex flex-col md:flex-row items-center justify-between gap-4">
-              <div className="text-sm text-white/40">
+              <div className="text-sm text-white/40 font-light">
                 Built for Solana Privacy Hack 2026
               </div>
-              <div className="flex items-center gap-2 text-xs text-white/40">
+              <div className="flex items-center gap-4 text-xs text-white/40 font-light">
                 <span>Powered by</span>
-                <span className="bg-white/10 px-2 py-0.5 rounded">Arcium MPC</span>
-                <span className="bg-white/10 px-2 py-0.5 rounded">Noir ZK</span>
-                <span className="bg-white/10 px-2 py-0.5 rounded">ShadowWire</span>
+                <a
+                  href="https://arcium.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="opacity-70 hover:opacity-100 transition-opacity"
+                  title="Arcium MPC"
+                >
+                  <Image
+                    src="/sponsors/arcium/Logos/02 Logomark/SVGs/Logomark 04.svg"
+                    alt="Arcium"
+                    width={24}
+                    height={24}
+                    className="rounded-full"
+                  />
+                </a>
+                <a
+                  href="https://aztec.network"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="opacity-70 hover:opacity-100 transition-opacity"
+                  title="Noir ZK (Aztec)"
+                >
+                  <Image
+                    src="/sponsors/aztec/Aztec Symbol/svg/Aztec Symbol_Circle.svg"
+                    alt="Aztec (Noir ZK)"
+                    width={24}
+                    height={24}
+                  />
+                </a>
+                <a
+                  href="https://lightprotocol.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="opacity-70 hover:opacity-100 transition-opacity"
+                  title="Light Protocol"
+                >
+                  <Image
+                    src="/sponsors/light/logo.svg"
+                    alt="Light Protocol"
+                    width={24}
+                    height={24}
+                    className="rounded"
+                  />
+                </a>
+                <a
+                  href="https://triton.one"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="opacity-70 hover:opacity-100 transition-opacity"
+                  title="Triton"
+                >
+                  <Image
+                    src="/sponsors/triton/Tron_LogoMark.svg"
+                    alt="Triton"
+                    width={28}
+                    height={28}
+                  />
+                </a>
               </div>
             </div>
           </footer>

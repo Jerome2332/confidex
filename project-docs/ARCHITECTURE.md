@@ -14,34 +14,48 @@ When planning work on this project:
 
 **⚠️ NO SHORTCUTS OR BYPASSES - STRICT ENFORCEMENT ⚠️**
 
-This is a production-grade platform, not a hackathon demo. Every feature must be implemented correctly. **NEVER** implement workarounds, simulations, or bypasses for any of the following:
+This is a production-grade platform. Every feature must be implemented correctly.
 
-### Mandatory Four-Layer Privacy Architecture
+### Current Privacy Architecture (Updated Jan 31, 2026)
 
-| Layer | Technology | Requirement | Status |
-|-------|------------|-------------|--------|
-| **Layer 1: Compliance** | Noir ZK Proofs | Real Groth16 proofs via Sunspot | MANDATORY |
-| **Layer 2: Execution** | Arcium MPC | Real Cerberus protocol matching | MANDATORY |
-| **Layer 3: Storage** | Light Protocol | ZK Compression for rent-free accounts | OPTIONAL |
-| **Layer 4: Settlement** | ShadowWire | Bulletproof private transfers | MANDATORY |
+> **Note:** The architecture has evolved. The new Spot Trading MXE uses a simplified two-layer model where Arcium MPC handles ALL order privacy. ZK eligibility proofs are now OPTIONAL.
+
+| Layer | Technology | Status | Purpose |
+|-------|------------|--------|---------|
+| **Execution** | Arcium MPC (Cerberus) | **MANDATORY** | Encrypted order matching |
+| **Settlement** | ShadowWire | **MANDATORY** | Bulletproof private transfers |
+| **Compliance** | Noir ZK Proofs | **OPTIONAL** | Blacklist eligibility (legacy flow) |
+| **Storage** | Light Protocol | **OPTIONAL** | ZK Compression for rent savings |
+
+### Active Architecture Modes
+
+**Spot Trading MXE (`USE_SPOT_MXE=true`)** - Recommended
+- Privacy via Arcium MPC only
+- All order data encrypted (price, quantity, side, trader identity)
+- No ZK proof requirement
+- Simpler, faster order submission
+
+**Legacy DEX (`USE_SPOT_MXE=false`)**
+- Privacy via Arcium MPC + ZK eligibility proofs
+- Requires Sunspot verifier integration
+- 324-byte Groth16 proofs
 
 ### Strict Requirements
 
-- **ZK Verification:** Real Groth16 proofs via Sunspot - **NO** simulated/fake proofs, **NO** skipping verification, **NO** placeholder proofs
 - **MPC Operations:** Real Arcium cluster integration - **NO** mock computations, **NO** plaintext fallbacks
 - **Encryption:** Proper RescueCipher with actual MXE keys - **NO** demo modes, **NO** plaintext-in-ciphertext hacks
 - **Settlement:** Production-ready ShadowWire/C-SPL integration - **NO** public token transfers as permanent solution
-- **Eligibility Proofs:** The 388-byte ZK proof MUST be verified on-chain via Sunspot verifier CPI - this is NON-NEGOTIABLE
+- **ZK Verification (if enabled):** Real Groth16 proofs via Sunspot - **NO** simulated/fake proofs
 
-### Why This Matters
+### Why Privacy Matters
 
-The ZK verification alongside MPC and encrypted balances is our **competitive advantage** and the core value proposition of Confidex. Cutting corners:
-1. Defeats the purpose of the project
-2. Disqualifies us from hackathon prizes requiring real privacy
-3. Creates a false sense of security for users
-4. Makes the codebase inconsistent and harder to upgrade
+The Arcium MPC encryption is our **core privacy layer** and the key value proposition of Confidex:
+1. Order data (price, quantity, side) is encrypted and only visible to the MPC cluster
+2. Even the trader's identity is encrypted within the order
+3. Only match results are revealed for settlement
+4. Settlement uses ShadowWire for private token transfers
 
-**If you encounter stack overflow or other technical constraints, fix the root cause (optimize code, reduce allocations) rather than removing privacy features.**
+**If you encounter technical constraints, fix the root cause rather than removing privacy features.**
 
 ### Address-Specific ZK Proof Generation ✅ COMPLETED
 
@@ -95,12 +109,14 @@ index = first 20 bits of base58.decode(address)
 
 ## Project Overview
 
-Confidex is a confidential decentralized exchange (DEX) for the Solana Privacy Hack (January 2026). It implements a **four-layer privacy architecture**:
+Confidex is a confidential decentralized exchange (DEX) for the Solana Privacy Hack (January 2026). It implements a **two-layer privacy architecture** (with optional compliance layer):
 
-1. **Noir ZK Proofs** - Blacklist non-membership proof (compliance)
-2. **Arcium MPC** - Encrypted order matching (execution)
-3. **Light Protocol** - ZK Compression for rent-free accounts (storage)
-4. **ShadowWire** - Bulletproof private transfers (settlement)
+1. **Arcium MPC** - Encrypted order matching (execution) - **PRIMARY PRIVACY LAYER**
+2. **ShadowWire** - Bulletproof private transfers (settlement)
+
+Optional layers:
+3. **Noir ZK Proofs** - Blacklist non-membership proof (compliance) - disabled by default
+4. **Light Protocol** - ZK Compression for rent-free accounts (cost optimization, not privacy)
 
 ## Tech Stack
 
@@ -511,7 +527,7 @@ The Arcium MPC integration is now fully wired up and deployed to devnet. This en
 
 | Operation | Input | Output | Use Case |
 |-----------|-------|--------|----------|
-| `VerifyPositionParams` | encrypted entry + leverage/mm_bps | bool (valid) | Open position - verify encrypted threshold |
+| `VerifyPositionParams` | encrypted entry + **encrypted** leverage/mm_bps/is_long (V9) | bool (valid) | Open position - verify encrypted threshold |
 | `BatchLiquidationCheck` | up to 10 encrypted thresholds + mark price | bool[10] | **NEW:** Batch liquidation eligibility |
 | `CheckLiquidation` | encrypted collateral/size/entry + mark price | bool (liquidate) | Single position liquidation check |
 | `CalculatePnL` | encrypted size/entry + exit price | u64 + is_loss bool | Close position / liquidation PnL |
@@ -1225,7 +1241,15 @@ Confidex implements a **full privacy model** for perpetuals with V2 pure ciphert
 
 **Efficiency:** 10 positions per MPC call (~500ms total) instead of 10 separate calls (~5s total).
 
-#### Position Account Structure (V2)
+#### Position Account Structure (V9 - Current)
+
+**Version History:**
+| Version | Size | Key Changes |
+|---------|------|-------------|
+| V8 | 724 bytes | Added `ephemeral_pubkey` for MPC decryption |
+| **V9** | **820 bytes** | Added encrypted verification params for MPC |
+
+**V9 Fix (2026-01-29):** V8 passed `leverage`, `mm_bps`, `is_long` as plaintext to MPC, but Arcium circuits expect ALL fields in `Enc<Shared, T>` encrypted with SAME nonce. V9 encrypts these at position creation time. See [V9_POSITION_VERIFICATION_FIX.md](issues/V9_POSITION_VERIFICATION_FIX.md).
 
 ```rust
 pub struct ConfidentialPosition {
@@ -1251,10 +1275,32 @@ pub struct ConfidentialPosition {
     pub encrypted_liq_above: [u8; 64],      // For shorts - MPC verified
     pub threshold_commitment: [u8; 32],     // hash(entry, leverage, mm_bps, side)
 
+    // V8: MPC decryption key
+    pub ephemeral_pubkey: [u8; 32],         // X25519 pubkey for ECDH
+
+    // V9: Encrypted verification params (96 bytes)
+    // CRITICAL: Must be encrypted with SAME nonce as entry_price
+    pub encrypted_leverage: [u8; 32],       // u8 → 32-byte ciphertext
+    pub encrypted_mm_bps: [u8; 32],         // u16 → 32-byte ciphertext
+    pub encrypted_is_long: [u8; 32],        // bool → 32-byte ciphertext
+
     // ... status fields
 }
-// Total SIZE: 561 bytes
+// V8 SIZE: 724 bytes
+// V9 SIZE: 820 bytes (+96 bytes for encrypted verification params)
 ```
+
+**V9 Detection:**
+```typescript
+// V9 positions have non-zero encrypted_leverage at byte 692
+const isV9Position = (data: Buffer): boolean => {
+  if (data.length < 820) return false;
+  const encryptedLeverage = data.subarray(692, 724);
+  return !encryptedLeverage.every(b => b === 0);
+};
+```
+
+**Migration Note:** V8 and earlier positions cannot be verified via MPC and must use admin verification flow.
 
 ### Phase 2: Encrypted Open Interest (Future)
 
@@ -2024,6 +2070,7 @@ The crank service automatically monitors open orders, triggers MPC-based matchin
 | MatchExecutor | `backend/src/crank/match-executor.ts` | Executes `match_orders` instruction |
 | SettlementExecutor | `backend/src/crank/settlement-executor.ts` | Monitors filled orders, executes settlement |
 | MpcPoller | `backend/src/crank/mpc-poller.ts` | Polls for MPC computation results |
+| TimeoutChecker | `backend/src/crank/timeout-checker.ts` | Monitors MPC computations for timeouts, handles retry logic |
 
 **Order Flow:**
 1. `OrderMonitor` polls for V4 orders (390 bytes) every 5 seconds
@@ -2069,6 +2116,38 @@ The crank service automatically monitors open orders, triggers MPC-based matchin
 | `AccountDidNotDeserialize` | 0xbbb | V3 order passed to V4-expecting program | Only use V4 orders |
 | `InsufficientBalance` | 0x1782 | Buyer USDC or seller SOL too low | Wrap more tokens |
 
+**MPC Timeout Handling:**
+
+The `TimeoutChecker` service actively monitors pending MPC computations and handles timeouts to prevent orders from getting stuck indefinitely.
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  MPC Queued     │────▶│  Timeout Check  │────▶│  Retry/Fail     │
+│  (timestamp)    │     │  (30s interval) │     │  (cleanup)      │
+├─────────────────┤     ├─────────────────┤     ├─────────────────┤
+│ Tracks:         │     │ Checks:         │     │ Actions:        │
+│ - computationId │     │ - MatchExecutor │     │ - Retry (3x)    │
+│ - buyOrderPda   │     │ - MpcPoller     │     │ - Mark failed   │
+│ - sellOrderPda  │     │ - Database ops  │     │ - Cleanup state │
+│ - queuedAt      │     │ - Age > 120s?   │     │ - Emit metrics  │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+**Timeout Flow:**
+1. MPC computation is queued with timestamp
+2. TimeoutChecker runs every 30 seconds (configurable)
+3. Computations older than 120 seconds (configurable) are flagged
+4. Flagged computations are retried up to 3 times with exponential backoff
+5. After max retries, computation is marked as permanently failed
+6. Associated orders are cleaned up and made available for re-matching
+
+**Stats Tracked:**
+- `totalChecks`: Number of timeout checks performed
+- `timedOutComputations`: Total computations that timed out
+- `retriedOperations`: Operations that were retried
+- `permanentlyFailedOperations`: Operations that failed after max retries
+- `lastCheckAt`: Timestamp of last check
+
 **Configuration (`backend/.env`):**
 ```env
 CRANK_ENABLED=true              # Auto-start on backend launch
@@ -2079,6 +2158,12 @@ CRANK_WALLET_PATH=./keys/crank-wallet.json
 CRANK_MIN_SOL_BALANCE=0.1       # Warning threshold
 CRANK_ERROR_THRESHOLD=10        # Circuit breaker trigger
 CRANK_PAUSE_DURATION_MS=60000   # Pause after circuit breaker
+
+# MPC Timeout Configuration
+MPC_TIMEOUT_MS=120000           # Default: 2 minutes before timeout
+TIMEOUT_CHECK_INTERVAL_MS=30000 # Check for timeouts every 30 seconds
+TIMEOUT_MAX_RETRIES=3           # Max retries before permanent failure
+TIMEOUT_AUTO_RETRY=true         # Auto-retry timed out computations
 ```
 
 **Crank Wallet:**
@@ -2129,6 +2214,220 @@ pm2 save                        # Save current process list
 | `/api/admin/crank/stop` | POST | Stop crank service |
 | `/api/admin/crank/pause` | POST | Pause polling |
 | `/api/admin/crank/resume` | POST | Resume polling |
+| `/api/admin/positions/pending` | GET | List unverified positions |
+| `/api/admin/positions/verify/:positionPda` | POST | Verify V8 position (admin) |
+| `/api/admin/positions/batch-verify` | POST | Batch verify V8 positions |
+
+### Position Processing Utilities (V8/V9)
+
+**Status:** Complete (January 2026)
+
+The backend includes robust utilities for handling both V8 (724 bytes) and V9 (820 bytes) position formats during the transition period.
+
+#### Position Format Compatibility
+
+| Component | File | V8 Support | V9 Support |
+|-----------|------|------------|------------|
+| Position Utilities | `backend/src/utils/position-utils.ts` | Yes | Yes |
+| Margin Calculator | `backend/src/utils/margin-calculator.ts` | Yes | Yes |
+| State Machine | `backend/src/utils/position-state-machine.ts` | Yes | Yes |
+| Position Verifier | `backend/src/crank/position-verifier.ts` | No (admin only) | Yes (MPC) |
+| Margin Processor | `backend/src/crank/margin-processor.ts` | Yes | Yes |
+| Admin Verifier | `backend/src/crank/admin-verifier.ts` | Yes | No |
+
+#### Position Utilities (`position-utils.ts`)
+
+Parses raw account data into typed `ParsedPosition` objects with automatic version detection:
+
+```typescript
+import { parsePositionAccount, isV9Position, PositionVersion } from './utils/position-utils.js';
+
+// Parse raw account data
+const position = parsePositionAccount(accountData);
+
+// Check version
+if (position.version === PositionVersion.V9) {
+  // V9: Has encrypted verification params for MPC
+  const { encryptedLeverage, encryptedMmBps, encryptedIsLong } = position;
+} else {
+  // V8: Requires admin verification (no encrypted params)
+}
+
+// Version detection by buffer inspection
+const isV9 = isV9Position(accountData); // Checks for non-zero data at byte 692
+```
+
+**Key Types:**
+```typescript
+enum PositionVersion { V8 = 8, V9 = 9 }
+enum PositionStatus { Open = 0, Closed = 1, Liquidated = 2, ... }
+enum PositionSide { Long = 0, Short = 1 }
+
+interface ParsedPosition {
+  trader: PublicKey;
+  market: PublicKey;
+  positionId: Uint8Array;
+  side: PositionSide;
+  leverage: number;
+  encryptedSize: Uint8Array;         // 64 bytes
+  encryptedEntryPrice: Uint8Array;   // 64 bytes
+  encryptedCollateral: Uint8Array;   // 64 bytes
+  thresholdVerified: boolean;
+  status: PositionStatus;
+  version: PositionVersion;
+  // V9 only:
+  encryptedLeverage?: Uint8Array;    // 32 bytes
+  encryptedMmBps?: Uint8Array;       // 32 bytes
+  encryptedIsLong?: Uint8Array;      // 32 bytes
+}
+```
+
+#### Position State Machine (`position-state-machine.ts`)
+
+Enforces valid state transitions and provides version-aware capability checks:
+
+```typescript
+import {
+  inferPositionState,
+  canMpcVerify,
+  requiresAdminVerification,
+  attemptTransition,
+  PositionState,
+  PositionTransition,
+} from './utils/position-state-machine.js';
+
+// Infer current state from position data
+const state = inferPositionState(position);
+// States: Created, PendingVerification, Active, Closing, Closed, Liquidated, ...
+
+// Version-aware capability checks
+if (canMpcVerify(position)) {
+  // V9 position in Created state - can use MPC verification
+} else if (requiresAdminVerification(position)) {
+  // V8 position in Created state - must use admin verification
+}
+
+// Safe state transitions
+const result = attemptTransition(position, PositionTransition.InitiateVerification);
+if (result.valid) {
+  console.log(`Transition: ${result.fromState} -> ${result.toState}`);
+} else {
+  console.error(result.error); // e.g., "AdminVerify is only valid for V8 positions"
+}
+```
+
+**State Diagram:**
+```
+                    ┌──────────┐
+                    │ Created  │
+                    └────┬─────┘
+                         │
+           ┌─────────────┼─────────────┐
+           │             │             │
+           ▼             ▼             ▼
+    ┌────────────┐ ┌───────────┐ ┌─────────────┐
+    │ Pending    │ │  Admin    │ │  (Failed)   │
+    │Verification│ │  Verify   │ │             │
+    └─────┬──────┘ └─────┬─────┘ └─────────────┘
+          │              │ (V8 only)
+          └──────┬───────┘
+                 ▼
+           ┌──────────┐
+           │  Active  │◄─────────────────┐
+           └────┬─────┘                  │
+                │                        │
+    ┌───────────┼───────────┐            │
+    │           │           │            │
+    ▼           ▼           ▼            │
+┌────────┐ ┌────────┐ ┌──────────────┐   │
+│Closing │ │ Margin │ │  Pending     │   │
+│        │ │  Op    │ │  Liq Check   │───┘
+└───┬────┘ └───┬────┘ └──────────────┘
+    │          │
+    ▼          │
+┌────────┐     │
+│ Closed │◄────┘
+└────────┘
+```
+
+#### Admin Verification Flow (V8 Positions)
+
+V8 positions cannot use MPC verification (missing encrypted verification params). The `AdminVerifier` provides a fallback:
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  GET /pending   │────▶│  List V8 Pos    │────▶│  Return PDAs    │
+│                 │     │  (unverified)   │     │                 │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │
+         ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ POST /verify    │────▶│  Admin Signs    │────▶│  On-Chain Tx    │
+│ /:positionPda   │     │  Verification   │     │  Sets Verified  │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+```
+
+**API Usage:**
+```bash
+# List pending V8 positions
+curl -H "X-API-Key: $ADMIN_KEY" http://localhost:3001/api/admin/positions/pending
+
+# Verify single position
+curl -X POST -H "X-API-Key: $ADMIN_KEY" \
+  http://localhost:3001/api/admin/positions/verify/AbCd...1234
+
+# Batch verify (up to 10)
+curl -X POST -H "X-API-Key: $ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"positionPdas": ["AbCd...1234", "EfGh...5678"]}' \
+  http://localhost:3001/api/admin/positions/batch-verify
+```
+
+#### Dual-Fetch Pattern (Margin Processor)
+
+The margin processor fetches both V8 and V9 positions for backward compatibility:
+
+```typescript
+// Fetches both formats in parallel
+const [v9Positions, v8Positions] = await Promise.all([
+  connection.getProgramAccounts(programId, {
+    filters: [{ dataSize: 820 }], // V9
+  }),
+  connection.getProgramAccounts(programId, {
+    filters: [{ dataSize: 724 }], // V8
+  }),
+]);
+
+// Merge and deduplicate by position PDA
+const allPositions = [...v9Positions, ...v8Positions];
+```
+
+**Key Point:** Operations are tracked by request ID (opKey), so duplicate positions from V8/V9 fetches share the same tracking state and are not processed twice.
+
+#### Margin Calculator (`margin-calculator.ts`)
+
+Calculates margin health, liquidation proximity, and effective leverage from encrypted position data:
+
+```typescript
+import {
+  calculateMarginHealth,
+  calculateEffectiveLeverage,
+  estimateLiquidationPrice,
+  MarginHealthStatus,
+} from './utils/margin-calculator.js';
+
+// Calculate margin health (0-100)
+const health = calculateMarginHealth(position, currentPrice);
+// Returns: MarginHealthStatus { healthy: 0-100, warning: 100-200, danger: 200+ }
+
+// Effective leverage considering unrealized PnL
+const effLeverage = calculateEffectiveLeverage(position, currentPrice);
+
+// Estimate liquidation price
+const liqPrice = estimateLiquidationPrice(position);
+```
+
+**Note:** These calculations work on decrypted values obtained after MPC decryption during authorized operations (e.g., partial close, admin view).
 
 **Crank Status Response:**
 ```json

@@ -19,6 +19,7 @@ import {
   Coin,
 } from '@phosphor-icons/react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function LandingPage() {
 
@@ -31,9 +32,9 @@ export default function LandingPage() {
     },
     {
       icon: Fingerprint,
-      title: 'ZK Compliance',
-      description: 'Prove regulatory compliance without revealing your identity using zero-knowledge proofs.',
-      tech: 'Noir ZK Proofs',
+      title: 'Encrypted Orders',
+      description: 'All order data encrypted via MPC - price, quantity, and trader identity hidden from observers.',
+      tech: 'Arcium MPC',
     },
     {
       icon: EyeClosed,
@@ -68,10 +69,10 @@ export default function LandingPage() {
   ];
 
   const techStack = [
-    { name: 'Arcium MPC', description: 'Multi-party computation for encrypted order matching', animation: 'sonar-sweep' as const },
-    { name: 'Noir ZK', description: 'Zero-knowledge proofs for compliance verification', animation: 'cylindrical-analysis' as const },
+    { name: 'Arcium MPC', description: 'Multi-party computation for encrypted order matching - primary privacy layer', animation: 'sonar-sweep' as const },
+    { name: 'ShadowWire', description: 'Bulletproof-based privacy layer for private token transfers', animation: 'crystalline-refraction' as const },
     { name: 'Light Protocol', description: 'ZK Compression for rent-free token accounts (400x savings)', animation: 'sphere-scan' as const },
-    { name: 'ShadowWire', description: 'Bulletproof-based privacy layer for transfers', animation: 'crystalline-refraction' as const },
+    { name: 'Noir ZK', description: 'Optional zero-knowledge proofs for compliance verification', animation: 'cylindrical-analysis' as const },
   ];
 
   return (
@@ -204,7 +205,7 @@ export default function LandingPage() {
               Privacy with Accountability
             </h2>
             <p className="text-white/60 max-w-2xl mx-auto text-lg font-light">
-              Our three-layer privacy architecture delivers complete trading privacy while ensuring regulatory compliance — no anonymity without safeguards.
+              Our two-layer privacy architecture delivers complete trading privacy — all order data encrypted, with private settlement.
             </p>
           </div>
 
@@ -212,24 +213,8 @@ export default function LandingPage() {
           <div className="max-w-5xl mx-auto mb-16">
             <div className="grid md:grid-cols-3 gap-4 mb-8">
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal whitespace-nowrap">
-                  Layer 1: Compliance
-                </div>
-                <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
-                  <Fingerprint size={32} className="text-white" />
-                </div>
-                <h3 className="font-normal mb-2 text-white">Noir ZK Proofs</h3>
-                <p className="text-sm text-white/60 font-light">
-                  Prove you&apos;re not on OFAC/sanctions lists without revealing your wallet address
-                </p>
-                <div className="mt-4 text-xs bg-white/10 text-white/80 px-3 py-1.5 rounded-full inline-block font-light">
-                  Groth16 via Sunspot
-                </div>
-              </div>
-
-              <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
-                  Layer 2: Execution
+                  Layer 1: Execution
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
                   <Lock size={32} className="text-white" />
@@ -245,7 +230,7 @@ export default function LandingPage() {
 
               <div className="bg-white/5 border border-white/10 rounded-xl p-6 text-center relative">
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-black text-xs px-3 py-1 rounded-full font-normal">
-                  Layer 3: Settlement
+                  Layer 2: Settlement
                 </div>
                 <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4 mt-2">
                   <EyeClosed size={32} className="text-white" />
@@ -379,7 +364,7 @@ export default function LandingPage() {
 
             <div className="flex items-center gap-6">
               <a
-                href="https://github.com"
+                href="https://github.com/Jerome2332/confidex"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/50 hover:text-white transition-colors"
@@ -387,7 +372,7 @@ export default function LandingPage() {
                 <GithubLogo size={20} />
               </a>
               <a
-                href="https://docs.arcium.com"
+                href="https://www.confidex.xyz/docs"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-white/50 hover:text-white transition-colors"
@@ -396,13 +381,66 @@ export default function LandingPage() {
               </a>
             </div>
 
-            <div className="flex items-center gap-2 text-xs text-white/50 font-light flex-wrap justify-center md:justify-end">
+            <div className="flex items-center gap-4 text-xs text-white/50 font-light flex-wrap justify-center md:justify-end">
               <span>Powered by</span>
-              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Arcium MPC</span>
-              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Noir ZK</span>
-              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Light Protocol</span>
-              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">ShadowWire</span>
-              <span className="bg-white/10 text-white/80 px-2 py-0.5 rounded">Socket.IO</span>
+              <a
+                href="https://arcium.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-70 hover:opacity-100 transition-opacity"
+                title="Arcium MPC"
+              >
+                <Image
+                  src="/sponsors/arcium/Logos/02 Logomark/SVGs/Logomark 04.svg"
+                  alt="Arcium"
+                  width={28}
+                  height={28}
+                  className="rounded-full"
+                />
+              </a>
+              <a
+                href="https://aztec.network"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-70 hover:opacity-100 transition-opacity"
+                title="Noir ZK (Aztec)"
+              >
+                <Image
+                  src="/sponsors/aztec/Aztec Symbol/svg/Aztec Symbol_Circle.svg"
+                  alt="Aztec (Noir ZK)"
+                  width={28}
+                  height={28}
+                />
+              </a>
+              <a
+                href="https://lightprotocol.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-70 hover:opacity-100 transition-opacity"
+                title="Light Protocol"
+              >
+                <Image
+                  src="/sponsors/light/logo.svg"
+                  alt="Light Protocol"
+                  width={28}
+                  height={28}
+                  className="rounded"
+                />
+              </a>
+              <a
+                href="https://triton.one"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="opacity-70 hover:opacity-100 transition-opacity"
+                title="Triton"
+              >
+                <Image
+                  src="/sponsors/triton/Tron_LogoMark.svg"
+                  alt="Triton"
+                  width={34}
+                  height={34}
+                />
+              </a>
             </div>
           </div>
         </div>
