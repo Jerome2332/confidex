@@ -12,7 +12,8 @@ import { createLogger } from '@/lib/logger';
 const log = createLogger('settlement');
 
 // C-SPL settlement is coming soon - this prepares the infrastructure
-const CSPL_ENABLED = false;
+// Set to true for demo mode simulated settlements
+const CSPL_ENABLED = true;
 
 // Token mints
 const SOL_MINT = new PublicKey(TRADING_PAIRS[0].baseMint);
@@ -161,7 +162,14 @@ export function useCsplSettlement(): UseCsplSettlementReturn {
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      const signature = await sendTransaction(transaction, connection);
+      // Use signTransaction + sendRawTransaction for better wallet compatibility
+      let signature: string;
+      if (signTransaction) {
+        const signedTx = await signTransaction(transaction);
+        signature = await connection.sendRawTransaction(signedTx.serialize());
+      } else {
+        signature = await sendTransaction(transaction, connection);
+      }
 
       // Wait for confirmation
       const confirmation = await connection.confirmTransaction(signature, 'confirmed');
